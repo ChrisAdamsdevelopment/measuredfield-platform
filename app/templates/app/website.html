@@ -1,11 +1,56 @@
 {% extends "app/base.html" %}
 {% block title %}Website{% endblock %}
 {% block content %}
-<header><div><h1>Website</h1><p>Edit, preview, save a version, approve it, then publish. Every published version can be restored.</p></div>
-{% if site %}<span class="badge {{ 'live' if site.published_version_id else 'draft' }}">{{ 'Live' if site.published_version_id else 'Not published' }}</span>{% endif %}</header>
+{% set ns = namespace(published_version=None, latest_version=(versions[0] if versions else None)) %}
+{% if site and site.published_version_id and versions %}
+  {% for v in versions %}
+    {% if v.id == site.published_version_id %}
+      {% set ns.published_version = v %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% set is_published = true if (site and site.published_version_id) else false %}
+{% set draft_differs_from_live = true if (is_published and (dirty or (ns.published_version and ns.published_version.content is defined and ns.published_version.content != draft) or (ns.published_version and ns.latest_version and ns.latest_version.id != ns.published_version.id))) else false %}
+<header><div><h1>Website</h1><p>Edit, preview, save a version, approve it, then publish. Every published version can be restored. Nothing is ever auto-published by AI or background jobs.</p></div>
+{% if site %}<div class="row" role="status" aria-label="Website publishing state"><span class="badge {{ 'live' if site.published_version_id else 'draft' }}">{{ 'Live' if site.published_version_id else 'Not published' }}</span>{% if is_published and ns.published_version %}<span class="badge live">Live version #{{ ns.published_version.number }}</span>{% endif %}<span class="badge draft">{{ 'Draft: unsaved edits' if dirty else 'Draft workspace' }}</span></div>{% endif %}</header>
+
+{% if site %}
+<section class="triage-summary" role="status" aria-label="Draft versus live published website status">
+  <span class="triage-pill">
+    <strong>Public live version:</strong>
+    {% if is_published %}
+      <span class="badge live">Published &amp; live</span>
+      {% if ns.published_version %}Version #{{ ns.published_version.number }} is currently serving public visitors.{% else %}A published version is currently serving public visitors.{% endif %}
+    {% else %}
+      <span class="badge draft">Offline &middot; Not published</span>
+      No version is live to public visitors yet.
+    {% endif %}
+  </span>
+  <span class="triage-pill">
+    <strong>Editor &amp; preview state:</strong>
+    <span class="badge draft">Working draft</span>
+    {% if dirty %}
+      Has unsaved draft edits not yet saved in a version snapshot.
+    {% elif draft_differs_from_live and ns.latest_version and ns.published_version %}
+      Saved as version #{{ ns.latest_version.number }} (differs from live version #{{ ns.published_version.number }}).
+    {% elif is_published and ns.published_version %}
+      Matches currently live version #{{ ns.published_version.number }}.
+    {% elif ns.latest_version %}
+      Matches latest saved version #{{ ns.latest_version.number }} (not published).
+    {% else %}
+      Draft only; no saved versions yet.
+    {% endif %}
+  </span>
+  {% if is_published and ns.published_version %}
+    <a class="btn ghost small" href="/app/website/versions/{{ ns.published_version.id }}/view/" target="_blank" rel="noopener">View live version #{{ ns.published_version.number }}</a>
+  {% endif %}
+  <a class="btn ghost small" href="#draft-preview">Jump to draft preview</a>
+  <a class="btn ghost small" href="#version-history">Jump to version history</a>
+</section>
+{% endif %}
 
 <div class="grid g-side">
-<div class="card"><h2>{{ 'Website details' if site else 'Create your website' }}</h2>
+<div class="card"><h2>{{ 'Website details (working draft)' if site else 'Create your website' }}</h2>
 {% if can('site.edit') %}
 <form method="post" action="/app/website/save"><input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="form-grid">
@@ -15,7 +60,7 @@
 <div><label for="color">Brand color</label><select id="color" name="color">{% for c in colors %}<option value="{{ c }}"{% if draft.get('color') == c %} selected{% endif %}>{{ c|capitalize }}</option>{% endfor %}</select></div>
 <div><label for="email">Business email</label><input id="email" name="email" type="email" maxlength="120" value="{{ draft.get('email','') }}"></div>
 <div><label for="phone">Business phone</label><input id="phone" name="phone" maxlength="40" value="{{ draft.get('phone','') }}"></div>
-<div class="full"><label for="headline">Headline <span class="muted">(optional; we suggest one if empty)</span></label><input id="headline" name="headline" maxlength="90" value="{{ draft.get('headline','') }}"></div>
+<div class="full"><label for="headline">Headline <span class="muted">(optional; we suggest one if empty, never auto-published)</span></label><input id="headline" name="headline" maxlength="90" value="{{ draft.get('headline','') }}"></div>
 <div class="full"><label for="intro">Introduction <span class="muted">(optional)</span></label><input id="intro" name="intro" maxlength="240" value="{{ draft.get('intro','') }}"></div>
 <div class="full"><label for="services">Services, one per line. Add a description after a | if you like.</label><textarea id="services" name="services" required placeholder="Deep cleaning | Top-to-bottom, including inside appliances&#10;Move-out cleaning">{{ services_text }}</textarea></div>
 <div class="full"><label for="about">About the business</label><textarea id="about" name="about" maxlength="800">{{ draft.get('about','') }}</textarea></div>
@@ -23,8 +68,8 @@
 <div><label for="structured_intake">Inquiry form</label><select id="structured_intake" name="structured_intake"><option value="">Name, email, message</option><option value="on"{% if draft.get('structured_intake') %} selected{% endif %}>Also ask which service and when</option></select></div>
 {% if not site %}<div class="full"><label for="slug">Website address</label><input id="slug" name="slug" maxlength="50" required value="{{ suggested_slug }}" aria-describedby="slug-hint"><p class="small muted" id="slug-hint">Your site will be at <strong>your-address.{{ base_domain }}</strong>. You can connect your own domain later.</p></div>{% endif %}
 </div>
-<p class="small muted">Only promise a reply time you can keep. Use real contact details only when you're ready to publish.</p>
-<div class="actions"><button class="btn" type="submit">{{ 'Save draft' if site else 'Create website draft' }}</button></div>
+<p class="small muted" id="draft-save-hint">Only promise a reply time you can keep. Use real contact details only when you're ready to publish. Saving this draft never changes your live published website.</p>
+<div class="actions"><button class="btn" type="submit" aria-describedby="draft-save-hint">{{ 'Save draft' if site else 'Create website draft' }}</button></div>
 </form>
 {% else %}<p class="muted">You have read-only access to the website.</p>{% endif %}
 </div>
@@ -32,17 +77,27 @@
 <div>
 {% if site %}
 <div class="card"><h2>Publish</h2>
-{% if dirty %}<div class="alert note">Your draft has changes that aren't in a saved version yet.</div>{% endif %}
+{% if dirty %}<div class="alert note" role="status">Your draft has changes that aren't in a saved version yet. Public visitors do not see unsaved draft changes.</div>{% endif %}
+<p class="small">
+  <strong>Live status:</strong>
+  {% if is_published %}
+    <span class="badge live">Live now</span>
+    {% if ns.published_version %}Version #{{ ns.published_version.number }} is public{% if ns.published_version.note %} ({{ ns.published_version.note }}){% endif %}.{% else %}A published version is currently public.{% endif %}
+  {% else %}
+    <span class="badge draft">Not published</span>
+    Your website is offline until an owner or admin approves and publishes a saved version.
+  {% endif %}
+</p>
 {% if can('site.edit') %}<form method="post" action="/app/website/version"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label for="note">What changed? <span class="muted">(optional)</span></label><input id="note" name="note" maxlength="200">
-<div class="actions"><button class="btn" type="submit">Save draft as a new version</button></div></form>{% endif %}
-<p class="small muted actions">Saving a version takes a snapshot. An owner or admin approves it, then publishes it. Visitors only ever see a published version.</p>
+<label for="note">What changed? <span class="muted">(optional)</span></label><input id="note" name="note" maxlength="200" aria-describedby="version-workflow-hint">
+<div class="actions"><button class="btn" type="submit" aria-describedby="version-workflow-hint">Save draft as a new version</button></div></form>{% endif %}
+<p class="small muted actions" id="version-workflow-hint">Saving a version takes an immutable snapshot. An owner or admin approves it, then explicitly confirms publishing. Visitors only ever see a human-published version; AI never auto-publishes.</p>
 </div>
 <div class="card actions"><h2>Addresses</h2>
 {% for h in hosts %}<p class="wrap-text">{{ h.hostname }} {% if h.verified_at %}<span class="badge live">active</span>{% else %}<span class="badge pending">waiting for DNS check</span>{% endif %}</p>{% endfor %}
 {% if can('site.publish') %}<details class="box"><summary>Connect your own domain</summary>
-<form method="post" action="/app/website/domains"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="hostname">Domain</label><input id="hostname" name="hostname" placeholder="www.yourbusiness.com" required>
-<p class="small muted">We'll confirm the DNS settings with you. The domain serves your site only after that check.</p><button class="btn ghost" type="submit">Request</button></form></details>{% endif %}
+<form method="post" action="/app/website/domains"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="hostname">Domain</label><input id="hostname" name="hostname" placeholder="www.yourbusiness.com" required aria-describedby="domain-hint">
+<p class="small muted" id="domain-hint">We'll confirm the DNS settings with you. The domain serves your site only after that check.</p><button class="btn ghost" type="submit">Request</button></form></details>{% endif %}
 </div>
 {% else %}
 <div class="card"><h2>How publishing works</h2><ol class="small"><li>Fill in your details and create the draft.</li><li>Preview it exactly as visitors will see it.</li><li>Save a version, approve it, publish it.</li><li>Inquiries from the site arrive under Inquiries.</li></ol></div>
@@ -51,22 +106,98 @@
 </div>
 
 {% if site %}
-<div class="card actions"><h2>Preview of your current draft</h2>
-<p class="small muted">The form works in preview but nothing is saved or sent.</p>
-<iframe class="preview" title="Preview of your website draft" src="/app/website/preview/"></iframe></div>
-
-<div class="card actions"><h2>Version history</h2>
-{% if versions %}<div class="scroll"><table><thead><tr><th scope="col">Version</th><th scope="col">Saved</th><th scope="col">Note</th><th scope="col">Status</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
-{% for v in versions %}<tr><td>#{{ v.number }}</td><td>{{ v.created_at.strftime('%b %d, %H:%M') }}</td><td>{{ v.note }}</td>
-<td>{% if site.published_version_id == v.id %}<span class="badge live">Live now</span>{% elif v.approved_at %}<span class="badge approved">Approved</span>{% else %}<span class="badge draft">Awaiting approval</span>{% endif %}</td>
-<td><div class="row"><a class="btn ghost small" href="/app/website/versions/{{ v.id }}/view/" target="_blank" rel="noopener">View</a>
-{% if can('site.publish') %}
-{% if not v.approved_at %}<form class="inline" method="post" action="/app/website/versions/{{ v.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small" type="submit">Approve</button></form>
-{% elif site.published_version_id != v.id %}<form class="inline" method="post" action="/app/website/versions/{{ v.id }}/publish"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small" type="submit">{{ 'Publish' if not site.published_version_id else 'Make this the live version' }}</button></form>{% endif %}
-{% endif %}</div></td></tr>{% endfor %}
-</tbody></table></div>
-{% if site.published_version_id and can('site.publish') %}<form class="actions" method="post" action="/app/website/unpublish"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn danger small" type="submit">Take the website offline</button></form>{% endif %}
-{% else %}<p class="empty">No saved versions yet.</p>{% endif %}
+<section class="card actions" id="draft-preview" aria-labelledby="draft-preview-heading">
+<div class="row">
+  <h2 id="draft-preview-heading">Preview of your current draft</h2>
+  <span class="badge draft">Draft preview only &middot; Not live</span>
+  {% if is_published %}
+    <span class="badge live">{% if ns.published_version %}Live version is #{{ ns.published_version.number }}{% else %}Live version is published{% endif %}</span>
+  {% else %}
+    <span class="badge unknown">No live version published</span>
+  {% endif %}
 </div>
+<div class="alert note actions" role="status">
+  <strong>Viewing private working draft:</strong>
+  {% if is_published %}
+    {% if ns.published_version %}
+      This frame shows your current working draft. Public visitors currently see <strong>Published Version #{{ ns.published_version.number }}</strong>{% if draft_differs_from_live %}, which differs from this draft{% endif %}.
+    {% else %}
+      This frame shows your current working draft, while public visitors see your currently published live version.
+    {% endif %}
+  {% else %}
+    Your website is currently <strong>not published (offline)</strong>. Public visitors cannot see this draft preview.
+  {% endif %}
+  The form works in preview but nothing is saved or sent.
+</div>
+<div class="row actions">
+  <a class="btn ghost small" href="/app/website/preview/" target="_blank" rel="noopener">Open draft preview in new tab</a>
+  {% if is_published and ns.published_version %}
+    <a class="btn ghost small" href="/app/website/versions/{{ ns.published_version.id }}/view/" target="_blank" rel="noopener">View current published live version (#{{ ns.published_version.number }})</a>
+  {% endif %}
+</div>
+<iframe class="preview actions" title="Preview of your website draft (private working draft, not the live published site)" src="/app/website/preview/"></iframe>
+</section>
+
+<section class="card actions inquiries-desk" id="version-history" aria-labelledby="version-history-heading">
+<h2 id="version-history-heading">Version history</h2>
+<p class="small muted">Every version is an immutable snapshot. Approving, publishing, rolling back, or taking the site offline requires explicit owner or admin confirmation and is permanently recorded in the workspace audit log.</p>
+{% if versions %}<div class="scroll"><table class="inquiries-table"><caption class="sr-only">Saved website versions, publication status, snapshot previews, and human approval, publish, or rollback controls</caption><thead><tr><th scope="col">Version</th><th scope="col">Saved</th><th scope="col">Note</th><th scope="col">Status</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
+{% for v in versions %}
+{% set is_live_version = (site.published_version_id == v.id) %}
+{% set is_rollback_target = (is_published and not is_live_version and ((ns.published_version and ns.published_version.number > v.number) or not ns.published_version)) %}
+<tr id="version-row-{{ v.id }}">
+<td data-label="Version"><strong>#{{ v.number }}</strong>{% if is_live_version %} <span class="sr-only">(currently live published version)</span>{% endif %}</td>
+<td data-label="Saved">{% if v.created_at is string %}{{ v.created_at }}{% else %}<time datetime="{{ v.created_at.strftime('%Y-%m-%dT%H:%M') }}">{{ v.created_at.strftime('%b %d, %H:%M') }}</time>{% endif %}</td>
+<td data-label="Note"><span class="wrap-text">{{ v.note or 'No note recorded' }}</span></td>
+<td data-label="Status">{% if is_live_version %}<span class="badge live" aria-label="Version #{{ v.number }} status: Live now">Live now</span>{% elif v.approved_at %}<span class="badge approved" aria-label="Version #{{ v.number }} status: Approved">{% if is_rollback_target %}Approved (rollback available){% else %}Approved{% endif %}</span>{% else %}<span class="badge draft" aria-label="Version #{{ v.number }} status: Awaiting approval">Awaiting approval</span>{% endif %}</td>
+<td data-label="Actions"><div class="lead-cell-main"><div class="row"><a class="btn ghost small" href="/app/website/versions/{{ v.id }}/view/" target="_blank" rel="noopener" aria-label="View snapshot for version #{{ v.number }}{% if is_live_version %} (currently live published version){% else %} (saved snapshot, not live){% endif %}">View</a>
+{% if is_live_version %}<span class="small muted">Currently live to visitors</span>{% endif %}</div>
+{% if can('site.publish') %}
+{% if not v.approved_at %}
+<details class="box">
+  <summary class="small">Approve version #{{ v.number }}</summary>
+  <form class="inline" method="post" action="/app/website/versions/{{ v.id }}/approve">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p class="small muted" id="approve-desc-{{ v.id }}"><strong>Confirm approval:</strong> Approving version #{{ v.number }} permanently records your approval in the audit log and unlocks it for publishing. It does not change the live website yet.</p>
+    <label for="confirm-approve-{{ v.id }}"><input type="checkbox" id="confirm-approve-{{ v.id }}" name="confirm_approve" value="yes" required aria-describedby="approve-desc-{{ v.id }}"> I have reviewed snapshot #{{ v.number }} and confirm approval</label>
+    <div class="actions"><button class="btn small" type="submit" aria-describedby="approve-desc-{{ v.id }}">Approve</button></div>
+  </form>
+</details>
+{% elif site.published_version_id != v.id %}
+<details class="box">
+  <summary class="small">{% if is_rollback_target %}Roll back to version #{{ v.number }}{% elif not site.published_version_id %}Publish version #{{ v.number }}{% else %}Publish version #{{ v.number }} (replace live){% endif %}</summary>
+  <form class="inline" method="post" action="/app/website/versions/{{ v.id }}/publish">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p class="small muted" id="publish-desc-{{ v.id }}">
+      {% if is_rollback_target %}
+        <strong>Confirm rollback:</strong> Rolling back immediately replaces {% if ns.published_version %}live version #{{ ns.published_version.number }}{% else %}the current live version{% endif %} with earlier version #{{ v.number }} for all public visitors and permanently records a rollback event in the audit log.
+      {% elif not site.published_version_id %}
+        <strong>Confirm publishing:</strong> Publishing immediately makes version #{{ v.number }} live to public visitors on your active website address and permanently records this publish event in the audit log.
+      {% else %}
+        <strong>Confirm live replacement:</strong> Publishing immediately replaces live version #{{ ns.published_version.number }} with version #{{ v.number }} for all public visitors and permanently records this publish event in the audit log.
+      {% endif %}
+      Nothing is ever auto-published by AI.
+    </p>
+    <label for="confirm-publish-{{ v.id }}"><input type="checkbox" id="confirm-publish-{{ v.id }}" name="confirm_publish" value="yes" required aria-describedby="publish-desc-{{ v.id }}"> {% if is_rollback_target %}I confirm rolling back the live website to version #{{ v.number }}{% else %}I confirm making version #{{ v.number }} the live public website{% endif %}</label>
+    <div class="actions"><button class="btn small" type="submit" aria-describedby="publish-desc-{{ v.id }}">{{ 'Publish' if not site.published_version_id else ('Roll back — Make this the live version' if is_rollback_target else 'Make this the live version') }}</button></div>
+  </form>
+</details>
+{% endif %}
+{% elif not is_live_version %}<span class="small muted">Owner or admin approval required</span>{% endif %}
+</div></td></tr>{% endfor %}
+</tbody></table></div>
+{% if site.published_version_id and can('site.publish') %}
+<details class="box actions">
+  <summary class="small">Take the website offline</summary>
+  <form class="actions" method="post" action="/app/website/unpublish">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p class="small muted" id="unpublish-desc"><strong>Confirm taking website offline:</strong> This immediately unpublishes {% if ns.published_version %}version #{{ ns.published_version.number }}{% else %}your live website{% endif %}. Public visitors will receive a Not Found response and cannot send inquiries until a version is published again. This action is permanently recorded in the audit log.</p>
+    <label for="confirm-unpublish"><input type="checkbox" id="confirm-unpublish" name="confirm_unpublish" value="yes" required aria-describedby="unpublish-desc"> I confirm taking the live website offline immediately</label>
+    <div class="actions"><button class="btn danger small" type="submit" aria-describedby="unpublish-desc">Take the website offline</button></div>
+  </form>
+</details>
+{% endif %}
+{% else %}<p class="empty" role="status">No saved versions yet.</p>{% endif %}
+</section>
 {% endif %}
 {% endblock %}

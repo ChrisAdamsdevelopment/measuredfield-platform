@@ -248,18 +248,22 @@ def website_version(note: str = Form(""), db: TenantSession = Depends(get_db),
 
 
 @router.post("/app/website/versions/{version_id}/approve")
-def website_approve(version_id: str, db: TenantSession = Depends(get_db),
+def website_approve(version_id: str, confirm_approve: str = Form(""), db: TenantSession = Depends(get_db),
                     p: Principal = Depends(member_post("site.publish"))):
     version = _get(db, SiteVersion, version_id)
+    if confirm_approve != "yes":
+        raise HTTPException(403, "Confirm approval of this version before continuing")
     sites.approve_version(db, version, p.user.id)
     return back("/app/website", ok=f"Version {version.number} approved")
 
 
 @router.post("/app/website/versions/{version_id}/publish")
-def website_publish(version_id: str, db: TenantSession = Depends(get_db),
+def website_publish(version_id: str, confirm_publish: str = Form(""), db: TenantSession = Depends(get_db),
                     p: Principal = Depends(member_post("site.publish"))):
     version = _get(db, SiteVersion, version_id)
     site = sites.get_site(db)
+    if confirm_publish != "yes":
+        raise HTTPException(403, "Confirm publishing this version before continuing")
     current = db.get(SiteVersion, site.published_version_id) if site and site.published_version_id else None
     try:
         sites.publish(db, site, version, p.user.id, rollback=bool(current and current.number > version.number))
@@ -276,8 +280,11 @@ def website_publish(version_id: str, db: TenantSession = Depends(get_db),
 
 
 @router.post("/app/website/unpublish")
-def website_unpublish(db: TenantSession = Depends(get_db), p: Principal = Depends(member_post("site.publish"))):
+def website_unpublish(confirm_unpublish: str = Form(""), db: TenantSession = Depends(get_db),
+                      p: Principal = Depends(member_post("site.publish"))):
     site = sites.get_site(db)
+    if confirm_unpublish != "yes":
+        raise HTTPException(403, "Confirm taking this website offline before continuing")
     if site is not None:
         sites.unpublish(db, site, p.user.id)
     return back("/app/website", ok="Your website is offline")

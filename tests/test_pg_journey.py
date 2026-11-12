@@ -141,13 +141,13 @@ def test_versions_rollback_and_unpublish(platform):
     # Publishing an unapproved version is refused.
     owner.post(f"/app/website/versions/{v2}/publish", data={"csrf": csrf})
     assert "Brand new headline" not in site.get("/").text
-    owner.post(f"/app/website/versions/{v2}/approve", data={"csrf": csrf})
-    owner.post(f"/app/website/versions/{v2}/publish", data={"csrf": csrf})
+    owner.post(f"/app/website/versions/{v2}/approve", data={"csrf": csrf, "confirm_approve": "yes"})
+    owner.post(f"/app/website/versions/{v2}/publish", data={"csrf": csrf, "confirm_publish": "yes"})
     assert "Brand new headline" in site.get("/").text
     # Roll back to version 1.
-    owner.post(f"/app/website/versions/{v1}/publish", data={"csrf": csrf})
+    owner.post(f"/app/website/versions/{v1}/publish", data={"csrf": csrf, "confirm_publish": "yes"})
     assert "Brand new headline" not in site.get("/").text
-    owner.post("/app/website/unpublish", data={"csrf": csrf})
+    owner.post("/app/website/unpublish", data={"csrf": csrf, "confirm_unpublish": "yes"})
     assert site.get("/").status_code == 404
     assert site.post("/api/lead", json={"name": "A", "email": "a@b.example", "message": "hello"}).status_code == 404
 
@@ -180,3 +180,33 @@ def test_proposal_approval_link(platform):
     with session_scope(org_id=org_id) as db:
         proposal = db.get(Proposal, proposal_id)
         assert proposal.status == "approved" and proposal.decided_name == "Pat Customer"
+
+
+def test_website_publish_actions_require_server_side_confirmation(platform):
+    """Client-side required checkboxes alone must not authorize a direct POST."""
+    owner, _, _ = onboard_business(
+        platform,
+        business="Explicit Confirm Roofing",
+        owner_email="owner@explicit-confirm.example",
+    )
+    hostname, version_id = create_and_publish_site(
+        owner, name="Explicit Confirm Roofing", slug="explicit-confirm-roofing",
+    )
+    csrf = csrf_of(owner)
+    live = client_for(platform, hostname)
+    assert live.get("/").status_code == 200
+
+    # A valid owner session and CSRF token are not substitutes for informed confirmation.
+    routes = (
+        (f"/app/website/versions/{version_id}/approve", "confirm_approve"),
+        (f"/app/website/versions/{version_id}/publish", "confirm_publish"),
+        ("/app/website/unpublish", "confirm_unpublish"),
+    )
+    for path, key in routes:
+        assert owner.post(path, data={"csrf": csrf}).status_code == 403
+        assert owner.post(path, data={"csrf": csrf, key: "no"}).status_code == 403
+        assert live.get("/").status_code == 200
+    assert owner.post("/app/website/unpublish", data={
+        "csrf": csrf, "confirm_unpublish": "yes",
+    }).status_code == 303
+    assert live.get("/").status_code == 404

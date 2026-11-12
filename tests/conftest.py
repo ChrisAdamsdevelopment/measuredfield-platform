@@ -237,6 +237,6 @@ def create_and_publish_site(owner, *, name: str, slug: str, city: str = "Fiction
     assert owner.post("/app/website/version", data={"csrf": csrf, "note": "First version"}).status_code == 303
     page = owner.get("/app/website").text
     version_id = re.search(r"/app/website/versions/([0-9a-f-]{36})/approve", page).group(1)
-    assert owner.post(f"/app/website/versions/{version_id}/approve", data={"csrf": csrf}).status_code == 303
-    assert owner.post(f"/app/website/versions/{version_id}/publish", data={"csrf": csrf}).status_code == 303
+    assert owner.post(f"/app/website/versions/{version_id}/approve", data={"csrf": csrf, "confirm_approve": "yes"}).status_code == 303
+    assert owner.post(f"/app/website/versions/{version_id}/publish", data={"csrf": csrf, "confirm_publish": "yes"}).status_code == 303
     return f"{slug}.{SITES_DOMAIN}", version_id
