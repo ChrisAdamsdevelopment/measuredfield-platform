@@ -1,18 +1,53 @@
 {% extends "app/base.html" %}
 {% block title %}Inquiries{% endblock %}
 {% block content %}
+{% set ns = namespace(overdue=0, due_today=0, new_count=0, first_overdue_id=None, first_due_today_id=None) %}
+{% for lead in leads %}
+  {% if lead.status == 'new' %}{% set ns.new_count = ns.new_count + 1 %}{% endif %}
+  {% if lead.follow_up_on and lead.status in ('new','contacted','qualified') %}
+    {% if lead.follow_up_on < today %}
+      {% set ns.overdue = ns.overdue + 1 %}
+      {% if not ns.first_overdue_id %}{% set ns.first_overdue_id = lead.id %}{% endif %}
+    {% elif lead.follow_up_on == today %}
+      {% set ns.due_today = ns.due_today + 1 %}
+      {% if not ns.first_due_today_id %}{% set ns.first_due_today_id = lead.id %}{% endif %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+{% set jump_id = ns.first_overdue_id or ns.first_due_today_id %}
 <header><div><h1>Inquiries</h1><p>Every request from your website, with a status and a next step.</p></div></header>
+<div class="inquiries-desk">
+{% if leads %}
+<section class="triage-summary{% if ns.overdue > 0 or ns.due_today > 0 %} has-overdue{% endif %}" aria-label="Follow-up triage counts for current filtered list (maximum 200 rows)" role="status">
+  <span class="triage-scope small muted">Counts in current{% if status %} {{ status }}{% endif %} filtered list ({{ leads|length }} shown, maximum 200 rows; not whole-site totals):</span>
+  <span class="triage-pill overdue"><strong>{{ ns.overdue }}</strong> overdue</span>
+  <span class="triage-pill"><strong>{{ ns.due_today }}</strong> due today</span>
+  <span class="triage-pill"><strong>{{ ns.new_count }}</strong> new</span>
+  {% if jump_id %}<a href="#lead-row-{{ jump_id }}">Jump to first due inquiry</a>{% endif %}
+</section>
+{% endif %}
+<div class="filter-controls">
 <nav class="tabs" aria-label="Filter by status"><a href="/app/inquiries"{% if not status %} aria-current="page"{% endif %}>All</a>
 {% for s in statuses %}<a href="/app/inquiries?status={{ s }}"{% if status == s %} aria-current="page"{% endif %}>{{ s|capitalize }}</a>{% endfor %}</nav>
+<form class="status-filter-form" method="get" action="/app/inquiries">
+  <label for="inquiry-status-filter">Filter by status</label>
+  <select id="inquiry-status-filter" name="status">
+    <option value=""{% if not status %} selected{% endif %}>All statuses</option>
+    {% for s in statuses %}<option value="{{ s }}"{% if status == s %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}
+  </select>
+  <button class="btn ghost small" type="submit">Apply</button>
+</form>
+</div>
 <div class="card">
-{% if leads %}<div class="scroll"><table><thead><tr><th scope="col">From</th><th scope="col">About</th><th scope="col">Status</th><th scope="col">Follow up</th><th scope="col">Received</th></tr></thead><tbody>
-{% for lead in leads %}<tr>
-<td><a href="/app/inquiries/{{ lead.id }}">{{ lead.name }}</a><div class="small muted">{{ lead.email }}</div></td>
-<td>{{ lead.service or '' }}<div class="small muted">{{ lead.message[:90] }}{% if lead.message|length > 90 %}&hellip;{% endif %}</div></td>
-<td><span class="badge {{ lead.status }}">{{ lead.status }}</span></td>
-<td>{% if lead.follow_up_on %}{{ lead.follow_up_on.strftime('%b %d') }}{% if lead.follow_up_on <= today and lead.status in ('new','contacted','qualified') %} <span class="badge lost">due</span>{% endif %}{% else %}<span class="muted">Not set</span>{% endif %}</td>
-<td>{{ lead.created_at.strftime('%b %d, %H:%M') }}</td></tr>{% endfor %}
+{% if leads %}<div class="scroll"><table class="inquiries-table"><caption class="sr-only">Website inquiries{% if status %} filtered by status {{ status }}{% endif %}</caption><thead><tr><th scope="col">From</th><th scope="col">About</th><th scope="col">Status</th><th scope="col">Follow up</th><th scope="col">Received</th></tr></thead><tbody>
+{% for lead in leads %}{% set is_active_lead = lead.status in ('new','contacted','qualified') %}{% set is_overdue = lead.follow_up_on and is_active_lead and lead.follow_up_on < today %}{% set is_due_today = lead.follow_up_on and is_active_lead and lead.follow_up_on == today %}<tr id="lead-row-{{ lead.id }}" class="{% if is_overdue %}row-overdue{% elif is_due_today %}row-due-today{% endif %}">
+<td data-label="From"><div class="lead-cell-main"><a href="/app/inquiries/{{ lead.id }}">{{ lead.name }}</a><div class="small muted">{{ lead.email }}</div></div></td>
+<td data-label="About"><div class="lead-cell-main"><span>{{ lead.service or '' }}</span><div class="small muted">{{ lead.message[:90] }}{% if lead.message|length > 90 %}&hellip;{% endif %}</div></div></td>
+<td data-label="Status"><span class="badge {{ lead.status }}" aria-label="Status: {{ lead.status }}">{{ lead.status }}</span></td>
+<td data-label="Follow up">{% if lead.follow_up_on %}<time datetime="{{ lead.follow_up_on.strftime('%Y-%m-%d') }}">{{ lead.follow_up_on.strftime('%b %d') }}</time>{% if is_overdue %} <span class="badge lost" aria-label="Follow-up overdue">overdue</span>{% elif is_due_today %} <span class="badge lost" aria-label="Follow-up due today">due today</span>{% endif %}{% else %}<span class="muted">Not set</span>{% endif %}</td>
+<td data-label="Received"><time datetime="{{ lead.created_at.strftime('%Y-%m-%dT%H:%M') }}">{{ lead.created_at.strftime('%b %d, %H:%M') }}</time></td></tr>{% endfor %}
 </tbody></table></div>
-{% else %}<p class="empty">Nothing here yet.</p>{% endif %}
+{% else %}<p class="empty" role="status">Nothing here yet.</p>{% endif %}
+</div>
 </div>
 {% endblock %}
