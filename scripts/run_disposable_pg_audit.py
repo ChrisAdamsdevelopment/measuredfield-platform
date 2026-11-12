@@ -66,8 +66,9 @@ def main() -> int:
             env["MF_TEST_PG_ADMIN_URL"] = (
                 f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres")
             print("Running full local suite with disposable real PostgreSQL.", flush=True)
-            result = run([sys.executable, "-B", "-m", "pytest",
-                          "tests", "-q", "-p", "no:cacheprovider"],
+            # Identical gate to GitHub CI: every PostgreSQL suite must execute,
+            # the JUnit report must contain no skips, and 100+ tests must run.
+            result = run([sys.executable, "-B", "scripts/ci_full_check.py"],
                          cwd=str(ROOT), env=env)
             print("FULL_POSTGRES_SUITE_EXIT=" + str(result.returncode), flush=True)
         else:

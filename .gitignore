@@ -20,6 +20,7 @@ data/
 generated/
 exports/
 backups/
+test-results/
 .secrets/
 *.pem
 *.key
