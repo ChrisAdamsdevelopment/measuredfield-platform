@@ -9,12 +9,13 @@ No production subject resolver is installed; an unmapped identity always fails c
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Iterator
 
 from sqlalchemy import func, select
 
-from app.db import session_scope
+from app.db import TenantSession, new_session
 from app.models import Lead, Membership, Organization, Site, User
 from app.security import can
 
@@ -49,6 +50,23 @@ def _id(value: str) -> uuid.UUID:
         raise ConnectorAccessDenied("Business or inquiry is unavailable") from None
 
 
+@contextmanager
+def _read_scope(user_id: uuid.UUID) -> Iterator[TenantSession]:
+    """Open a DB-enforced read-only transaction; never commit or flush caller data.
+
+    This uses the psycopg PostgreSQL dialect's transaction read-only option on
+    the connection before any application queries. ROLLBACK always closes it.
+    """
+    db = new_session()
+    try:
+        db.set_context(user_id=user_id)
+        db.connection(execution_options={"postgresql_readonly": True})
+        yield db
+    finally:
+        db.rollback()
+        db.close()
+
+
 class ReadOnlyBusinessGateway:
     """SQLAlchemy/forced-RLS adapter with membership checked on every invocation."""
 
@@ -59,7 +77,12 @@ class ReadOnlyBusinessGateway:
         resource_audience: str,
         resolve_subject: SubjectResolver = unconfigured_subject_resolver,
     ):
-        if not issuer or not resource_audience:
+        if (
+            not isinstance(issuer, str)
+            or not issuer.strip()
+            or not isinstance(resource_audience, str)
+            or not resource_audience.strip()
+        ):
             raise ValueError("Trusted OAuth issuer and resource audience are required")
         self.issuer = issuer
         self.resource_audience = resource_audience
@@ -69,10 +92,15 @@ class ReadOnlyBusinessGateway:
         if not isinstance(identity, VerifiedOAuthIdentity):
             raise ConnectorAccessDenied("OAuth resource-server identity is required")
         if (
-            identity.issuer != self.issuer
+            not isinstance(identity.issuer, str)
+            or not isinstance(identity.audience, str)
+            or not isinstance(identity.subject, str)
+            or not identity.subject.strip()
+            or not isinstance(identity.scopes, frozenset)
+            or not all(isinstance(s, str) for s in identity.scopes)
+            or identity.issuer != self.issuer
             or identity.audience != self.resource_audience
             or "mf:read" not in identity.scopes
-            or not identity.subject
         ):
             raise ConnectorAccessDenied("OAuth identity is not authorized")
         user_id = self.resolve_subject(identity.issuer, identity.subject)
@@ -106,12 +134,13 @@ class ReadOnlyBusinessGateway:
 
     def businesses_for(self, identity: VerifiedOAuthIdentity) -> list[dict]:
         user_id = self._user(identity)
-        with session_scope(user_id=user_id) as db:
+        with _read_scope(user_id=user_id) as db:
             self._active_user(db, user_id)
             memberships = db.scalars(
                 select(Membership)
                 .where(Membership.user_id == user_id)
-                .order_by(Membership.created_at)
+                .order_by(Membership.created_at.asc(), Membership.id.asc())
+                .limit(200)
             ).all()
             result: list[dict] = []
             for item in memberships:
@@ -126,7 +155,7 @@ class ReadOnlyBusinessGateway:
 
     def overview_for(self, identity: VerifiedOAuthIdentity, business_id: str) -> dict:
         user_id, org_id = self._user(identity), _id(business_id)
-        with session_scope(user_id=user_id) as db:
+        with _read_scope(user_id=user_id) as db:
             self._active_user(db, user_id)
             org = self._enter_business(db, user_id, org_id)
             total = db.scalar(
@@ -161,7 +190,7 @@ class ReadOnlyBusinessGateway:
         ):
             raise ValueError("Inquiry limit must be an integer from 1 through 50")
         user_id, org_id = self._user(identity), _id(business_id)
-        with session_scope(user_id=user_id) as db:
+        with _read_scope(user_id=user_id) as db:
             self._active_user(db, user_id)
             self._enter_business(db, user_id, org_id)
             rows = db.scalars(
@@ -192,7 +221,7 @@ class ReadOnlyBusinessGateway:
             _id(business_id),
             _id(inquiry_id),
         )
-        with session_scope(user_id=user_id) as db:
+        with _read_scope(user_id=user_id) as db:
             self._active_user(db, user_id)
             self._enter_business(db, user_id, org_id)
             lead = db.get(Lead, lead_id)
