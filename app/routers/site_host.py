@@ -63,14 +63,14 @@ def _load(hostname: str, want: str):
 
 
 async def page(request: Request) -> Response:
-    body = await run_in_threadpool(_load, request.headers.get("host", ""), "html")
+    body = await run_in_threadpool(_load, (request.scope.get("mf.canonical_host") or request.headers.get("host", "")), "html")
     if body is None:
         return _not_found()
     return Response(body, media_type="text/html; charset=utf-8", headers=_headers({"Cache-Control": "public, max-age=60"}))
 
 
 async def stylesheet(request: Request) -> Response:
-    body = await run_in_threadpool(_load, request.headers.get("host", ""), "css")
+    body = await run_in_threadpool(_load, (request.scope.get("mf.canonical_host") or request.headers.get("host", "")), "css")
     if body is None:
         return _not_found()
     return Response(body, media_type="text/css; charset=utf-8", headers=_headers({"Cache-Control": "public, max-age=60"}))
@@ -135,7 +135,7 @@ async def lead(request: Request) -> Response:
     payload = await _json_body(request)
     if payload is None:
         return JSONResponse({"error": "Invalid request."}, status_code=422, headers=_headers())
-    status, body = await run_in_threadpool(_store_lead, request.headers.get("host", ""), _client(request), payload)
+    status, body = await run_in_threadpool(_store_lead, (request.scope.get("mf.canonical_host") or request.headers.get("host", "")), _client(request), payload)
     if status == 201 and get_settings().inline_jobs:
         await run_in_threadpool(jobs.run_due, 10)
     return JSONResponse(body, status_code=status, headers=_headers({"Cache-Control": "no-store"}))
@@ -154,7 +154,7 @@ def _store_event(hostname: str, client: str, kind: str) -> None:
 async def event(request: Request) -> Response:
     payload = await _json_body(request)
     if payload and _same_origin(request) and payload.get("kind") in ("page_view", "form_start"):
-        await run_in_threadpool(_store_event, request.headers.get("host", ""), _client(request), payload["kind"])
+        await run_in_threadpool(_store_event, (request.scope.get("mf.canonical_host") or request.headers.get("host", "")), _client(request), payload["kind"])
     return Response(status_code=204, headers=_headers())
 
 

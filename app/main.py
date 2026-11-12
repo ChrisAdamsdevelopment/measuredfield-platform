@@ -10,7 +10,9 @@ before DNS is configured.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -123,6 +125,50 @@ def create_main_app() -> FastAPI:
     return app
 
 
+# Validate HTTP authority BEFORE app/site dispatch. The original colon split
+# allowed malformed host ports and ambiguous IPv6/duplicate Host headers.
+_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def canonical_host(raw: bytes) -> str | None:
+    try:
+        value = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    if not value or len(value) > 280 or value.strip() != value:
+        return None
+    if any(ord(ch) < 33 or ord(ch) > 126 for ch in value):
+        return None
+    if any(ch in value for ch in ("/", "\\", "@", "#", "?", ",", "%")):
+        return None
+    if value.startswith("["):
+        match = re.fullmatch(r"\[([0-9A-Fa-f:.]+)\](?::([0-9]+))?", value)
+        if not match:
+            return None
+        try:
+            hostname = str(ipaddress.IPv6Address(match.group(1)))
+        except ValueError:
+            return None
+        port = match.group(2)
+    else:
+        if value.count(":") > 1:
+            return None
+        hostname, colon, port = value.partition(":")
+        hostname = hostname.lower()
+        if hostname.endswith("."):
+            hostname = hostname[:-1]
+        if not hostname or len(hostname) > 253:
+            return None
+        if not all(_LABEL.fullmatch(label) for label in hostname.split(".")):
+            return None
+        if not colon:
+            port = None
+    if port is not None and (not port.isascii() or not port.isdecimal()
+                             or not 1 <= int(port) <= 65535):
+        return None
+    return hostname
+
+
 class HostRouter:
     """ASGI dispatcher: health checks, then app hosts vs. customer-site hosts."""
 
@@ -134,14 +180,18 @@ class HostRouter:
             return await self.main_app(scope, receive, send)
         if scope["type"] != "http":
             return await self.main_app(scope, receive, send)
+        raw_hosts = [value for key, value in scope.get("headers", [])
+                     if key.lower() == b"host"]
+        host = canonical_host(raw_hosts[0]) if len(raw_hosts) == 1 else None
+        if host is None:
+            response = PlainTextResponse("Invalid Host header.", status_code=400)
+            _security_headers(response, production=get_settings().is_production)
+            return await response(scope, receive, send)
+        # Downstream site routing must use the SAME validated hostname.
+        scope["mf.canonical_host"] = host
         path = scope.get("path", "")
         if path in ("/healthz", "/readyz"):
             return await self._health(path, scope, receive, send)
-        host = ""
-        for key, value in scope.get("headers", []):
-            if key == b"host":
-                host = value.decode("latin-1").split(":")[0].strip().lower()
-                break
         if host in get_settings().app_host_set:
             return await self.main_app(scope, receive, send)
         return await self.sites_app(scope, receive, send)
