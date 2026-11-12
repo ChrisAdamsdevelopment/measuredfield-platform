@@ -6,6 +6,13 @@
   isolation-check           Exit non-zero if the database cannot isolate tenants.
   run-jobs                  Run queued jobs once (for single-service deployments or cron).
   purge                     Retention sweep: expired sessions, tokens, rate-limit windows.
+  issue-auth-link <message-id> <operator-email>
+                            MANUAL RECOVERY, for when no email provider can deliver an
+                            invitation or password reset. Prints a sign-in link that works
+                            once and expires in 30 minutes, and records who issued it. Any
+                            earlier link for the same request stops working. Find the
+                            message id in the operator outbox. Give the link only to the
+                            person it is for, over a channel you trust.
 """
 from __future__ import annotations
 
@@ -57,6 +64,19 @@ def main(argv: list[str]) -> int:
     if command == "purge":
         with session_scope() as db:
             print(tenant_data.purge_expired(db))
+            from .services.email import cleanup_auth_artifacts
+            print(cleanup_auth_artifacts(db))
+        return 0
+    if command == "issue-auth-link" and len(argv) == 4:
+        from .services.email import AuthLinkError, issue_link_manually
+        try:
+            with session_scope() as db:
+                link = issue_link_manually(db, argv[2], operator_email=argv[3])
+        except AuthLinkError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        # Printed to this terminal only. It is not logged and only its hash is stored.
+        print(link)
         return 0
     print(__doc__)
     return 2

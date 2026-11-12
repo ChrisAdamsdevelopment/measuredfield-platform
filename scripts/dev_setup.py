@@ -151,9 +151,12 @@ def seed_demo(env: dict) -> None:
             data={"csrf": csrf(op, "/operator"), "reason": "Fictional demo business (no payment)"})
     with session_scope() as db:
         org_id = db.scalar(select(ServiceOrder.org_id).where(ServiceOrder.id == order_id))
-        body = db.scalar(select(EmailMessage.body).where(EmailMessage.to_email == env["MF_DEV_OWNER_EMAIL"],
-                                                         EmailMessage.kind == "invite"))
-    invite = re.search(r"token=([A-Za-z0-9_\-]+)", body).group(1)
+        message_id = db.scalar(select(EmailMessage.id).where(EmailMessage.to_email == env["MF_DEV_OWNER_EMAIL"],
+                                                             EmailMessage.kind == "invite"))
+        # The outbox never holds a usable link; use the same manual procedure an operator would.
+        from app.services.email import issue_link_manually
+        link = issue_link_manually(db, message_id, operator_email=env["MF_DEV_OPERATOR_EMAIL"])
+    invite = link.split("token=")[1]
     owner = client()
     owner.post("/accept-invite", data={"token": invite, "name": "Dana Demo", "password": env["MF_DEV_OWNER_PASSWORD"]})
     token_csrf = csrf(owner)

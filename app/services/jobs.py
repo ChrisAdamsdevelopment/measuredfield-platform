@@ -82,7 +82,15 @@ def _delete_org(job: Job) -> None:
         delete_org_now(db, job.org_id)
 
 
+def _auth_cleanup(job: Job) -> None:  # noqa: ARG001
+    """Scrub used and expired sign-in tokens and age out sign-in message bodies."""
+    from .email import cleanup_auth_artifacts
+    with session_scope() as db:
+        cleanup_auth_artifacts(db)
+
+
 HANDLERS = {
+    "auth_cleanup": _auth_cleanup,
     "send_email": _send_email,
     "provision_order": _provision_order,
     "notify_new_lead": _notify_new_lead,

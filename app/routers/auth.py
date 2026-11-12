@@ -1,8 +1,6 @@
 """Sign-in, sign-out, invitations, password recovery and workspace switching."""
 from __future__ import annotations
 
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
@@ -11,11 +9,11 @@ from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, back, client_key, get_principal, parse_uuid, render, safe_local_redirect, user_post
 from ..models import Membership, Organization, User, now
-from ..security import (SESSION_COOKIE, create_session, hash_password, issue_token, normalize_email,
+from ..security import (SESSION_COOKIE, create_session, hash_password, normalize_email,
                         password_problem, peek_token, rate_limited, revoke_user_sessions, valid_email,
                         verify_password)
 from ..services import jobs, orders
-from ..services.email import queue_email
+from ..services.email import queue_auth_email
 
 router = APIRouter()
 GENERIC_LOGIN_ERROR = "That email and password don't match an account."
@@ -160,13 +158,14 @@ def forgot(request: Request, db: TenantSession = Depends(get_db), email: str = F
     if not limited and valid_email(email):
         user = db.scalar(select(User).where(User.email == email, User.disabled_at.is_(None)))
         if user is not None:
-            token = issue_token(db, purpose="reset", email=email, ttl=timedelta(minutes=settings.reset_ttl_minutes))
-            message = queue_email(
+            # No link exists yet: it is minted when a provider sends this message, or by the
+            # audited manual procedure. The stored body only ever holds a placeholder.
+            message = queue_auth_email(
                 db, kind="password_reset", to=email, subject=f"Reset your {settings.brand_name} password",
-                body=(f"Use this link to choose a new password (expires in {settings.reset_ttl_minutes} minutes):\n"
-                      f"{settings.public_base_url}/reset?token={token}\n\n"
-                      "If you didn't ask for this, you can ignore this message."))
+                intro=f"Use this link to choose a new password (expires in {settings.reset_ttl_minutes} minutes):",
+                outro="If you didn't ask for this, you can ignore this message.")
             jobs.enqueue(db, "send_email", {"message_id": str(message.id)}, key=f"email:{message.id}")
+            jobs.enqueue(db, "auth_cleanup", {}, key="auth-cleanup:" + now().strftime("%Y%m%d%H"))
     # Same answer whether or not the account exists.
     return render(request, "public/forgot.html", {"sent": True})
 

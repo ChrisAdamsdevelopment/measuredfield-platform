@@ -58,9 +58,36 @@ def test_upgrade_and_downgrade_on_a_populated_database():
             conn.execute(text("INSERT INTO leads (id, org_id, site_id, customer_id, name, email, phone, service, timing, message, source, status, created_at) "
                               "VALUES (:l, :o, :s, :c, 'Riley', 'r@r.example', '', '', '', 'hi', 'website', 'new', now())"),
                          {"l": lead, "o": org, "s": site, "c": customer})
+            # Pre-0004 state: usable sign-in links sitting in stored email bodies.
+            import hashlib
+            live, spent = "LiveInviteToken_" + secrets.token_urlsafe(24), "SpentResetToken_" + secrets.token_urlsafe(24)
+            for token, purpose, used in ((live, "invite", None), (spent, "reset", "now()")):
+                conn.execute(text(
+                    "INSERT INTO auth_tokens (id, token_hash, purpose, email, org_id, role, created_at, expires_at, used_at) "
+                    f"VALUES (gen_random_uuid(), :h, :p, 'legacy@populated.example', :o, 'owner', now(), now() + interval '3 days', {used or 'NULL'})"),
+                    {"h": hashlib.sha256(token.encode()).hexdigest(), "p": purpose, "o": org})
+            conn.execute(text(
+                "INSERT INTO email_outbox (id, org_id, kind, to_email, subject, body, status, provider, created_at) VALUES "
+                "(gen_random_uuid(), :o, 'invite', 'legacy@populated.example', 'Invite', :b1, 'not_sent_no_provider', 'none', now()), "
+                "(gen_random_uuid(), NULL, 'password_reset', 'legacy@populated.example', 'Reset', :b2, 'sent', 'resend', now()), "
+                "(gen_random_uuid(), :o, 'lead_notice', 'legacy@populated.example', 'Notice', 'Sign in to read it: https://app.example/app/inquiries/1', 'queued', 'none', now())"),
+                {"o": org, "b1": f"Set up here:\nhttps://app.example/accept-invite?token={live}\n\nThanks",
+                 "b2": f"Reset: https://app.example/reset?next=1&token={spent} (expires soon)"})
         upgraded = _alembic(url, "upgrade", "head")
         assert upgraded.returncode == 0, upgraded.stderr[-1500:]
         with engine.connect() as conn:
+            # 0004 data repair: no stored body keeps a token, and every exposed unused token is revoked.
+            bodies = [row[0] for row in conn.execute(text("SELECT body FROM email_outbox ORDER BY kind"))]
+            assert len(bodies) == 3 and not any(live in b or spent in b for b in bodies)
+            assert sum("token={{AUTH_LINK_TOKEN}}" in b for b in bodies) == 2
+            assert any(b.endswith("\n\nThanks") for b in bodies) and any("(expires soon)" in b for b in bodies)
+            assert any(b == "Sign in to read it: https://app.example/app/inquiries/1" for b in bodies)  # untouched
+            live_hash = hashlib.sha256(live.encode()).hexdigest()
+            assert conn.execute(text("SELECT count(*) FROM auth_tokens WHERE token_hash = :h"), {"h": live_hash}).scalar() == 0
+            unused = conn.execute(text("SELECT expires_at <= now(), issued_at, issue_count, length(token_hash) "
+                                       "FROM auth_tokens WHERE used_at IS NULL")).one()
+            assert tuple(unused) == (True, None, 0, 64)
+            assert conn.execute(text("SELECT count(*) FROM auth_tokens WHERE used_at IS NOT NULL")).scalar() == 1
             forced = dict(conn.execute(text(
                 "SELECT relname, relforcerowsecurity FROM pg_class WHERE relname IN "
                 "('sites','site_versions','organizations','leads','customers')")).all())

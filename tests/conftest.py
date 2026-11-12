@@ -139,18 +139,24 @@ def csrf_of(client) -> str:
 
 
 def last_email_link(to: str, path: str) -> str:
-    """Pull a tokenized link out of the outbox, the way an operator relays it by hand."""
+    """Get a sign-in link the way an operator does when no email provider is configured:
+    through the audited manual-issue procedure. The outbox itself never holds a usable link."""
     from sqlalchemy import select
     from app.db import session_scope
     from app.models import EmailMessage
+    from app.services.email import AUTH_LINK_PLACEHOLDER, issue_link_manually
+    operator_email, _ = make_operator()
     with session_scope() as db:
         message = db.scalars(select(EmailMessage).where(EmailMessage.to_email == to)
                              .order_by(EmailMessage.created_at.desc())).first()
         assert message is not None, "no outbox message for " + to
         assert message.status in ("queued", "not_sent_no_provider"), message.status
-        match = re.search(r"https?://[^\s]+(" + re.escape(path) + r"\?token=[A-Za-z0-9_\-]+)", message.body)
-        assert match, "no link in message body"
-        return match.group(1)
+        assert AUTH_LINK_PLACEHOLDER in message.body, "stored body must hold the placeholder, not a link"
+        assert not re.search(r"token=[A-Za-z0-9_\-]{16,}", message.body), "a usable token was stored in the outbox"
+        link = issue_link_manually(db, message.id, operator_email=operator_email)
+    match = re.search("(" + re.escape(path) + r"\?token=[A-Za-z0-9_\-]+)$", link)
+    assert match, "manual issue returned no link for " + path
+    return match.group(1)
 
 
 def make_operator(email: str = "operator@measuredfield.test", password: str = "operator-test-passphrase"):

@@ -81,6 +81,13 @@ class AuthToken(Base):
     created_at: Mapped[datetime] = TS()
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = OPT_TS()
+    # A usable link exists only after it has been minted: at provider send time ("email")
+    # or by the audited manual procedure ("manual"). Until then token_hash holds a random
+    # value nobody has ever seen. issued_by records who ran a manual issue.
+    issued_at: Mapped[datetime | None] = OPT_TS()
+    issue_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    issued_via: Mapped[str | None] = mapped_column(String(20))
+    issued_by: Mapped[str | None] = mapped_column(String(254))
 
 
 class Assessment(Base):
@@ -167,6 +174,10 @@ class EmailMessage(Base):
     error: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = TS()
     sent_at: Mapped[datetime | None] = OPT_TS()
+    # Set for invitation and password-reset messages. Their stored body contains the
+    # placeholder AUTH_LINK_PLACEHOLDER (app/services/email.py), never a usable link.
+    auth_token_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("auth_tokens.id", ondelete="SET NULL"), index=True)
 
 
 class SiteHost(Base):
