@@ -37,3 +37,24 @@ The Render blueprint, pinned runtime requirements, dedicated worker, separate mi
 - Owner approval for live domain, public launch, service charges, emails and real customer data ingestion.
 
 See https://render.com/docs/blueprint-spec and https://render.com/docs/deploy-fastapi for currently supported Render commands and Blueprint fields.
+
+## Staging gate and backup recovery (MF-008, 2026-11-12)
+
+The preflight gates above are now partly executable. See `STAGING_RUNBOOK.md` for the full
+gate, the human approvals it still requires, and the recovery procedure.
+
+- `python -B scripts/staging_preflight.py [--env-file F] [--database]` checks the staging
+  configuration, `render.yaml` and (optionally) the live database roles, RLS state, schema
+  revision and grants. It prints variable names, never values. Verified locally against a
+  disposable PostgreSQL with the two-role layout; NOT yet run against a Render database.
+- `python -B scripts/backup_drill.py` performs a real `pg_dump`/`pg_restore` on a disposable
+  PostgreSQL 16 and verifies the restored copy row for row, including forced RLS and tenant
+  isolation. Last local result: `BACKUP_DRILL_PASS`, 121 synthetic rows in 32 tables.
+- Finding from the drill: a logical dump taken as the schema-owner role contains no tenant
+  rows under forced RLS. With default flags `pg_dump` refuses; with `--enable-row-security`
+  it exits 0 with an empty data set. Back up only with a role that bypasses RLS and verify
+  row counts. Managed physical backups on Render are expected to be unaffected, which is
+  unverified.
+
+Passing these checks is necessary, not sufficient. Deployment still requires the owner's
+explicit approval and has not happened.
