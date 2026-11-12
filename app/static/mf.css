@@ -71,3 +71,21 @@ fieldset.step-card{min-width:0;margin-left:0;margin-right:0}
 table.lines{width:100%;border-collapse:collapse;margin:14px 0}table.lines th,table.lines td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:.94rem}
 table.lines td.num,table.lines th.num{text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:760px){.examples,.pricing,.two{grid-template-columns:1fr}.step-card{padding:22px}.kv{grid-template-columns:1fr}.hero-questions{padding:24px}}
+
+/* Founding promotion: appears only with approved Price ID + disclosure. */
+.promo-panel{background:linear-gradient(135deg,#e0f1e9,#f4f8f3);border:1px solid #94cab8;
+border-radius:14px;padding:22px 26px;margin:20px 0;color:#184b43}
+.promo-panel .promo-eyebrow{color:#166859;font-size:.75rem;text-transform:uppercase;letter-spacing:.09em;
+font-weight:850;margin:0 0 7px}
+.promo-heading{font-size:1.18rem;display:block;letter-spacing:-.02em}
+.promo-panel p{margin:9px 0}
+.promo-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:13px 0}
+.promo-code{font:800 1.03rem/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.06em;
+background:#fff;border:1px dashed #5ca890;padding:10px 16px;border-radius:8px;user-select:all}
+.promo-copy{font:inherit;font-size:.95rem;font-weight:800;line-height:1.25;background:#134f46;color:#fff;border:1px solid #134f46;
+border-radius:8px;min-height:44px;padding:11px 18px;cursor:pointer}
+.promo-copy:hover{background:#0d3c34}
+.promo-copy:focus-visible{outline:3px solid #cc8c2b;outline-offset:3px}
+.promo-status{font-size:.84rem;color:#165d4e;font-weight:750}
+@media(max-width:550px){.promo-panel{padding:18px}.promo-row{align-items:stretch}.promo-code{flex:1}
+.promo-copy{width:100%}}

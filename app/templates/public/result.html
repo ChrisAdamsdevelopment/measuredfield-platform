@@ -64,6 +64,23 @@
 </label>
 {% endfor %}
 </div>
+{% for offer in offers %}
+{% if payments_live and offer.allow_promotion_codes and offer.stripe_price_id and offer.promotion_code and offer.promotion_disclosure %}
+<section class="promo-panel" aria-label="Promotion for {{ offer.name }}">
+<div>
+<p class="promo-eyebrow">Founding customer offer · {{ offer.name }}</p>
+<strong class="promo-heading">Use your introductory code at secure checkout</strong>
+<p>{{ offer.promotion_disclosure }}</p>
+<div class="promo-row">
+<code class="promo-code">{{ offer.promotion_code }}</code>
+<button type="button" class="promo-copy" data-copy-promo="{{ offer.promotion_code }}" aria-label="Copy promotion code {{ offer.promotion_code }}">Copy code</button>
+<span class="promo-status" role="status" aria-live="polite"></span>
+</div>
+<p class="hint">Choose {{ offer.name }} above, then paste this code into Stripe Checkout's promotion-code field.</p>
+</div>
+</section>
+{% endif %}
+{% endfor %}
 <div class="step-card">
 <div class="field"><label for="approved_name">Type your full name to confirm your choice</label><input id="approved_name" name="approved_name" maxlength="120" autocomplete="name" required value="{{ a.contact_name }}"></div>
 <label class="check"><input type="checkbox" name="agree" value="yes" required><span>I've read the <a href="/terms">terms</a> and I'm requesting the option selected above for {{ a.business_name }}.</span></label>
@@ -75,3 +92,4 @@
 {% endif %}
 </div></div>
 {% endblock %}
+{% block scripts %}<script src="/static/promo-copy.js" defer></script>{% endblock %}

@@ -14,6 +14,7 @@
 <nav aria-label="Workspace">
 {% set links = [('/app','Dashboard'),('/app/inquiries','Inquiries'),('/app/website','Website'),('/app/customers','Customers'),('/app/documents','Documents'),('/app/improvements','Improvements'),('/app/insights','Insights'),('/app/learning','Notes and playbook'),('/app/team','Team'),('/app/activity','Activity'),('/app/settings','Settings')] %}
 {% for href, label in links %}<a href="{{ href }}"{% if path == href or (href != '/app' and path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+{% if can is defined and can('billing.read') %}<a href="/app/billing"{% if path == '/app/billing' %} aria-current="page"{% endif %}>Plan and billing</a>{% endif %}
 {% if principal.user.is_platform_admin %}<a href="/operator">Operator console</a>{% endif %}
 </nav>
 <div class="foot">

@@ -124,6 +124,11 @@ class ServiceOrder(Base):
     payment_provider: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
     provider_ref: Mapped[str | None] = mapped_column(String(255), unique=True)
     payment_evidence: Mapped[str | None] = mapped_column(String(255))
+    # Recorded from the verified Stripe Checkout session, distinct from the
+    # advertised/list-price snapshot. A 100%-off coupon may settle at $0.
+    settled_amount_cents: Mapped[int | None] = mapped_column(Integer)
+    discount_amount_cents: Mapped[int | None] = mapped_column(Integer)
+    tax_amount_cents: Mapped[int | None] = mapped_column(Integer)
     paid_at: Mapped[datetime | None] = OPT_TS()
     org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"))
     provisioned_at: Mapped[datetime | None] = OPT_TS()
@@ -139,6 +144,35 @@ class PaymentEvent(Base):
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     received_at: Mapped[datetime] = TS()
     __table_args__ = (UniqueConstraint("provider", "event_id"),)
+
+
+
+class BillingSubscription(Base):
+    """Server-only Stripe billing facts. Never expose this platform table by org ID.
+
+    Signed checkout establishes the order binding. Subscription and invoice webhook
+    timestamps are tracked separately so reordered invoices cannot undo cancellations.
+    Tenant access must use the linked organization and server-side RBAC.
+    """
+    __tablename__ = "billing_subscriptions"
+    id: Mapped[uuid.UUID] = PK()
+    stripe_subscription_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_orders.id", ondelete="SET NULL"), unique=True)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    invoice_status: Mapped[str] = mapped_column(String(32), default="unknown", nullable=False)
+    latest_invoice_id: Mapped[str | None] = mapped_column(String(255))
+    last_subscription_event_created: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    last_invoice_event_created: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    period_end: Mapped[datetime | None] = OPT_TS()
+    grace_until: Mapped[datetime | None] = OPT_TS()
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    entitlement_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = TS()
+    updated_at: Mapped[datetime] = TS()
 
 
 class Job(Base):

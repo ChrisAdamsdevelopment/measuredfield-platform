@@ -1,0 +1,61 @@
+{% extends "app/base.html" %}
+{% block title %}Plan and billing{% endblock %}
+{% block content %}
+<header><div><h1>Plan and billing</h1>
+<p>Review your MeasuredField services, payment history and optional personal support.</p></div></header>
+<div class="grid g2">
+<section class="card">
+<h2>Your Business Workspace</h2>
+<p>Your workspace is separate from optional Growth Partner support.</p>
+<dl class="kv"><dt>Business</dt><dd>{{ org.name }}</dd>
+<dt>Plan</dt><dd>{{ org.plan }}</dd></dl>
+<p class="small muted">You can export your business data in <a href="/app/settings">Settings</a>.</p>
+</section>
+<section class="card">
+<h2>Growth Partner</h2>
+{% if growth_active %}
+<p><span class="badge live">Active</span> Your additional personal business support is active.</p>
+<p>See the billing record below for its current subscription status.</p>
+{% elif growth_offer %}
+<p><strong>Optional personal help — &#36;{{ '%.2f'|format(growth_offer.price_cents / 100) }} per month.</strong></p>
+<p>{{ growth_offer.summary }}</p>
+<ul>{% for line in growth_offer.includes %}<li>{{ line }}</li>{% endfor %}</ul>
+{% if growth_offer.allow_promotion_codes and growth_offer.promotion_code and growth_offer.promotion_disclosure %}
+<div class="promo-panel">
+<p><strong>Founding customer offer</strong></p><p>{{ growth_offer.promotion_disclosure }}</p>
+<div class="promo-row">
+<code class="promo-code">{{ growth_offer.promotion_code }}</code>
+<button type="button" class="btn promo-copy" data-copy-promo="{{ growth_offer.promotion_code }}">Copy code</button>
+<span class="promo-status" role="status" aria-live="polite"></span></div>
+<p class="small muted">Paste this code in the Stripe Checkout promotion-code field.</p>
+</div>
+{% endif %}
+<form method="post" action="/app/billing/growth-partner">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="check"><input type="checkbox" name="agree" value="yes" required>
+<span>I've read the <a href="/terms">service terms</a>, understand the monthly price, any promotional first month and future renewals, and request this optional support.</span></label>
+<div class="actions"><button class="btn" type="submit">Continue to secure Growth Partner checkout</button></div>
+</form>
+{% else %}
+<p><span class="badge unknown">Not available yet</span> Growth Partner checkout will appear when the actual Stripe Price and service terms are ready.</p>
+{% endif %}
+</section>
+</div>
+<section class="card">
+<h2>Billing history</h2>
+{% if orders %}
+<div class="billing-table-scroll"><table class="billing-history"><thead>
+<tr><th>Service</th><th>Status</th><th>List price</th><th>Initial amount recorded</th><th>Subscription</th></tr></thead><tbody>
+{% for order, subscription in orders %}
+<tr><td>{{ order.offer_snapshot.get('name',order.offer_code) }}</td>
+<td>{{ order.status|replace('_',' ')|capitalize }}</td>
+<td>&#36;{{ '%.2f'|format(order.amount_cents / 100) }}</td>
+<td>{% if order.settled_amount_cents is not none %}&#36;{{ '%.2f'|format(order.settled_amount_cents / 100) }}{% elif order.paid_at %}Payment recorded{% else %}Not paid{% endif %}</td>
+<td>{% if subscription %}{{ subscription.status|capitalize }}{% if subscription.period_end %} · Period ends {{ subscription.period_end.strftime('%b %d, %Y') }}{% endif %}{% else %}Not recurring{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}<p>No purchases have been recorded for this workspace.</p>{% endif %}
+<p class="small muted">Billing follows verified Stripe events. Card updates and cancellation through a self-service portal are not available here yet.
+{% if support_email %}Contact <a href="mailto:{{ support_email }}">{{ support_email }}</a> for assistance.{% endif %}</p>
+</section>
+<script src="/static/promo-copy.js" defer></script>
+{% endblock %}
