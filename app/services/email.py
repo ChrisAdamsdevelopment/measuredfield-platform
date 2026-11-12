@@ -14,8 +14,14 @@ written to the database:
 * If the provider reports a failure, that token is revoked again; a retry mints a new one.
 * With no provider, nothing is minted. The manual procedure (``issue_link_manually``, run
   from the server CLI) creates a short-lived link, shows it once, and records who issued it.
-* ``queue_email`` refuses to store a live token from ANY caller: it strips token values
-  from the body and kills the tokens they belonged to.
+* ``queue_email`` refuses to store a live token from ANY caller: subject and body are
+  screened by value (anything that hashes to a stored token) and by label (``token=...``),
+  and the tokens found are revoked.
+* Provider error text is screened the same way before it is stored.
+
+Do NOT add a provider idempotency key that is reused across attempts for sign-in messages:
+a retry would then be answered with the first attempt's result while that attempt's link
+has already been revoked, and the message would be marked sent with a dead link.
 """
 from __future__ import annotations
 
@@ -82,7 +88,13 @@ AUTH_KINDS = {"invite": ("invite", "/accept-invite"), "password_reset": ("reset"
 MANUAL_LINK_MINUTES = 30
 # How long an invitation or reset may wait to be SENT. The link's own lifetime starts at send.
 PENDING_WINDOW = {"invite": timedelta(days=14), "reset": timedelta(hours=1)}
-_TOKEN_PARAM = re.compile(r"([?&]token=)([A-Za-z0-9_\-]{16,})")
+# Anything LABELLED as a token is removed whatever its value (any case, plain or
+# percent-encoded "=", in a query, fragment or sentence).
+_TOKEN_PARAM = re.compile(r"(token(?:=|%3[Dd]))([A-Za-z0-9_\-]{16,})", re.IGNORECASE)
+# Anything that IS a token is removed whatever it is labelled: every url-safe run long
+# enough to contain one is checked, window by window, against the stored token hashes.
+_URLSAFE_RUN = re.compile(r"[A-Za-z0-9_\-]{%d,}" % len(new_token()))
+TOKEN_LENGTH = len(new_token())
 
 
 class AuthLinkError(ValueError):
@@ -100,25 +112,53 @@ def _unusable_hash() -> str:
     return digest(new_token())
 
 
+def _scrub_tokens(db, text: str) -> tuple[str, AuthToken | None]:
+    """Remove every sign-in token from ``text`` and revoke the tokens found.
+
+    Two independent rules, so that neither a missing label nor an unusual format lets a
+    usable token through:
+
+    1. Value-based: each window of TOKEN_LENGTH url-safe characters is hashed and looked up
+       in auth_tokens. A match is a real token, wherever it sits (subject, body, path,
+       fragment, bare text, next to other characters). It is cut out and its row revoked.
+    2. Label-based: whatever follows ``token=`` is cut out even if it matches no row.
+
+    Returns the cleaned text and the first still-unused token row found, so the caller can
+    bind the message to it and have a fresh link minted at send time.
+    """
+    bound: AuthToken | None = None
+    candidates: dict[str, str] = {}
+    for run in _URLSAFE_RUN.findall(text):
+        for start in range(len(run) - TOKEN_LENGTH + 1):
+            window = run[start:start + TOKEN_LENGTH]
+            candidates.setdefault(digest(window), window)
+    hashes = list(candidates)
+    for offset in range(0, len(hashes), 500):
+        for row in db.scalars(select(AuthToken).where(AuthToken.token_hash.in_(hashes[offset:offset + 500]))
+                              .with_for_update()).all():
+            text = text.replace(candidates[row.token_hash], AUTH_LINK_PLACEHOLDER)
+            _revoke_link(row)
+            if row.used_at is None and bound is None:
+                bound = row
+                row.expires_at = now() + PENDING_WINDOW.get(row.purpose, timedelta(hours=1))
+    text = _TOKEN_PARAM.sub(lambda m: m.group(1) + AUTH_LINK_PLACEHOLDER, text)
+    return text, bound
+
+
 def queue_email(db, *, kind: str, to: str, subject: str, body: str, org_id=None) -> EmailMessage:
     """Store a message for delivery. Token values never survive this function.
 
-    Any ``token=<value>`` in the body is replaced by the placeholder. If the value belonged
-    to a live auth token, that token is bound to this message and its hash is replaced with
-    an unusable one, so the link the caller built cannot be redeemed by anyone who later
-    reads the outbox, a log or a backup. A fresh link is minted at send time.
+    Subject and body are both screened by ``_scrub_tokens`` before anything is written, and
+    before the subject is truncated (so a cut can never hide half a token). A live token a
+    caller passed in is revoked, which means the link the caller built cannot be redeemed by
+    anyone who later reads the outbox, a log or a backup. The message is bound to that token
+    row and a fresh link is minted at send time.
     """
-    auth_token_id = None
-    for match in _TOKEN_PARAM.finditer(body):
-        row = db.scalar(select(AuthToken).where(AuthToken.token_hash == digest(match.group(2))).with_for_update())
-        if row is not None:
-            row.token_hash, row.issued_at, row.issued_via = _unusable_hash(), None, None
-            if row.used_at is None and auth_token_id is None:
-                auth_token_id = row.id
-                row.expires_at = now() + PENDING_WINDOW.get(row.purpose, timedelta(hours=1))
-    body = _TOKEN_PARAM.sub(lambda m: m.group(1) + AUTH_LINK_PLACEHOLDER, body)
+    subject, bound_subject = _scrub_tokens(db, subject)
+    body, bound_body = _scrub_tokens(db, body)
+    bound = bound_body or bound_subject
     message = EmailMessage(kind=kind, to_email=to, subject=subject[:200], body=body, org_id=org_id,
-                           auth_token_id=auth_token_id)
+                           auth_token_id=bound.id if bound is not None else None)
     db.add(message)
     db.flush()
     return message
@@ -160,7 +200,17 @@ def _locked_token(db, message: EmailMessage) -> AuthToken | None:
 
 
 def deliver(db, message: EmailMessage, provider: EmailProvider | None = None) -> EmailMessage:
-    """Attempt delivery once. Idempotent: an already-sent message is left alone."""
+    """Attempt delivery once. Idempotent: an already-sent message is left alone.
+
+    The message row is locked for the whole attempt. A second worker that picked up the
+    same message (for example a job reclaimed after a stall) waits here, then sees the
+    finished status and does nothing, so one message never produces two emails or two links.
+    """
+    # A prior deliver() in this same transaction may have marked the object sent
+    # without a commit yet. Persist that local state before refreshing/locking;
+    # otherwise refresh reverts to the database's old 'queued' status and sends twice.
+    db.flush([message])
+    db.refresh(message, with_for_update=True)
     if message.status in ("sent", "expired"):
         return message
     provider = provider if provider is not None else get_provider()
@@ -175,16 +225,23 @@ def deliver(db, message: EmailMessage, provider: EmailProvider | None = None) ->
         message.status = "not_sent_no_provider"   # for sign-in messages: nothing was minted
         message.provider = "none"
         return message
+    raw = None
     if token is not None:
         raw = _mint(db, token, via="email", ttl=_link_ttl(token.purpose, get_settings()))
         body = body.replace(AUTH_LINK_PLACEHOLDER, raw)
-    result = provider.send(to=message.to_email, subject=message.subject, body=body)
+    try:
+        result = provider.send(to=message.to_email, subject=message.subject, body=body)
+    except Exception as exc:  # noqa: BLE001 - never let exception text (it may quote the body) escape
+        result = SendResult(False, error=type(exc).__name__)
     message.provider = provider.name
     if result.ok:
         message.status, message.provider_message_id, message.sent_at = "sent", result.provider_message_id, now()
         message.error = None
     else:
-        message.status, message.error = "failed", (result.error or "unknown")[:300]
+        error = result.error or "unknown"
+        if raw is not None:
+            error = error.replace(raw, "[link removed]")   # a provider may echo what it was sent
+        message.status, message.error = "failed", _scrub_tokens(db, error)[0][:300]
         if token is not None:
             # The provider did not confirm it has the message: do not leave that link live.
             _revoke_link(token)

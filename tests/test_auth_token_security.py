@@ -311,3 +311,127 @@ def test_cleanup_scrubs_used_and_expired_tokens(platform):
     # The cleanup job is registered and runs through the queue.
     from app.services import jobs
     assert "auth_cleanup" in jobs.HANDLERS
+
+
+# ---------------------------------------------------------------- review round 2 (GPT-6)
+
+def _live_reset_token(db, email: str) -> str:
+    from app.security import issue_token
+    raw = issue_token(db, purpose="reset", email=email, ttl=timedelta(hours=1))
+    db.flush()
+    return raw
+
+
+def test_token_in_subject_is_scrubbed_and_revoked(pg_database, platform):
+    """GPT-6 review finding: a generic caller could persist a usable token in the SUBJECT."""
+    from app.db import session_scope
+    from app.models import AuthToken
+    from app.security import digest
+    from app.services.email import AUTH_LINK_PLACEHOLDER, queue_email
+    with session_scope() as db:
+        raw = _live_reset_token(db, "subject-caller@tokensafe.example")
+        message = queue_email(db, kind="password_reset", to="subject-caller@tokensafe.example",
+                              subject=f"Reset now: https://app.example/reset?token={raw}",
+                              body="Open the link in the subject line.")
+        assert raw not in message.subject and AUTH_LINK_PLACEHOLDER in message.subject
+        assert message.auth_token_id is not None                      # bound, so a fresh link is minted at send
+        assert db.scalar(select(AuthToken.id).where(AuthToken.token_hash == digest(raw))) is None
+        assert raw not in _every_stored_string(db)
+    assert client_for(platform).get("/reset?token=" + raw).status_code == 410
+    # The 200-character truncation must not be able to cut a token in half and hide it.
+    with session_scope() as db:
+        raw = _live_reset_token(db, "subject-long@tokensafe.example")
+        message = queue_email(db, kind="password_reset", to="subject-long@tokensafe.example",
+                              subject="x" * 170 + " token=" + raw, body="b")
+        assert raw[:20] not in message.subject and len(message.subject) <= 200
+    assert client_for(platform).get("/reset?token=" + raw).status_code == 410
+
+
+@pytest.mark.parametrize("template", [
+    "Your reset code is {t} (valid one hour)",                 # bare token, no token= at all
+    "https://app.example/reset/{t}",                           # path segment
+    "https://app.example/reset#token={t}",                     # fragment
+    "https://app.example/reset?token%3D{t}",                   # percent-encoded separator
+    "https://app.example/reset?next=/app&amp;token={t}",       # HTML-escaped ampersand
+    "TOKEN={t}",                                               # different case
+    "<a href='https://app.example/r?t={t}'>reset</a>",         # different parameter name
+])
+def test_a_live_token_is_caught_wherever_and_however_it_appears(pg_database, platform, template):
+    """Screening must not depend on the link's format: any stored text that IS a live token
+    is removed and the token revoked."""
+    from app.db import session_scope
+    from app.services.email import queue_email
+    for field in ("subject", "body"):
+        with session_scope() as db:
+            raw = _live_reset_token(db, "format@tokensafe.example")
+            text_ = template.format(t=raw)
+            message = queue_email(db, kind="notice", to="format@tokensafe.example",
+                                  subject=text_ if field == "subject" else "s",
+                                  body=text_ if field == "body" else "b")
+            assert raw not in message.subject + message.body, (field, template)
+        assert client_for(platform).get("/reset?token=" + raw).status_code == 410, (field, template)
+
+
+def test_provider_error_text_cannot_persist_the_token(platform):
+    """A provider (or proxy) that echoes the request in its error must not get the link stored."""
+    from app.db import session_scope
+    from app.models import Job
+    from app.services.email import EmailProvider, SendResult, deliver
+    onboard_business(platform, business="Echo Co", owner_email="owner@echo.example")
+    _request_reset(platform, "owner@echo.example")
+    seen: list[str] = []
+
+    class EchoingProvider(EmailProvider):
+        name = "echo"
+
+        def send(self, *, to, subject, body):
+            seen.append(body)
+            return SendResult(False, error="rejected payload: " + body)
+
+    with session_scope() as db:
+        message = _message_for(db, "owner@echo.example", "password_reset")
+        deliver(db, message, EchoingProvider())
+        raw = TOKEN_IN_TEXT.search(seen[0]).group(1)
+        assert message.status == "failed" and raw not in (message.error or "")
+        assert raw not in _every_stored_string(db)
+        assert db.scalar(select(Job.id).where(Job.last_error.contains(raw))) is None
+    assert client_for(platform).get("/reset?token=" + raw).status_code == 410
+
+
+def test_concurrent_delivery_sends_one_email_with_one_working_link(platform, monkeypatch):
+    """Two workers picking up the same message (a reclaimed job) must not both send."""
+    import time as _time
+    from app.db import session_scope
+    from app.models import Job
+    from app.services import email as email_service
+    from app.services import jobs
+    onboard_business(platform, business="Twice Co", owner_email="owner@twice.example")
+    _request_reset(platform, "owner@twice.example")
+    sent: list[str] = []
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["text"])
+        _time.sleep(0.4)
+        return httpx.Response(200, json={"id": "msg_" + uuid.uuid4().hex})
+
+    monkeypatch.setattr(email_service, "get_provider", lambda settings=None: _resend(slow))
+    with session_scope() as db:
+        message_id = str(_message_for(db, "owner@twice.example", "password_reset").id)
+    job = Job(kind="send_email", payload={"message_id": message_id}, idempotency_key="x", attempts=1)
+    barrier, errors = threading.Barrier(2), []
+
+    def work() -> None:
+        barrier.wait()
+        try:
+            jobs.HANDLERS["send_email"](job)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=work) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(sent) == 1, (errors, len(sent))
+    raw = TOKEN_IN_TEXT.search(sent[0]).group(1)
+    assert client_for(platform).get("/reset?token=" + raw).status_code == 200
