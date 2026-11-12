@@ -1,0 +1,18 @@
+{% extends "app/base.html" %}
+{% block title %}Inquiries{% endblock %}
+{% block content %}
+<header><div><h1>Inquiries</h1><p>Every request from your website, with a status and a next step.</p></div></header>
+<nav class="tabs" aria-label="Filter by status"><a href="/app/inquiries"{% if not status %} aria-current="page"{% endif %}>All</a>
+{% for s in statuses %}<a href="/app/inquiries?status={{ s }}"{% if status == s %} aria-current="page"{% endif %}>{{ s|capitalize }}</a>{% endfor %}</nav>
+<div class="card">
+{% if leads %}<div class="scroll"><table><thead><tr><th scope="col">From</th><th scope="col">About</th><th scope="col">Status</th><th scope="col">Follow up</th><th scope="col">Received</th></tr></thead><tbody>
+{% for lead in leads %}<tr>
+<td><a href="/app/inquiries/{{ lead.id }}">{{ lead.name }}</a><div class="small muted">{{ lead.email }}</div></td>
+<td>{{ lead.service or '' }}<div class="small muted">{{ lead.message[:90] }}{% if lead.message|length > 90 %}&hellip;{% endif %}</div></td>
+<td><span class="badge {{ lead.status }}">{{ lead.status }}</span></td>
+<td>{% if lead.follow_up_on %}{{ lead.follow_up_on.strftime('%b %d') }}{% if lead.follow_up_on <= today and lead.status in ('new','contacted','qualified') %} <span class="badge lost">due</span>{% endif %}{% else %}<span class="muted">Not set</span>{% endif %}</td>
+<td>{{ lead.created_at.strftime('%b %d, %H:%M') }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p class="empty">Nothing here yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,743 @@
+{% extends "public/base.html" %}
+
+{% block title %}Assessment — {{ a.business_name if a and a.business_name else "Prospect Detail" }} | Operator | {{ brand }}{% endblock %}
+{% block description %}Operator assessment detail, discovery responses, recommendation provenance, and linked service orders.{% endblock %}
+
+{% block content %}
+{% set res = r if r is mapping else (a.result if a and a.result is mapping else {}) %}
+{% set rec = res.get("recommendation") if res.get("recommendation") is mapping else {} %}
+{% set offer = res.get("offer") if res.get("offer") is mapping else (res.get("recommended_offer") if res.get("recommended_offer") is mapping else {}) %}
+
+<style>
+  .op-shell {
+    padding: 2rem 0 4rem;
+  }
+  .op-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.25rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.9375rem;
+  }
+  .op-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+    color: #1e293b;
+    text-decoration: none;
+    padding: 0.375rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+  }
+  .op-back-link:hover,
+  .op-back-link:focus-visible {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    outline: 2px solid #0f172a;
+    outline-offset: 2px;
+  }
+  .op-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .op-subnav a {
+    color: #475569;
+    text-decoration: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+  .op-subnav a:hover,
+  .op-subnav a:focus-visible {
+    color: #0f172a;
+    text-decoration: underline;
+  }
+  .op-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+  }
+  .op-title-group h1 {
+    margin: 0 0 0.375rem;
+    font-size: clamp(1.4rem, 2.5vw, 1.875rem);
+    line-height: 1.25;
+    color: #0f172a;
+  }
+  .op-subtitle {
+    margin: 0;
+    color: #475569;
+    font-size: 0.9375rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
+  }
+  .op-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .op-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    line-height: 1.3;
+  }
+  .op-badge--status {
+    background: #f1f5f9;
+    color: #1e293b;
+    border-color: #cbd5e1;
+  }
+  .op-badge--provenance {
+    background: #eff6ff;
+    color: #1e3a8a;
+    border-color: #bfdbfe;
+  }
+  .op-badge--uncertainty {
+    background: #fffbeb;
+    color: #78350f;
+    border-color: #fde68a;
+  }
+  .op-badge--measured {
+    background: #ecfdf5;
+    color: #065f46;
+    border-color: #a7f3d0;
+  }
+  .op-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .op-col-12 {
+    grid-column: span 12;
+  }
+  .op-col-7 {
+    grid-column: span 7;
+  }
+  .op-col-5 {
+    grid-column: span 5;
+  }
+  .op-col-6 {
+    grid-column: span 6;
+  }
+  @media (max-width: 860px) {
+    .op-col-7,
+    .op-col-5,
+    .op-col-6 {
+      grid-column: span 12;
+    }
+  }
+  .op-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .op-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .op-card-title {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .op-dl {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 34%) 1fr;
+    gap: 0.625rem 1rem;
+    margin: 0;
+    font-size: 0.9375rem;
+  }
+  @media (max-width: 520px) {
+    .op-dl {
+      grid-template-columns: 1fr;
+      gap: 0.2rem;
+    }
+    .op-dl dd {
+      margin-bottom: 0.65rem;
+    }
+  }
+  .op-dl dt {
+    color: #64748b;
+    font-weight: 500;
+  }
+  .op-dl dd {
+    margin: 0;
+    color: #0f172a;
+    overflow-wrap: anywhere;
+  }
+  .op-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    color: #334155;
+  }
+  .op-answer-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #475569;
+    border-radius: 0.375rem;
+    padding: 0.875rem 1rem;
+    margin-top: 0.5rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    line-height: 1.55;
+    font-size: 0.9375rem;
+  }
+  .op-question-block + .op-question-block {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #f1f5f9;
+  }
+  .op-question-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 0.9375rem;
+  }
+  .op-notice {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.375rem;
+    padding: 0.875rem 1rem;
+    font-size: 0.875rem;
+    color: #334155;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+  }
+  .op-notice strong {
+    color: #0f172a;
+  }
+  .op-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .op-list-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    padding: 0.875rem 1rem;
+    background: #fcfcfd;
+  }
+  .op-list-item-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+  .op-list-item-title {
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 0.9375rem;
+  }
+  .op-list-item-body {
+    margin: 0.25rem 0 0;
+    color: #334155;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .op-empty {
+    padding: 1.25rem;
+    text-align: center;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 0.375rem;
+    color: #64748b;
+    font-size: 0.9375rem;
+  }
+  .op-order-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1rem 1.125rem;
+    background: #ffffff;
+  }
+  .op-order-card + .op-order-card {
+    margin-top: 0.875rem;
+  }
+  .op-order-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .op-order-title {
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 1rem;
+  }
+  .op-muted {
+    color: #64748b;
+    font-size: 0.875rem;
+  }
+</style>
+
+<div class="wrap op-shell">
+  <nav class="op-breadcrumb" aria-label="Operator navigation">
+    <a class="op-back-link" href="/operator">&larr; Back to operator console</a>
+    <div class="op-subnav">
+      <a href="/operator">Overview</a>
+      <a href="/operator/outbox">Email outbox</a>
+      <a href="/operator/reviews">Lesson reviews</a>
+    </div>
+  </nav>
+
+  {% if a %}
+  <header class="op-header">
+    <div class="op-title-group">
+      <h1>{{ a.business_name or "Unnamed business" }}</h1>
+      <p class="op-subtitle">
+        <span>Assessment ID: <code class="op-mono">{{ a.id }}</code></span>
+        {% if a.industry %}
+        <span>&bull; Industry: <strong>{{ a.industry }}</strong></span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="op-badges" aria-label="Assessment status and provenance">
+      <span class="op-badge op-badge--status">Status: {{ a.status or "new" }}</span>
+      <span class="op-badge op-badge--provenance">Provenance: {{ res.get("provenance") or res.get("evidence_status") or "owner_stated" }}</span>
+      <span class="op-badge op-badge--uncertainty">Uncertainty: {{ res.get("uncertainty_level") or res.get("confidence") or "pre-measurement" }}</span>
+    </div>
+  </header>
+
+  <div class="op-grid">
+    <!-- Contact & Submission Metadata -->
+    <section class="op-card op-col-5" aria-labelledby="heading-contact">
+      <div class="op-card-header">
+        <h2 id="heading-contact" class="op-card-title">Prospect Contact &amp; Dates</h2>
+        <span class="op-badge op-badge--provenance">Prospect-supplied</span>
+      </div>
+      <dl class="op-dl">
+        <dt>Business name</dt>
+        <dd>{{ a.business_name or "Not provided" }}</dd>
+
+        <dt>Contact name</dt>
+        <dd>{{ a.contact_name or "Not provided" }}</dd>
+
+        <dt>Email</dt>
+        <dd>
+          {% if a.email %}
+            <a href="mailto:{{ a.email }}">{{ a.email }}</a>
+          {% else %}
+            <span class="op-muted">Not provided</span>
+          {% endif %}
+        </dd>
+
+        <dt>Website</dt>
+        <dd>
+          {% if a.website %}
+            {% if a.website.startswith("http://") or a.website.startswith("https://") %}
+              <a href="{{ a.website }}" rel="noopener noreferrer" target="_blank">{{ a.website }}</a>
+            {% else %}
+              <span>{{ a.website }}</span>
+            {% endif %}
+          {% else %}
+            <span class="op-muted">No website listed</span>
+          {% endif %}
+        </dd>
+
+        <dt>Industry</dt>
+        <dd>{{ a.industry or "other" }}</dd>
+
+        <dt>Assessment status</dt>
+        <dd><span class="op-badge op-badge--status">{{ a.status or "new" }}</span></dd>
+
+        <dt>Submitted at</dt>
+        <dd>
+          {% if a.created_at %}
+            <time datetime="{{ a.created_at.isoformat() if a.created_at.isoformat is defined else a.created_at }}">
+              {{ a.created_at.strftime("%Y-%m-%d %H:%M UTC") if a.created_at.strftime is defined else a.created_at }}
+            </time>
+          {% else %}
+            <span class="op-muted">Not recorded</span>
+          {% endif %}
+        </dd>
+
+        <dt>Consent recorded</dt>
+        <dd>
+          {% if a.consent_at %}
+            <time datetime="{{ a.consent_at.isoformat() if a.consent_at.isoformat is defined else a.consent_at }}">
+              {{ a.consent_at.strftime("%Y-%m-%d %H:%M UTC") if a.consent_at.strftime is defined else a.consent_at }}
+            </time>
+          {% else %}
+            <span class="op-muted">Not recorded</span>
+          {% endif %}
+        </dd>
+      </dl>
+    </section>
+
+    <!-- Two Discovery Answers -->
+    <section class="op-card op-col-7" aria-labelledby="heading-discovery">
+      <div class="op-card-header">
+        <h2 id="heading-discovery" class="op-card-title">Submitted Discovery Answers (2 Questions)</h2>
+        <span class="op-badge op-badge--provenance">Evidence: owner_stated</span>
+      </div>
+
+      <div class="op-question-block">
+        <div class="op-question-label">
+          <span>1. What are you most excited to build, improve, or achieve next?</span>
+          <span class="op-badge op-badge--provenance">Discovery Q1 &middot; Owner-stated</span>
+        </div>
+        {% if a.excited_text and a.excited_text.strip() %}
+          <div class="op-answer-box">{{ a.excited_text }}</div>
+        {% else %}
+          <div class="op-empty">No response recorded for discovery question 1.</div>
+        {% endif %}
+      </div>
+
+      <div class="op-question-block">
+        <div class="op-question-label">
+          <span>2. What is the main blocker or friction slowing the business down today?</span>
+          <span class="op-badge op-badge--provenance">Discovery Q2 &middot; Owner-stated</span>
+        </div>
+        {% if a.blocker_text and a.blocker_text.strip() %}
+          <div class="op-answer-box">{{ a.blocker_text }}</div>
+        {% else %}
+          <div class="op-empty">No response recorded for discovery question 2.</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- Recommendation, Evidence, Provenance & Uncertainty -->
+    <section class="op-card op-col-12" aria-labelledby="heading-recommendation">
+      <div class="op-card-header">
+        <h2 id="heading-recommendation" class="op-card-title">Recommendation, Evidence &amp; Uncertainty</h2>
+        <div class="op-badges">
+          <span class="op-badge op-badge--provenance">
+            Source: {{ res.get("source") or res.get("provenance") or "assessment_heuristic" }}
+          </span>
+          <span class="op-badge op-badge--uncertainty">
+            Evidence status: {{ res.get("evidence_status") or "owner_stated (unverified)" }}
+          </span>
+        </div>
+      </div>
+
+      <div class="op-notice" role="note" aria-label="Provenance and uncertainty disclosure">
+        <strong>Provenance &amp; Uncertainty Notice:</strong>
+        This assessment is derived from prospect-supplied discovery responses (<code>owner_stated</code>) prior to live workspace instrumentation.
+        {% if res.get("uncertainty") is string and res.get("uncertainty") %}
+          {{ res.get("uncertainty") }}
+        {% elif res.get("uncertainty_note") %}
+          {{ res.get("uncertainty_note") }}
+        {% elif res.get("caveats") is string and res.get("caveats") %}
+          {{ res.get("caveats") }}
+        {% else %}
+          Recommendations and projected operational improvements remain directional hypotheses until verified by system-recorded or measured workspace evidence.
+        {% endif %}
+      </div>
+
+      {% if res %}
+        <div class="op-grid">
+          <div class="op-col-6">
+            <h3 class="op-card-title" style="margin-bottom: 0.75rem;">Recommended Path &amp; Offer</h3>
+            {% set offer_title = rec.get("title") or rec.get("name") or offer.get("title") or offer.get("name") or res.get("offer_title") or res.get("offer_name") or res.get("headline") or res.get("summary") or (res.get("recommendation") if res.get("recommendation") is string else None) %}
+            {% set offer_code = rec.get("offer_code") or rec.get("code") or offer.get("code") or offer.get("offer_code") or res.get("offer_code") or res.get("recommended_offer_code") or res.get("tier") or res.get("plan") %}
+            {% set rationale = rec.get("rationale") or rec.get("reason") or rec.get("why") or offer.get("summary") or offer.get("description") or res.get("rationale") or res.get("why") or res.get("reason") or res.get("diagnosis") or res.get("detail") %}
+            {% set primary_capability = rec.get("capability") or res.get("primary_capability") or res.get("capability") or res.get("focus") or res.get("pillar") %}
+            {% set price_cents = rec.get("amount_cents") or offer.get("amount_cents") or res.get("amount_cents") or res.get("price_cents") %}
+            {% set price_display = rec.get("price") or offer.get("price") or res.get("price") %}
+
+            <dl class="op-dl">
+              <dt>Recommendation</dt>
+              <dd><strong>{{ offer_title or "Standard assessment recommendation" }}</strong></dd>
+
+              <dt>Offer / Tier code</dt>
+              <dd>
+                {% if offer_code %}
+                  <code class="op-mono">{{ offer_code }}</code>
+                {% else %}
+                  <span class="op-muted">Not specified</span>
+                {% endif %}
+              </dd>
+
+              {% if primary_capability %}
+              <dt>Primary capability</dt>
+              <dd>{{ primary_capability }}</dd>
+              {% endif %}
+
+              {% if price_display or price_cents is not none %}
+              <dt>Estimated investment</dt>
+              <dd>
+                {% if price_display %}
+                  {{ price_display }}
+                {% elif price_cents is number %}
+                  ${{ "%.2f"|format(price_cents / 100.0) }}
+                {% else %}
+                  {{ price_cents }}
+                {% endif %}
+              </dd>
+              {% endif %}
+
+              <dt>Rationale / Fit</dt>
+              <dd>{{ rationale or "Derived from submitted excitement and blocker statements." }}</dd>
+
+              {% if res.get("confidence") or rec.get("confidence") %}
+              <dt>Confidence / Certainty</dt>
+              <dd><span class="op-badge op-badge--uncertainty">{{ res.get("confidence") or rec.get("confidence") }}</span></dd>
+              {% endif %}
+            </dl>
+          </div>
+
+          <div class="op-col-6">
+            <h3 class="op-card-title" style="margin-bottom: 0.75rem;">Evidence Signals &amp; Proposed Improvements</h3>
+            {% set items = res.get("improvements") or res.get("priorities") or res.get("findings") or res.get("recommendations") or res.get("actions") or res.get("next_steps") or res.get("signals") or res.get("evidence") %}
+
+            {% if items is sequence and items is not string and items is not mapping and items|length > 0 %}
+              <ul class="op-list">
+                {% for item in items %}
+                  <li class="op-list-item">
+                    {% if item is mapping %}
+                      <div class="op-list-item-header">
+                        <span class="op-list-item-title">
+                          {{ item.get("title") or item.get("name") or item.get("claim") or item.get("capability") or ("Item " ~ loop.index) }}
+                        </span>
+                        <div class="op-badges">
+                          {% if item.get("capability") %}
+                            <span class="op-badge op-badge--status">{{ item.get("capability") }}</span>
+                          {% endif %}
+                          <span class="op-badge op-badge--provenance">
+                            {{ item.get("evidence_status") or item.get("provenance") or item.get("source") or "owner_stated" }}
+                          </span>
+                          {% if item.get("uncertainty") or item.get("confidence") %}
+                            <span class="op-badge op-badge--uncertainty">
+                              {{ item.get("uncertainty") or item.get("confidence") }}
+                            </span>
+                          {% endif %}
+                        </div>
+                      </div>
+                      {% if item.get("detail") or item.get("description") or item.get("why") or item.get("summary") %}
+                        <p class="op-list-item-body">
+                          {{ item.get("detail") or item.get("description") or item.get("why") or item.get("summary") }}
+                        </p>
+                      {% endif %}
+                      {% if item.get("metric") or item.get("evidence_note") or item.get("evidence") %}
+                        <p class="op-list-item-body op-muted">
+                          {% if item.get("metric") %}<strong>Target metric:</strong> {{ item.get("metric") }}{% endif %}
+                          {% if item.get("metric") and (item.get("evidence_note") or item.get("evidence")) %} &middot; {% endif %}
+                          {% if item.get("evidence_note") or item.get("evidence") %}
+                            <strong>Evidence note:</strong> {{ item.get("evidence_note") or item.get("evidence") }}
+                          {% endif %}
+                        </p>
+                      {% endif %}
+                    {% else %}
+                      <div class="op-list-item-header">
+                        <span class="op-list-item-title">{{ item }}</span>
+                        <span class="op-badge op-badge--provenance">owner_stated</span>
+                      </div>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% elif items is mapping and items|length > 0 %}
+              <dl class="op-dl">
+                {% for k, v in items.items() %}
+                  <dt>{{ k|replace("_", " ")|capitalize }}</dt>
+                  <dd>{{ v }}</dd>
+                {% endfor %}
+              </dl>
+            {% elif items is string and items %}
+              <p class="op-list-item-body">{{ items }}</p>
+            {% else %}
+              <div class="op-empty">No discrete evidence or improvement items listed in the assessment result payload.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Render any additional top-level keys in r so no assessment data is hidden #}
+        {% set handled_keys = [
+          "recommendation", "offer", "recommended_offer", "offer_title", "offer_name",
+          "headline", "summary", "offer_code", "recommended_offer_code", "tier", "plan",
+          "rationale", "why", "reason", "diagnosis", "detail", "primary_capability",
+          "capability", "focus", "pillar", "amount_cents", "price_cents", "price",
+          "confidence", "uncertainty", "uncertainty_note", "uncertainty_level", "caveats",
+          "source", "provenance", "evidence_status", "improvements", "priorities",
+          "findings", "recommendations", "actions", "next_steps", "signals", "evidence",
+          "token", "token_hash", "secret"
+        ] %}
+        {% set ns = namespace(extra_items=[]) %}
+        {% for k, v in res.items() %}
+          {% if k not in handled_keys and v is not none and v != "" %}
+            {% set ns.extra_items = ns.extra_items + [(k, v)] %}
+          {% endif %}
+        {% endfor %}
+
+        {% if ns.extra_items %}
+          <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #f1f5f9;">
+            <h3 class="op-card-title" style="margin-bottom: 0.75rem;">Additional Assessment Signals</h3>
+            <dl class="op-dl">
+              {% for k, v in ns.extra_items %}
+                <dt>{{ k|replace("_", " ")|capitalize }}</dt>
+                <dd>
+                  {% if v is mapping %}
+                    {% for subk, subv in v.items() %}
+                      <div><strong>{{ subk }}:</strong> {{ subv }}</div>
+                    {% endfor %}
+                  {% elif v is sequence and v is not string %}
+                    {{ v|join(", ") }}
+                  {% else %}
+                    {{ v }}
+                  {% endif %}
+                </dd>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="op-empty">
+          No structured recommendation result payload was recorded for this assessment.
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- Linked Service Orders -->
+    <section class="op-card op-col-12" aria-labelledby="heading-orders">
+      <div class="op-card-header">
+        <h2 id="heading-orders" class="op-card-title">Linked Service Orders ({{ orders|length if orders else 0 }})</h2>
+        <span class="op-badge op-badge--measured">Evidence: system_recorded</span>
+      </div>
+
+      {% if orders and orders|length > 0 %}
+        {% for o in orders %}
+          {% set snap = o.offer_snapshot if o.offer_snapshot is mapping else {} %}
+          <article class="op-order-card" aria-label="Service order {{ o.id }}">
+            <div class="op-order-top">
+              <div>
+                <span class="op-order-title">
+                  {{ snap.get("title") or snap.get("name") or o.offer_code or "Service Order" }}
+                </span>
+                <span class="op-muted"> &middot; <code class="op-mono">{{ o.id }}</code></span>
+              </div>
+              <div class="op-badges">
+                <span class="op-badge op-badge--status">Status: {{ o.status or "unknown" }}</span>
+                <span class="op-badge op-badge--provenance">
+                  {% if o.amount_cents is number %}
+                    ${{ "%.2f"|format(o.amount_cents / 100.0) }} {{ (o.currency or "usd")|upper }}
+                  {% else %}
+                    {{ o.amount_cents }} {{ (o.currency or "usd")|upper }}
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+
+            <dl class="op-dl">
+              <dt>Offer code</dt>
+              <dd><code class="op-mono">{{ o.offer_code or "—" }}</code></dd>
+
+              <dt>Approved by</dt>
+              <dd>{{ o.approved_name or "—" }} (Terms: {{ o.terms_version or "—" }})</dd>
+
+              <dt>Approved at</dt>
+              <dd>
+                {% if o.approved_at %}
+                  <time datetime="{{ o.approved_at.isoformat() if o.approved_at.isoformat is defined else o.approved_at }}">
+                    {{ o.approved_at.strftime("%Y-%m-%d %H:%M UTC") if o.approved_at.strftime is defined else o.approved_at }}
+                  </time>
+                {% else %}
+                  <span class="op-muted">Not recorded</span>
+                {% endif %}
+              </dd>
+
+              <dt>Order created</dt>
+              <dd>
+                {% if o.created_at %}
+                  <time datetime="{{ o.created_at.isoformat() if o.created_at.isoformat is defined else o.created_at }}">
+                    {{ o.created_at.strftime("%Y-%m-%d %H:%M UTC") if o.created_at.strftime is defined else o.created_at }}
+                  </time>
+                {% else %}
+                  <span class="op-muted">Not recorded</span>
+                {% endif %}
+              </dd>
+
+              <dt>Payment provider</dt>
+              <dd>
+                {{ o.payment_provider or "none" }}
+                {% if o.provider_ref %}
+                  &middot; Ref: <code class="op-mono">{{ o.provider_ref }}</code>
+                {% endif %}
+              </dd>
+
+              <dt>Payment evidence</dt>
+              <dd>{{ o.payment_evidence or "None recorded" }}</dd>
+
+              <dt>Paid at</dt>
+              <dd>
+                {% if o.paid_at %}
+                  <time datetime="{{ o.paid_at.isoformat() if o.paid_at.isoformat is defined else o.paid_at }}">
+                    {{ o.paid_at.strftime("%Y-%m-%d %H:%M UTC") if o.paid_at.strftime is defined else o.paid_at }}
+                  </time>
+                {% else %}
+                  <span class="op-muted">Unpaid</span>
+                {% endif %}
+              </dd>
+
+              <dt>Provisioned workspace</dt>
+              <dd>
+                {% if o.org_id %}
+                  Org <code class="op-mono">{{ o.org_id }}</code>
+                  {% if o.provisioned_at %}
+                    on
+                    <time datetime="{{ o.provisioned_at.isoformat() if o.provisioned_at.isoformat is defined else o.provisioned_at }}">
+                      {{ o.provisioned_at.strftime("%Y-%m-%d %H:%M UTC") if o.provisioned_at.strftime is defined else o.provisioned_at }}
+                    </time>
+                  {% endif %}
+                {% else %}
+                  <span class="op-muted">Not provisioned yet</span>
+                {% endif %}
+              </dd>
+            </dl>
+          </article>
+        {% endfor %}
+      {% else %}
+        <div class="op-empty">
+          No service orders are linked to this assessment yet.
+        </div>
+      {% endif %}
+    </section>
+  </div>
+  {% else %}
+  <div class="op-empty" role="status">
+    Assessment record not available. <a href="/operator">Return to the operator console</a>.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

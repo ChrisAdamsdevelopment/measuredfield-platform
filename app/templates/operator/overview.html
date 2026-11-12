@@ -1,0 +1,305 @@
+{% extends "public/base.html" %}
+
+{% block title %}Operator Console | {{ brand }}{% endblock %}
+{% block description %}MeasuredField operator overview for assessments, service orders, outbox, background jobs, lesson reviews, and custom domains.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="wrap">
+    <div class="section-head" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;">
+      <div>
+        <p class="eyebrow">Platform Administration</p>
+        <h1>Operator Console</h1>
+        <p class="lead">Monitor prospect assessments, service orders, queued jobs, email delivery, custom domains, and shared-lesson reviews.</p>
+      </div>
+      <nav aria-label="Operator navigation" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+        <a class="btn btn-secondary" href="/operator" aria-current="page">Overview</a>
+        <a class="btn btn-secondary" href="/operator/reviews">
+          Lesson Reviews ({{ pending_reviews|default(0) }} pending)
+        </a>
+        <a class="btn btn-secondary" href="/operator/outbox">Email Outbox</a>
+      </nav>
+    </div>
+
+    {% if flash %}
+    <div class="flash flash-ok card" role="status" style="margin-bottom:1rem;border-left:4px solid #16a34a;padding:0.875rem 1rem;">
+      {{ flash }}
+    </div>
+    {% endif %}
+
+    {% if flash_error %}
+    <div class="flash flash-error card" role="alert" style="margin-bottom:1rem;border-left:4px solid #dc2626;padding:0.875rem 1rem;">
+      {{ flash_error }}
+    </div>
+    {% endif %}
+
+    <!-- System Status & Queue Summary Cards -->
+    <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:2rem;">
+      <article class="card" style="padding:1.25rem;">
+        <h2 style="font-size:1rem;margin-top:0;">Provider Status</h2>
+        <ul style="list-style:none;padding:0;margin:0.5rem 0 0;display:grid;gap:0.5rem;">
+          <li>
+            <strong>Payments:</strong>
+            {% if payments_live %}
+              <span class="badge badge-ok">Provider configured</span>
+            {% else %}
+              <span class="badge">Manual / Offline mode</span>
+            {% endif %}
+          </li>
+          <li>
+            <strong>Email:</strong>
+            {% if email_live %}
+              <span class="badge badge-ok">Provider configured</span>
+            {% else %}
+              <span class="badge">Outbox capture mode</span>
+            {% endif %}
+          </li>
+        </ul>
+      </article>
+
+      <article class="card" style="padding:1.25rem;">
+        <h2 style="font-size:1rem;margin-top:0;">Shared-Lesson Reviews</h2>
+        <p style="margin:0.5rem 0;">
+          <strong>{{ pending_reviews|default(0) }}</strong> candidate lesson(s) awaiting operator decision.
+        </p>
+        <p style="margin:0.75rem 0 0;">
+          <a href="/operator/reviews">Open review queue &rarr;</a>
+        </p>
+      </article>
+
+      <article class="card" style="padding:1.25rem;">
+        <h2 style="font-size:1rem;margin-top:0;">Email Outbox</h2>
+        {% if outbox %}
+        <dl style="display:grid;grid-template-columns:1fr auto;gap:0.25rem 0.75rem;margin:0.5rem 0;">
+          {% for status, count in outbox.items() %}
+          <dt>{{ status }}</dt>
+          <dd style="margin:0;font-weight:600;">{{ count }}</dd>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <p class="muted" style="margin:0.5rem 0;">No email messages recorded yet.</p>
+        {% endif %}
+        <p style="margin:0.75rem 0 0;">
+          <a href="/operator/outbox">Inspect outbox &rarr;</a>
+        </p>
+      </article>
+
+      <article class="card" style="padding:1.25rem;">
+        <h2 style="font-size:1rem;margin-top:0;">Job Queue</h2>
+        {% if jobs %}
+        <dl style="display:grid;grid-template-columns:1fr auto;gap:0.25rem 0.75rem;margin:0.5rem 0;">
+          {% for status, count in jobs.items() %}
+          <dt>{{ status }}</dt>
+          <dd style="margin:0;font-weight:600;">{{ count }}</dd>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <p class="muted" style="margin:0.5rem 0;">No background jobs queued.</p>
+        {% endif %}
+        <form method="post" action="/operator/jobs/run" style="margin-top:0.75rem;">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary">Run due jobs</button>
+        </form>
+      </article>
+    </div>
+
+    <!-- Service Orders -->
+    <section aria-labelledby="orders-heading" class="card" style="padding:1.5rem;margin-bottom:2rem;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+        <h2 id="orders-heading" style="margin:0;">Service Orders</h2>
+        <span class="muted">Showing up to 50 most recent orders</span>
+      </div>
+
+      {% if orders %}
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="table" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid #e5e7eb;">
+              <th style="padding:0.5rem;">Order / Created</th>
+              <th style="padding:0.5rem;">Prospect &amp; Assessment</th>
+              <th style="padding:0.5rem;">Plan &amp; Amount</th>
+              <th style="padding:0.5rem;">Status</th>
+              <th style="padding:0.5rem;">Operator Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order, a in orders %}
+            <tr style="border-bottom:1px solid #f3f4f6;vertical-align:top;">
+              <td style="padding:0.75rem 0.5rem;">
+                <div><code>{{ order.id }}</code></div>
+                {% if order.created_at is defined and order.created_at %}
+                <div class="muted" style="font-size:0.875rem;">{{ order.created_at }}</div>
+                {% endif %}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <div>
+                  <strong>{{ a.business_name|default(a.name|default('Prospect')) }}</strong>
+                </div>
+                <div style="font-size:0.875rem;">
+                  <a href="/operator/assessments/{{ a.id }}">Assessment {{ a.id }}</a>
+                </div>
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <div>
+                  {{ order.offer_code|default('Standard') }}
+                </div>
+                <div style="font-weight:600;">
+                  {% if order.amount_cents is defined and order.amount_cents is not none %}
+                    ${{ "%.2f"|format(order.amount_cents / 100) }}
+                    {% if order.currency is defined and order.currency %}{{ order.currency|upper }}{% endif %}
+                  {% elif order.amount is defined and order.amount is not none %}
+                    ${{ order.amount }}
+                  {% else %}
+                    &mdash;
+                  {% endif %}
+                </div>
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <span class="badge">{{ order.status|default('unknown') }}</span>
+                {% if order.paid_at is defined and order.paid_at %}
+                <div class="muted" style="font-size:0.8125rem;">Paid: {{ order.paid_at }}</div>
+                {% endif %}
+                {% if order.provisioned_at is defined and order.provisioned_at %}
+                <div class="muted" style="font-size:0.8125rem;">Provisioned: {{ order.provisioned_at }}</div>
+                {% endif %}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                  {% if order.status in ('approved_unpaid', 'payment_pending') %}
+                  <form method="post" action="/operator/orders/{{ order.id }}/mark-paid" style="display:flex;gap:0.375rem;flex-wrap:wrap;align-items:center;">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <input type="text" name="reference" required minlength="4" placeholder="Payment reference" aria-label="Payment reference for order {{ order.id }}" style="max-width:10rem;">
+                    <button type="submit" class="btn btn-secondary">Mark paid</button>
+                  </form>
+                  {% endif %}
+
+                  {% if order.status in ('paid', 'consult_requested', 'approved_unpaid') and (order.org_id is not defined or not order.org_id) %}
+                  <form method="post" action="/operator/orders/{{ order.id }}/provision" style="display:flex;gap:0.375rem;flex-wrap:wrap;align-items:center;">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    {% if order.status != 'paid' %}
+                    <input type="text" name="reason" placeholder="Unpaid override reason" aria-label="Unpaid provision reason for order {{ order.id }}" style="max-width:10rem;">
+                    {% else %}
+                    <input type="hidden" name="reason" value="">
+                    {% endif %}
+                    <button type="submit" class="btn btn-secondary">Provision workspace</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted" style="margin:0;">No service orders recorded yet.</p>
+      {% endif %}
+    </section>
+
+    <!-- Pending Custom Domains -->
+    <section aria-labelledby="domains-heading" class="card" style="padding:1.5rem;margin-bottom:2rem;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+        <h2 id="domains-heading" style="margin:0;">Pending Custom Domains</h2>
+        <span class="muted">Awaiting DNS &amp; TLS verification</span>
+      </div>
+
+      {% if pending_domains %}
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="table" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid #e5e7eb;">
+              <th style="padding:0.5rem;">Hostname</th>
+              <th style="padding:0.5rem;">Kind</th>
+              <th style="padding:0.5rem;">Site / Org</th>
+              <th style="padding:0.5rem;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for host in pending_domains %}
+            <tr style="border-bottom:1px solid #f3f4f6;">
+              <td style="padding:0.75rem 0.5rem;"><code>{{ host.hostname }}</code></td>
+              <td style="padding:0.75rem 0.5rem;">{{ host.kind }}</td>
+              <td style="padding:0.75rem 0.5rem;">
+                <span class="muted" style="font-size:0.875rem;">
+                  Site: <code>{{ host.site_id }}</code> / Org: <code>{{ host.org_id }}</code>
+                </span>
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <form method="post" action="/operator/domains/verify" style="margin:0;">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <input type="hidden" name="hostname" value="{{ host.hostname }}">
+                  <button type="submit" class="btn btn-secondary" title="Only after confirming DNS and TLS configuration outside this app">Confirm verified DNS and TLS</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted" style="margin:0;">No custom domains awaiting verification.</p>
+      {% endif %}
+    </section>
+
+    <!-- Recent Assessments -->
+    <section aria-labelledby="assessments-heading" class="card" style="padding:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+        <h2 id="assessments-heading" style="margin:0;">Recent Assessments</h2>
+        <span class="muted">Showing up to 50 most recent prospect assessments</span>
+      </div>
+
+      {% if assessments %}
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="table" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid #e5e7eb;">
+              <th style="padding:0.5rem;">Business</th>
+              <th style="padding:0.5rem;">Trade / Industry</th>
+              <th style="padding:0.5rem;">Recommendation</th>
+              <th style="padding:0.5rem;">Created</th>
+              <th style="padding:0.5rem;">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in assessments %}
+            <tr style="border-bottom:1px solid #f3f4f6;">
+              <td style="padding:0.75rem 0.5rem;">
+                <strong>{{ a.business_name|default(a.name|default('Assessment')) }}</strong>
+                {% if a.contact_name is defined and a.contact_name %}
+                <div class="muted" style="font-size:0.875rem;">{{ a.contact_name }}</div>
+                {% endif %}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                {{ a.trade|default(a.industry|default('—')) }}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                {% if a.recommended_tier is defined and a.recommended_tier %}
+                  <span class="badge">{{ a.recommended_tier }}</span>
+                {% elif a.result is defined and a.result is mapping %}
+                  <span class="badge">{{ a.result.get('recommended_package') or a.result.get('recommended_tier') or a.result.get('tier') or 'Completed' }}</span>
+                {% else %}
+                  <span class="muted">&mdash;</span>
+                {% endif %}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                {% if a.created_at is defined and a.created_at %}
+                <span class="muted" style="font-size:0.875rem;">{{ a.created_at }}</span>
+                {% else %}
+                &mdash;
+                {% endif %}
+              </td>
+              <td style="padding:0.75rem 0.5rem;">
+                <a href="/operator/assessments/{{ a.id }}">View details &rarr;</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted" style="margin:0;">No assessments submitted yet.</p>
+      {% endif %}
+    </section>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "app/base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<header><div><h1>Settings</h1><p>Business profile, connected services, billing and your data.</p></div></header>
+<div class="grid g2">
+<div class="card"><h2>Business profile</h2>
+<form method="post" action="/app/settings/profile"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="name">Business name</label><input id="name" name="name" maxlength="120" required value="{{ org.name }}"{% if not can('settings.write') %} readonly{% endif %}>
+<label for="industry">Type of business</label><select id="industry" name="industry"{% if not can('settings.write') %} disabled{% endif %}>{% for i in ['cleaning','construction','landscaping','food','wellness','professional','retail','other'] %}<option value="{{ i }}"{% if org.industry == i %} selected{% endif %}>{{ i|capitalize }}</option>{% endfor %}</select>
+{% if can('settings.write') %}<div class="actions"><button class="btn" type="submit">Save</button></div>{% endif %}</form></div>
+
+<div class="card"><h2>Connected services</h2>
+<dl class="kv">
+<dt>Email notices</dt><dd>{% if email_live %}<span class="badge live">On</span> New-inquiry notices and invitations are emailed.{% else %}<span class="badge unknown">Off</span> No email is sent from this environment. Invitations and notices are created but must be relayed by {{ brand }}.{% endif %}</dd>
+<dt>Online payment</dt><dd>{% if payments_live %}<span class="badge live">On</span>{% else %}<span class="badge unknown">Off</span> Payments are arranged directly.{% endif %}</dd>
+<dt>Search Console</dt><dd><span class="badge unknown">Not available yet</span></dd>
+<dt>AI assistant</dt><dd>{% if ai_live %}<span class="badge live">On</span>{% else %}<span class="badge unknown">Off</span> Suggestions in this workspace are rule-based. No AI model reads your data.{% endif %}</dd>
+</dl></div>
+
+{% if can('billing.read') %}<div class="card"><h2>Plan and billing</h2>
+<dl class="kv"><dt>Plan</dt><dd>{{ billing.get('offer') or org.plan }}</dd>
+<dt>Payment</dt><dd>{% if billing.get('paid') %}Paid: ${{ '%.2f'|format(billing.get('amount_cents', 0) / 100) }}{% else %}No payment recorded for this workspace.{% endif %}</dd></dl>
+<p class="small muted actions">Invoices and card management will appear here when online payment is switched on.</p></div>{% endif %}
+
+{% if can('data.manage') %}<div class="card"><h2>Your data</h2>
+<p>Download everything in this workspace as one file, including documents.</p>
+<p><a class="btn ghost" href="/app/settings/export">Export workspace data</a></p>
+<h3 class="actions">Delete this workspace</h3>
+{% if deletion %}<div class="alert err">Deletion is scheduled for {{ deletion.run_after.strftime('%B %d, %Y at %H:%M UTC') }}.</div>
+<form method="post" action="/app/settings/delete/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn" type="submit">Cancel deletion</button></form>
+{% else %}<p class="small muted">Removes your website, inquiries, customers, documents and notes from the live system after a {{ grace_hours }}-hour waiting period. Copies in database backups expire on the backup schedule. Sign-in accounts are kept.</p>
+<form method="post" action="/app/settings/delete"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="confirm">Type <strong>{{ org.name }}</strong> to confirm</label><input id="confirm" name="confirm" autocomplete="off" required>
+<div class="actions"><button class="btn danger" type="submit">Schedule deletion</button></div></form>{% endif %}
+</div>{% endif %}
+</div>
+{% endblock %}

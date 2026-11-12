@@ -1,0 +1,59 @@
+name: MeasuredField PostgreSQL CI
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mf-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      MF_TEST_PG_ADMIN_URL: postgresql://postgres:synthetic-ci-only-password@127.0.0.1:5432/postgres
+      MF_ENV: test
+      MF_INLINE_JOBS: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned runtime and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+      - name: Parse Python source
+        run: python -m compileall -q app tests scripts
+      - name: Run full isolated PostgreSQL and HTTP integration tests
+        run: python -m pytest tests -q -p no:cacheprovider
+      - name: Verify Render Blueprint configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("render.yaml").read_text(encoding="utf-8")
+          assert "measuredfield-staging-web" in p
+          assert "measuredfield-staging-worker" in p
+          assert p.count('autoDeployTrigger: "off"') == 2
+          print("Staging config present; auto-deploy disabled.")
+          PY

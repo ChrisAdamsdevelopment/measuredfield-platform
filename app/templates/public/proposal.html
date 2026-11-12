@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>{{ p.title }} | {{ org.name }}</title><link rel="stylesheet" href="/static/site.css"><link rel="stylesheet" href="/static/mf.css"></head>
+<body><main id="main" class="flow"><div class="narrow">
+<div class="eyebrow"><span class="eyebrow-line"></span> Proposal from {{ org.name }}</div>
+<h1>{{ p.title }}</h1>
+<p class="lead">Prepared for {{ customer.name }} &middot; Revision {{ p.revision }}</p>
+{% if error %}<div class="alert err" role="alert">{{ error }}</div>{% endif %}
+<div class="step-card">
+{% if p.scope %}<h2>Scope</h2><p>{{ p.scope }}</p>{% endif %}
+<table class="lines"><thead><tr><th scope="col">Item</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th></tr></thead><tbody>
+{% for item in p.items %}<tr><td>{{ item.description }}</td><td class="num">{{ '%g'|format(item.quantity) }}</td><td class="num">${{ '%.2f'|format(item.unit_price_cents / 100) }}</td><td class="num">${{ '%.2f'|format(item.total_cents / 100) }}</td></tr>{% endfor %}
+</tbody><tfoot><tr><th scope="row" colspan="3">Total</th><td class="num"><strong>${{ '%.2f'|format(p.total_cents / 100) }}</strong></td></tr></tfoot></table>
+</div>
+{% if p.status == 'sent' %}
+<form class="step-card" method="post" action="/p/{{ token }}">
+<h2>Your decision</h2>
+<div class="field"><label for="signer_name">Type your full name</label><input id="signer_name" name="signer_name" maxlength="120" autocomplete="name" required></div>
+<p class="hint">Approving records your name, the date and this revision for {{ org.name }}. It is not a payment.</p>
+<div class="field actions"><button class="btn primary" type="submit" name="decision" value="approve">Approve this proposal</button> <button class="btn secondary" type="submit" name="decision" value="decline">Decline</button></div>
+</form>
+{% else %}
+<div class="status-box"><h2>{{ 'Approved' if p.status == 'approved' else 'Declined' }}</h2>
+<p>{{ p.decided_name }} {{ p.status }} revision {{ p.decided_revision }} on {{ p.decided_at.strftime('%B %d, %Y') }}. This is recorded in the {{ org.name }} workspace.</p></div>
+{% endif %}
+<p class="fine-print">This page is provided by {{ brand }} on behalf of {{ org.name }}.</p>
+</div></main></body></html>

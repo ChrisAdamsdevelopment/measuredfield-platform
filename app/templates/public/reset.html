@@ -1,0 +1,14 @@
+{% extends "public/base.html" %}
+{% block title %}Choose a new password | {{ brand }}{% endblock %}
+{% block content %}
+<div class="auth"><div class="step-card">
+<h1>Choose a new password</h1>
+{% if error %}<div class="alert err" role="alert">{{ error }}</div>{% endif %}
+<form method="post" action="/reset">
+<input type="hidden" name="token" value="{{ token }}">
+<div class="field"><label for="password">New password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required aria-describedby="pw-hint">
+<p class="hint" id="pw-hint">At least 12 characters. Saving signs you out everywhere else.</p></div>
+<div class="field"><button class="btn primary block" type="submit">Save password</button></div>
+</form>
+</div></div>
+{% endblock %}

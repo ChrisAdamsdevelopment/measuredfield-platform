@@ -1,0 +1,47 @@
+{% extends "public/base.html" %}
+{% block title %}Email Outbox | {{ brand }}{% endblock %}
+{% block description %}Operator-only outbound notification audit{% endblock %}
+{% block content %}
+<section class="section"><div class="wrap">
+  <div class="section-head">
+    <p class="eyebrow">Platform operations / delivery</p>
+    <h1>Email Outbox</h1>
+    <p class="lead">Review messages queued, sent, or withheld. A queued message is not proof of delivery.</p>
+    <p><a href="/operator">Back to operator console</a></p>
+  </div>
+  {% if flash %}<p class="flash flash-ok" role="status">{{ flash }}</p>{% endif %}
+  {% if flash_error %}<p class="flash flash-error" role="alert">{{ flash_error }}</p>{% endif %}
+  <div class="card" style="padding:1.25rem;margin-bottom:1.25rem">
+    <strong>Provider:</strong>
+    {% if email_live %}Configured. Check each message's status for actual delivery.{% else %}
+    Not configured. Messages are recorded but cannot be delivered.{% endif %}
+  </div>
+  {% if messages %}
+  <div style="overflow-x:auto" role="region" aria-label="Recent email messages" tabindex="0">
+    <table class="table" style="width:100%;border-collapse:collapse">
+      <thead><tr><th scope="col">Created</th><th scope="col">Type</th><th scope="col">Recipient</th>
+      <th scope="col">Subject</th><th scope="col">Status</th><th scope="col">Provider / details</th></tr></thead>
+      <tbody>
+      {% for message in messages %}
+      <tr>
+        <td>{{ message.created_at }}</td>
+        <td>{{ message.kind }}</td>
+        <td>{{ message.to_email }}</td>
+        <td>{{ message.subject }}</td>
+        <td><strong>{{ message.status }}</strong>{% if message.sent_at %}<small>Sent {{ message.sent_at }}</small>{% endif %}</td>
+        <td>
+          <span>{{ message.provider }}</span>
+          {% if message.provider_message_id %}<small>Provider ID: {{ message.provider_message_id }}</small>{% endif %}
+          {% if message.error %}<p role="status">Error: {{ message.error }}</p>{% endif %}
+          <details><summary>Message text</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ message.body }}</pre></details>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="padding:1.25rem"><p>No messages are recorded yet.</p></div>
+  {% endif %}
+</div></section>
+{% endblock %}

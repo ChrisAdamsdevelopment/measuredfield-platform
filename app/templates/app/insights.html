@@ -1,0 +1,37 @@
+{% extends "app/base.html" %}
+{% block title %}Insights{% endblock %}
+{% block content %}
+<header><div><h1>Insights</h1><p>Only what this platform has actually counted. Anything we can't see is listed as unknown.</p></div></header>
+<div class="grid g4">
+<div class="card stat"><div class="n">{{ measured.page_view }}</div><div class="l">Website visits (30 days)</div></div>
+<div class="card stat"><div class="n">{{ measured.form_start }}</div><div class="l">Contact form starts</div></div>
+<div class="card stat"><div class="n">{{ measured.lead }}</div><div class="l">Inquiries sent</div></div>
+<div class="card stat"><div class="n">{{ leads_responded }}<span class="muted small"> / {{ leads_total }}</span></div><div class="l">Inquiries with a recorded response</div></div>
+</div>
+<section class="card actions" aria-labelledby="response-heading">
+<h2 id="response-heading">Inquiry response performance — last {{ response_metrics.window_days }} days</h2>
+<p class="small muted">Measured from the time an inquiry was recorded until the first team response status was recorded. This is not independent proof of a call, text, or email.</p>
+<div class="grid g4">
+<div class="card stat"><div class="n">{% if response_metrics.median_hours is not none %}{{ response_metrics.median_hours }}h{% else %}—{% endif %}</div><div class="l">Median recorded first-response time</div></div>
+<div class="card stat"><div class="n">{% if response_metrics.p90_hours is not none %}{{ response_metrics.p90_hours }}h{% else %}—{% endif %}</div><div class="l">90th-percentile recorded response time</div></div>
+<div class="card stat"><div class="n">{{ response_metrics.overdue_open }}</div><div class="l">Open inquiries beyond the internal {{ response_metrics.target_hours }}-hour target</div></div>
+<div class="card stat"><div class="n">{% if response_metrics.on_time_pct is not none %}{{ response_metrics.on_time_pct }}%{% else %}—{% endif %}</div><div class="l">Eligible inquiries with a response recorded within {{ response_metrics.target_hours }} hours</div></div>
+</div>
+<p class="small muted">Eligible sample: {{ response_metrics.eligible_for_target }} · Recorded responses: {{ response_metrics.responses_recorded }} · Timestamp anomalies: {{ response_metrics.timestamp_anomalies }}. The {{ response_metrics.target_hours }}-hour threshold is an internal tracking target, not a customer promise. Figures are unknown when no qualifying records exist.</p>
+</section>
+<p class="small muted actions">Visit counts are daily totals with no cookies and no visitor identifiers. Small numbers are not a trend; treat anything under a few dozen as anecdote.</p>
+
+<div class="card actions"><h2>Suggested experiments</h2>
+{% if report %}
+<p class="small muted">Rule-based review of the counts above. Every item is a proposal for you to decide on; nothing is changed automatically.</p>
+{% for a in report.analysis.actions %}<div class="note-item"><strong>{{ a.claim }}</strong><div>{{ a.experiment }}</div><div class="small muted">Would be measured by: {{ a.metric }} &middot; priority {{ a.priority }} &middot; needs your approval</div></div>
+{% else %}<p class="empty">No suggestions from the current counts.</p>{% endfor %}
+<h3 class="actions">Still unknown</h3><ul class="small">{% for u in report.unknowns %}<li>{{ u }}</li>{% endfor %}</ul>
+<p class="small muted">{{ report.analysis.methodology }}</p>
+{% else %}<div class="alert note">The review engine isn't available on this server right now, so no suggestions are shown. The counts above are unaffected.</div>{% endif %}
+</div>
+
+<div class="card actions"><h2>Connections</h2>
+<dl class="kv"><dt>Google Search Console</dt><dd><span class="badge unknown">Not connected</span> Search impressions and clicks are unknown until you authorize read-only access. This connector is not yet available.</dd>
+<dt>AI answer visibility</dt><dd><span class="badge unknown">Not connected</span> Sampled testing of AI assistants is not yet available.</dd></dl></div>
+{% endblock %}

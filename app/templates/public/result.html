@@ -1,0 +1,77 @@
+{% extends "public/base.html" %}
+{% block title %}Assessment for {{ a.business_name }} | {{ brand }}{% endblock %}
+{% block content %}
+<section class="result-head"><div class="narrow">
+<div class="eyebrow"><span class="eyebrow-line"></span> Assessment for {{ a.business_name }}</div>
+<h1>{{ r.headline }}</h1>
+<p class="method">{{ r.method }} Bookmark this page to come back to it.</p>
+</div></section>
+<div class="result-body"><div class="narrow">
+
+{% if r.priorities %}
+<h2>What you're excited about</h2>
+<div class="cards">{% for p in r.priorities %}
+<div class="r-card"><h3>{{ p.label }}</h3>{% if p.in_their_words %}<p class="quote">&ldquo;{{ p.in_their_words }}&rdquo;</p>{% endif %}</div>
+{% endfor %}</div>
+{% else %}
+<h2>What you told us</h2>
+<div class="r-card"><p class="quote">&ldquo;{{ a.excited_text }}&rdquo;</p></div>
+{% endif %}
+
+<h2>What seems to be in the way</h2>
+{% if r.obstacles %}
+<p class="hint">Each item below comes from your own words. We label it honestly: you told us, and we haven't verified it.</p>
+<div class="cards">{% for o in r.obstacles %}
+<div class="r-card">
+<h3>{{ o.label }}</h3>
+<span class="badge {{ 'stated' if o.in_scope else 'out' }}">{{ 'You told us &middot; not yet verified'|safe if o.in_scope else 'Outside what we do' }}</span>
+{% if o.in_their_words %}<p class="quote">&ldquo;{{ o.in_their_words }}&rdquo;</p>{% endif %}
+<dl class="kv">
+<dt>{{ 'How we can help' if o.in_scope else 'Our honest answer' }}</dt><dd>{{ o.what_we_do }}</dd>
+<dt>A first step</dt><dd>{{ o.first_step }}</dd>
+<dt>What we'd need to see</dt><dd>{{ o.evidence_needed }}</dd>
+</dl></div>
+{% endfor %}</div>
+{% else %}
+<div class="r-card"><p class="quote">&ldquo;{{ a.blocker_text }}&rdquo;</p>
+<p>We read this carefully and couldn't match it to something we can confidently help with. Rather than guess, we'd like to talk it through with you.</p></div>
+{% endif %}
+
+<h2>Suggested next steps</h2>
+<ol class="plain-list">{% for step in r.next_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+
+<h2>What we don't know yet</h2>
+<ul class="plain-list">{% for u in r.unknowns %}<li>{{ u }}</li>{% endfor %}</ul>
+<p class="fine-print">{{ r.disclaimer }}</p>
+
+{% if order %}
+<div class="status-box"><h2>You've chosen: {{ order.offer_snapshot.name }}</h2>
+<p><a class="btn primary" href="/order/{{ order.id }}?t={{ token }}">View the status of your request</a></p></div>
+{% else %}
+<h2 id="choose">Choose how you'd like to continue</h2>
+<p class="hint">{{ r.recommendation_reason }}</p>
+{% if errors.get('form') %}<div class="alert err" role="alert">{{ errors.form }}</div>{% endif %}
+{% if errors.get('agree') %}<div class="alert err" role="alert">{{ errors.agree }}</div>{% endif %}
+<form class="offer-form" method="post" action="/assessment/r/{{ token }}/order">
+<div class="cards">
+{% for offer in offers %}
+<label class="plan{% if offer.code == r.recommended_offer %} featured{% endif %}">
+{% if offer.code == r.recommended_offer %}<span class="recommended">Suggested for you</span>{% endif %}
+<h3><input type="radio" name="offer_code" value="{{ offer.code }}" required {% if (chosen or r.recommended_offer) == offer.code %}checked{% endif %}>{{ offer.name }}
+ &mdash; {% if offer.price_cents == 0 %}Free{% else %}${{ '%.0f'|format(offer.price_cents / 100) }}{{ ' per month' if offer.billing == 'monthly' else ' one time' }}{% endif %}</h3>
+<p>{{ offer.summary }}</p>
+<ul>{% for line in offer.includes %}<li>{{ line }}</li>{% endfor %}</ul>
+</label>
+{% endfor %}
+</div>
+<div class="step-card">
+<div class="field"><label for="approved_name">Type your full name to confirm your choice</label><input id="approved_name" name="approved_name" maxlength="120" autocomplete="name" required value="{{ a.contact_name }}"></div>
+<label class="check"><input type="checkbox" name="agree" value="yes" required><span>I've read the <a href="/terms">terms</a> and I'm requesting the option selected above for {{ a.business_name }}.</span></label>
+{% if payments_live %}<p class="hint">For paid options you'll be taken to our payment provider's secure checkout. Your card details never touch this site.</p>
+{% else %}<div class="alert note">Online payment is not switched on yet. Confirming records your approval only. <strong>No payment is taken</strong>; we'll contact you to arrange it before any work begins.</div>{% endif %}
+<div class="field"><button class="btn primary block" type="submit">Confirm my choice</button></div>
+</div>
+</form>
+{% endif %}
+</div></div>
+{% endblock %}

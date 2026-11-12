@@ -1,0 +1,16 @@
+{% extends "public/base.html" %}
+{% block title %}Sign in | {{ brand }}{% endblock %}
+{% block content %}
+<div class="auth"><div class="step-card">
+<h1>Sign in</h1><p class="hint">Open your private workspace.</p>
+{% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
+{% if error %}<div class="alert err" role="alert">{{ error }}</div>{% endif %}
+<form method="post" action="/login">
+<input type="hidden" name="next" value="{{ next }}">
+<div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required value="{{ email }}"></div>
+<div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+<div class="field"><button class="btn primary block" type="submit">Sign in</button></div>
+</form>
+<p class="links"><a href="/forgot">Forgot your password?</a><br>New here? Accounts are created when you become a customer. <a href="/assessment">Start with the assessment</a>.</p>
+</div></div>
+{% endblock %}

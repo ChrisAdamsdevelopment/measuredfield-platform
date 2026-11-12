@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>{{ status }} | {{ brand }}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><main class="err-page">
+<h1>{% if status == 404 %}We couldn't find that page{% elif status == 403 %}You don't have access to that{% elif status == 429 %}Please slow down{% elif status >= 500 %}Something went wrong on our side{% else %}That didn't work{% endif %}</h1>
+<p class="muted">{{ message }}</p>
+{% if reference %}<p class="small muted">Reference: {{ reference }}</p>{% endif %}
+<p><a class="btn" href="/">Home</a> <a class="btn ghost" href="/app">Workspace</a></p>
+</main></body></html>

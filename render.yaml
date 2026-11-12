@@ -1,0 +1,77 @@
+# Render staging blueprint. REVIEW before importing; this is not deployed.
+# Runtime must use a restricted PostgreSQL role, distinct from MIGRATION_DATABASE_URL.
+# Provision the database and roles manually; no secrets or DNS are in this file.
+services:
+  - type: web
+    name: measuredfield-staging-web
+    runtime: python
+    region: oregon
+    plan: starter
+    autoDeployTrigger: "off"
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: python -m app.migrate
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: MF_ENV
+        value: staging
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: MF_SECRET_KEY
+        generateValue: true
+      - key: MF_APP_HOSTS
+        sync: false
+      - key: MF_SITES_BASE_DOMAIN
+        sync: false
+      - key: MF_PUBLIC_BASE_URL
+        sync: false
+      - key: MF_INLINE_JOBS
+        value: "false"
+      - key: MF_TRUST_PROXY_HEADERS
+        value: "false"
+      - key: MF_PAYMENT_PROVIDER
+        value: none
+      - key: MF_EMAIL_PROVIDER
+        value: none
+      - key: MF_AI_PROVIDER
+        value: none
+  - type: worker
+    name: measuredfield-staging-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    autoDeployTrigger: "off"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: MF_ENV
+        value: staging
+      - key: DATABASE_URL
+        sync: false
+      - key: MF_SECRET_KEY
+        fromService:
+          name: measuredfield-staging-web
+          type: web
+          envVarKey: MF_SECRET_KEY
+      - key: MF_APP_HOSTS
+        sync: false
+      - key: MF_SITES_BASE_DOMAIN
+        sync: false
+      - key: MF_PUBLIC_BASE_URL
+        sync: false
+      - key: MF_INLINE_JOBS
+        value: "false"
+      - key: MF_TRUST_PROXY_HEADERS
+        value: "false"
+      - key: MF_PAYMENT_PROVIDER
+        value: none
+      - key: MF_EMAIL_PROVIDER
+        value: none
+      - key: MF_AI_PROVIDER
+        value: none

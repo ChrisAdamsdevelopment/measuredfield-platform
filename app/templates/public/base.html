@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="{% block description %}{{ brand }} helps small-business owners get found, handle every inquiry and simplify the work behind the work.{% endblock %}">
+{% if not settings.is_production or settings.env == 'staging' %}<meta name="robots" content="noindex,nofollow">{% endif %}
+<title>{% block title %}{{ brand }} | Make your business easier to run{% endblock %}</title>
+<link rel="stylesheet" href="/static/site.css">
+<link rel="stylesheet" href="/static/mf.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+{% if settings.env != 'production' %}<div class="env-ribbon">{{ settings.env|capitalize }} environment — not the live service</div>{% endif %}
+<header class="site-header"><div class="wrap nav">
+<a class="brand" href="/" aria-label="{{ brand }} home"><span class="brand-mark" aria-hidden="true">M<span>.</span></span><span>{{ brand }}</span></a>
+<nav aria-label="Main navigation">
+<a href="/#what">What we improve</a><a href="/#examples">Examples</a><a href="/#pricing">Pricing</a>
+{% if principal %}<a class="nav-signin" href="{{ '/app' if principal.org else '/operator' if principal.user.is_platform_admin else '/app' }}">Open workspace</a>
+{% else %}<a class="nav-signin" href="/login">Sign in</a>{% endif %}
+<a class="nav-cta" href="/assessment">Start your assessment</a>
+</nav></div></header>
+<main id="main">{% block content %}{% endblock %}</main>
+<footer><div class="wrap footer-row"><div><div class="footer-brand">{{ brand }}<span>.</span></div><p>Practical systems for the people doing the work.</p></div>
+<div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login">Sign in</a>{% if settings.support_email %}<a href="mailto:{{ settings.support_email }}">Contact</a>{% endif %}<span>&copy; 2026 {{ brand }}</span></div></div></footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

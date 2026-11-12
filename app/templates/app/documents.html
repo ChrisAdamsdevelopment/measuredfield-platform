@@ -1,0 +1,19 @@
+{% extends "app/base.html" %}
+{% block title %}Documents{% endblock %}
+{% block content %}
+<header><div><h1>Documents</h1><p>Files for your business. Only your team can open them.</p></div></header>
+<div class="grid g-side">
+<div class="card">
+{% if documents %}<div class="scroll"><table><thead><tr><th scope="col">File</th><th scope="col" class="num">Size</th><th scope="col">Added</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
+{% for d in documents %}<tr><td class="wrap-text">{{ d.filename }}</td><td class="num">{{ '%.0f'|format(d.size / 1024) }} KB</td><td>{{ d.created_at.strftime('%b %d, %Y') }}</td>
+<td><div class="row"><a class="btn ghost small" href="/app/documents/{{ d.id }}/download">Download</a>
+{% if can('documents.delete') %}<form class="inline" method="post" action="/app/documents/{{ d.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn danger small" type="submit">Delete</button></form>{% endif %}</div></td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">No documents yet.</p>{% endif %}
+</div>
+{% if can('documents.write') %}<div class="card"><h2>Upload</h2>
+<form method="post" action="/app/documents" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="file">Choose a file</label><input id="file" name="file" type="file" required aria-describedby="file-hint">
+<p class="small muted" id="file-hint">Up to {{ max_mb }} MB. Accepted: {{ types|join(', ') }}. Text files are also added to your private notes search.</p>
+<div class="actions"><button class="btn" type="submit">Upload</button></div></form></div>{% endif %}
+</div>
+{% endblock %}

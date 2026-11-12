@@ -1,0 +1,77 @@
+{% extends "public/base.html" %}
+{% block content %}
+<section class="hero"><div class="wrap hero-grid">
+<div><div class="eyebrow"><span class="eyebrow-line"></span> For owners building or improving a small business</div>
+<h1>More time running your business. <em>Less time chasing it.</em></h1>
+<p class="lead">You know your work. We help with the business around it: a website that brings in the right inquiries, one place to follow up on every one, and simpler systems behind the scenes. Start from almost nothing, or improve what you already have.</p>
+<div class="actions"><a class="btn primary" href="/assessment">Answer two questions <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="#how">See how it works</a></div>
+<div class="hero-foot">About five minutes. No sales call required. We tell you plainly what we can and can't help with.</div>
+</div>
+<div class="hero-questions" aria-label="The two questions we start with">
+<p>Every engagement starts with the same two questions.</p>
+<div class="q"><span>Question one</span><strong>What are you doing in your business right now that you're most excited about?</strong></div>
+<div class="q"><span>Question two</span><strong>What's keeping you from taking that to the next level?</strong></div>
+<a class="btn primary block" href="/assessment">Tell us your answers</a>
+</div>
+</div></section>
+
+<section id="what" class="section"><div class="wrap"><div class="section-head"><div class="eyebrow">What we improve</div><h2>Not just a better website.<br><span class="muted">A better way to run the work behind it.</span></h2><p>Every business has different bottlenecks. We start with yours and build only what earns its keep.</p></div>
+<div class="feature-grid">
+<article class="feature"><div class="feature-no">01 / BE FOUND</div><h3>A website that says what you do</h3><p>A clear, mobile-friendly site built from your services and service area. You preview it, approve it, and can roll back any change.</p><div class="feature-end">Website and search visibility</div></article>
+<article class="feature"><div class="feature-no">02 / STAY ON TOP</div><h3>Every inquiry in one place</h3><p>Requests from your site land in a private inquiry desk with a status, an owner and a follow-up date, so nothing depends on memory.</p><div class="feature-end">Intake and follow-up</div></article>
+<article class="feature"><div class="feature-no">03 / GET TIME BACK</div><h3>Less repeat work</h3><p>Customer and project records, itemized proposals your customer approves from a link, shared documents, and access levels for your team.</p><div class="feature-end">Operations and records</div></article>
+</div></div></section>
+
+<section id="how" class="section process"><div class="wrap process-grid"><div><div class="eyebrow">How it works</div><h2>We start with what you care about, not with technology.</h2><p class="process-intro">The two questions tell us what matters to you and what's in the way. Everything after that is tied back to your answers.</p><a class="text-link" href="/assessment">Start your assessment <span aria-hidden="true">&rarr;</span></a></div>
+<div class="steps">
+<div class="step"><span>01</span><div><h3>You answer two questions</h3><p>In your own words. No technical questionnaire.</p></div></div>
+<div class="step"><span>02</span><div><h3>You get a plain-language assessment</h3><p>What we heard, what we can help with, what we can't, and what we'd need to measure before promising anything.</p></div></div>
+<div class="step"><span>03</span><div><h3>You choose a next step</h3><p>A free working session or a defined service with a fixed price. You approve the scope before anything is built.</p></div></div>
+<div class="step"><span>04</span><div><h3>You get a private workspace</h3><p>Build and publish your site, handle inquiries, and see which improvements are done and what the numbers actually show.</p></div></div>
+</div></div></section>
+
+<section id="examples" class="section alt"><div class="wrap"><div class="section-head"><div class="eyebrow">Practical examples</div><h2>What an improvement looks like.</h2><p>These are illustrations of the kind of change we make. They are not customer results, and we don't quote results we haven't measured.</p></div>
+<div class="examples">
+<article class="case"><div class="tag">Illustration &middot; home services</div><h3>"I lose track of who I'm supposed to call back."</h3><dl>
+<div><dt>Before</dt><dd>Inquiries arrive by text, voicemail and a contact form that sends email. Follow-up lives in the owner's head.</dd></div>
+<div><dt>Change</dt><dd>The website form feeds an inquiry desk. Each request gets a status and a follow-up date; the owner sees what's due today.</dd></div>
+<div><dt>What becomes measurable</dt><dd>How many inquiries arrive, and how many have a recorded first response.</dd></div></dl></article>
+<article class="case"><div class="tag">Illustration &middot; new business</div><h3>"I'm just starting and have nothing online."</h3><dl>
+<div><dt>Before</dt><dd>A business name, a list of services and a phone number.</dd></div>
+<div><dt>Change</dt><dd>A professional site drafted from those details, previewed and approved by the owner, published at its own address.</dd></div>
+<div><dt>What becomes measurable</dt><dd>Visits to the site, how many people start the contact form, and how many finish it.</dd></div></dl></article>
+<article class="case"><div class="tag">Illustration &middot; trades</div><h3>"Quotes take me all evening."</h3><dl>
+<div><dt>Before</dt><dd>Each estimate is typed from scratch and approved by a reply text that's hard to find later.</dd></div>
+<div><dt>Change</dt><dd>Itemized proposals built in the workspace. The customer approves from a link and the approval is recorded with a name and date.</dd></div>
+<div><dt>What becomes measurable</dt><dd>Proposals sent, approved and declined.</dd></div></dl></article>
+<article class="case"><div class="tag">Illustration &middot; small team</div><h3>"Job details are scattered across five apps."</h3><dl>
+<div><dt>Before</dt><dd>Customer information in one place, documents in another, notes on paper.</dd></div>
+<div><dt>Change</dt><dd>Customers, projects and documents in one private workspace, with staff and read-only access for the team.</dd></div>
+<div><dt>What becomes measurable</dt><dd>What's recorded and who is handling it. We don't claim time savings we can't observe.</dd></div></dl></article>
+</div></div></section>
+
+<section id="pricing" class="section"><div class="wrap"><div class="section-head"><div class="eyebrow">Pricing</div><h2>Clear options. No surprise invoices.</h2><p>Start with the assessment; it's free. Choose a service only if the assessment shows something worth doing.</p></div>
+<div class="pricing">
+{% for offer in offers %}
+<article class="plan{% if offer.code == 'launch' %} featured{% endif %}">
+<h3>{{ offer.name }}</h3>
+<div class="price">{% if offer.price_cents == 0 %}Free{% else %}${{ '%.0f'|format(offer.price_cents / 100) }}{% if offer.billing == 'monthly' %} <small>per month</small>{% else %} <small>one time</small>{% endif %}{% endif %}</div>
+<p>{{ offer.summary }}</p>
+<ul>{% for line in offer.includes %}<li>{{ line }}</li>{% endfor %}</ul>
+<a class="btn {{ 'primary' if offer.code == 'launch' else 'secondary' }}" href="/assessment">Start with the assessment</a>
+</article>
+{% endfor %}
+</div>
+<p class="fine-print">Prices shown are our current introductory prices and may change. You see the exact scope and price, and approve it, before any charge.</p>
+</div></section>
+
+<section class="section tight alt"><div class="wrap faq"><div class="eyebrow">Straight answers</div><h2>Questions owners ask</h2>
+<details><summary>Do I need an existing website or business?</summary><p>No. You can start with a name and a list of what you offer. If you already have a business and a site, we start from what's there.</p></details>
+<details><summary>Will you promise more customers?</summary><p>No. We can make it easier for people to reach you and harder for inquiries to get lost, and we show you the real counts. We don't forecast revenue or rankings.</p></details>
+<details><summary>Is this an AI product?</summary><p>You're buying a better-run business, not a technology. Software does a lot of the work behind the scenes, and nothing is published or sent to your customers without your approval.</p></details>
+<details><summary>Who can see my business information?</summary><p>You and the team members you invite. Each business has its own private workspace, kept separate from every other customer's inquiries, documents and settings. See our <a href="/privacy">privacy information</a>.</p></details>
+<details><summary>Can I leave?</summary><p>Yes. You can export everything in your workspace and request deletion from your settings at any time.</p></details>
+</div></section>
+
+<section class="cta-band"><div class="wrap"><h2>Two questions. A clear next step.</h2><p>Tell us what you're excited about and what's in the way. You'll see your assessment right away.</p><a class="btn primary" href="/assessment">Start your assessment</a></div></section>
+{% endblock %}

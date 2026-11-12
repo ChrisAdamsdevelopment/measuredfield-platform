@@ -1,0 +1,45 @@
+{% extends "app/base.html" %}
+{% block title %}Notes and playbook{% endblock %}
+{% block content %}
+<header><div><h1>Notes and playbook</h1><p>Your private business notes, and general methods that work across many businesses.</p></div></header>
+<div class="grid g2">
+<div class="card"><h2>Private notes</h2>
+<p class="small muted">Visible only to your team. Never shared, never used to train anything.</p>
+<form class="row" method="get" action="/app/learning"><label class="skip-link" for="q">Search notes</label><input id="q" name="q" value="{{ q }}" placeholder="Search your notes and text documents"><button class="btn ghost" type="submit">Search</button></form>
+{% for item in memory %}<div class="note-item"><div class="meta">{{ 'Note' if item.kind == 'observation' else 'From a document' }} &middot; {{ item.created_at.strftime('%b %d, %Y') }}</div><div class="wrap-text">{{ item.content[:600] }}</div></div>
+{% else %}<p class="empty">{{ 'No matches.' if q else 'Nothing recorded yet.' }}</p>{% endfor %}
+{% if can('memory.write') %}<form class="actions" method="post" action="/app/learning/observations"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="content">Record something you've learned about running this business</label><textarea id="content" name="content" maxlength="4000" required></textarea>
+<div class="actions"><button class="btn" type="submit">Save note</button></div></form>{% endif %}
+</div>
+
+<div class="card"><h2>Shared playbook</h2>
+<p class="small muted">General methods reviewed and approved by a person at {{ brand }}. They contain no other business's information.</p>
+{% for s in skills %}<div class="note-item"><strong>{{ s.title }}</strong> <span class="badge">v{{ s.version }}</span>{% if s.synthetic %} <span class="badge unknown">Example only</span>{% endif %}<div class="wrap-text">{{ s.body }}</div></div>
+{% else %}<p class="empty">The playbook is empty for now.</p>{% endfor %}
+</div>
+</div>
+
+<div class="card actions"><h2>Contributing a general lesson</h2>
+<p>Sharing is off unless an owner or admin turns it on. When it's on, a team member can write up a <em>general method</em>. Before anyone at {{ brand }} sees it, names, contact details and identifying terms are removed automatically; if anything risky remains it is stopped. A person then reviews it. Nothing is ever published automatically.</p>
+<p>Status: {% if org.learning_opt_in %}<span class="badge live">Sharing is on</span> since {{ org.learning_opt_in_at.strftime('%b %d, %Y') }}{% else %}<span class="badge draft">Sharing is off</span>{% endif %}</p>
+{% if can('learning.manage') %}<form class="row" method="post" action="/app/learning/consent"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if org.learning_opt_in %}<input type="hidden" name="opt_in" value="no"><button class="btn danger" type="submit">Turn sharing off and withdraw our lessons</button>
+{% else %}<input type="hidden" name="opt_in" value="yes"><button class="btn ghost" type="submit">Turn sharing on</button>{% endif %}</form>{% endif %}
+
+<h3 class="actions">Your lessons</h3>
+{% for c in candidates %}<div class="note-item"><strong>{{ c.title }}</strong> <span class="badge {{ c.status }}">{{ c.status }}</span>
+<div class="wrap-text small">{{ c.body[:400] }}</div>
+{% if c.checks.get('blocked_reasons') %}<ul class="small">{% for reason in c.checks.blocked_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+{% if c.sanitized_body and c.status != 'draft' %}<details class="box"><summary class="small">What the reviewer sees</summary><div class="wrap-text small">{{ c.sanitized_body }}</div></details>{% endif %}
+{% if c.status in ('draft','blocked') and can('learning.manage') and org.learning_opt_in %}<form class="actions" method="post" action="/app/learning/candidates/{{ c.id }}/submit"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label><input type="checkbox" name="attest" value="yes" required> This is our own method and we have the right to share it.</label>
+<button class="btn small" type="submit">Run privacy check and submit for review</button></form>{% endif %}</div>
+{% else %}<p class="muted">No lessons drafted.</p>{% endfor %}
+{% if can('memory.write') %}<details class="box"><summary>Draft a lesson</summary>
+<form method="post" action="/app/learning/candidates"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="ltitle">Title</label><input id="ltitle" name="title" maxlength="160" required>
+<label for="lbody">The general method, without names, places or prices</label><textarea id="lbody" name="body" minlength="40" maxlength="3000" required></textarea>
+<div class="actions"><button class="btn" type="submit">Save draft</button></div></form></details>{% endif %}
+</div>
+{% endblock %}

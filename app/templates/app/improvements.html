@@ -1,0 +1,41 @@
+{% extends "app/base.html" %}
+{% block title %}Improvements{% endblock %}
+{% macro evidence(code) %}{% if code == 'measured' %}<span class="badge measured">Measured</span>{% elif code == 'system_recorded' %}<span class="badge recorded">Recorded by the platform</span>{% elif code == 'owner_stated' %}<span class="badge stated">You told us &middot; not verified</span>{% else %}<span class="badge unknown">No evidence yet</span>{% endif %}{% endmacro %}
+{% block content %}
+<header><div><h1>Improvements</h1><p>What we set out to improve, what's done, and what the evidence actually is.</p></div></header>
+
+{% if report %}
+<div class="card"><h2>Where this started: your two answers</h2>
+<dl class="kv"><dt>Most excited about</dt><dd class="wrap-text">{{ report.excited_text }}</dd><dt>What's in the way</dt><dd class="wrap-text">{{ report.blocker_text }}</dd></dl>
+<p class="small muted actions">{{ report.result.method }}</p></div>
+{% endif %}
+
+<div class="card actions"><h2>Improvement list</h2>
+{% if items %}<div class="scroll"><table><thead><tr><th scope="col">Improvement</th><th scope="col">Status</th><th scope="col">Evidence</th><th scope="col">How we'd measure it</th></tr></thead><tbody>
+{% for item in items %}<tr>
+<td><strong>{{ item.title }}</strong><div class="small muted">{{ item.detail }}</div></td>
+<td><span class="badge {{ item.status }}">{{ item.status }}</span>{% if item.implemented_at %}<div class="small muted">{{ item.implemented_at.strftime('%b %d, %Y') }}</div>{% endif %}
+{% if can('improvements.write') %}<details class="box"><summary class="small">Change</summary><form method="post" action="/app/improvements/{{ item.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="st-{{ item.id }}">Status</label><select id="st-{{ item.id }}" name="status">{% for s in statuses %}<option value="{{ s }}"{% if s == item.status %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}</select>
+<label for="ev-{{ item.id }}">Your note on the evidence <span class="muted">(optional)</span></label><textarea id="ev-{{ item.id }}" name="evidence_note" maxlength="2000"></textarea>
+<button class="btn small" type="submit">Save</button></form></details>{% endif %}</td>
+<td>{{ evidence(item.evidence_status) }}<div class="small muted">{{ item.evidence_note }}</div></td>
+<td class="small">{{ item.metric or 'Not defined yet' }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p class="empty">No improvements listed yet.</p>{% endif %}
+</div>
+
+<div class="grid g2 actions">
+<div class="card"><h2>What is measurable right now</h2>
+<dl class="kv"><dt>Website visits (30 days)</dt><dd>{{ measured.page_view }} {{ evidence('measured' if site and site.published_version_id else 'unknown') }}</dd>
+<dt>Form starts</dt><dd>{{ measured.form_start }}</dd><dt>Inquiries sent</dt><dd>{{ measured.lead }}</dd></dl>
+<p class="small muted actions">Counted by your published site. Revenue, profit and time saved are not measured here and are never estimated.</p>
+<p><a href="/app/insights">Open insights</a></p></div>
+{% if can('improvements.write') %}<div class="card"><h2>Add an improvement</h2>
+<form method="post" action="/app/improvements"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="title">Title</label><input id="title" name="title" maxlength="200" required>
+<label for="detail">What will change</label><textarea id="detail" name="detail" maxlength="2000"></textarea>
+<label for="metric">How you'd know it worked</label><input id="metric" name="metric" maxlength="200">
+<div class="actions"><button class="btn" type="submit">Add</button></div></form></div>{% endif %}
+</div>
+{% endblock %}

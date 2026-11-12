@@ -1,0 +1,43 @@
+{% extends "app/base.html" %}
+{% block title %}Inquiry from {{ lead.name }}{% endblock %}
+{% block content %}
+<header><div><h1>{{ lead.name }}</h1><p><a href="/app/inquiries">Inquiries</a> &rsaquo; received {{ lead.created_at.strftime('%B %d, %Y at %H:%M UTC') }}</p></div>
+<span class="badge {{ lead.status }}">{{ lead.status }}</span></header>
+<div class="grid g-side">
+<div>
+<div class="card"><h2>What they asked</h2>
+<dl class="kv"><dt>Email</dt><dd><a href="mailto:{{ lead.email }}">{{ lead.email }}</a></dd>
+{% if lead.phone %}<dt>Phone</dt><dd>{{ lead.phone }}</dd>{% endif %}
+{% if lead.service %}<dt>Service</dt><dd>{{ lead.service }}</dd>{% endif %}
+{% if lead.timing %}<dt>Timing</dt><dd>{{ timings.get(lead.timing, lead.timing) }}</dd>{% endif %}
+<dt>Source</dt><dd>{{ lead.source }}</dd></dl>
+<p class="wrap-text actions">{{ lead.message }}</p>
+<p class="small muted">Replying happens from your own email or phone for now. Record it here by changing the status so the response is counted.</p>
+</div>
+<div class="card actions"><h2>Notes</h2>
+{% for note, author in notes %}<div class="note-item"><div class="meta">{{ author or 'Team member' }} &middot; {{ note.created_at.strftime('%b %d, %H:%M') }}</div><div class="wrap-text">{{ note.body }}</div></div>
+{% else %}<p class="muted">No notes yet.</p>{% endfor %}
+{% if can('leads.write') %}<form method="post" action="/app/inquiries/{{ lead.id }}/note"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="body">Add a note</label><textarea id="body" name="body" maxlength="4000" required></textarea>
+<div class="actions"><button class="btn" type="submit">Save note</button></div></form>{% endif %}
+</div>
+</div>
+<div>
+<div class="card"><h2>Next step</h2>
+{% if can('leads.write') %}<form method="post" action="/app/inquiries/{{ lead.id }}/update"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option value="{{ s }}"{% if s == lead.status %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}</select>
+<label for="assigned_to">Assigned to</label><select id="assigned_to" name="assigned_to"><option value="">Nobody yet</option>{% for m, u in members %}<option value="{{ u.id }}"{% if lead.assigned_to == u.id %} selected{% endif %}>{{ u.name or u.email }}</option>{% endfor %}</select>
+<label for="follow_up_on">Follow up on</label><input id="follow_up_on" name="follow_up_on" type="date" value="{{ lead.follow_up_on.isoformat() if lead.follow_up_on else '' }}">
+<div class="actions"><button class="btn" type="submit">Save</button></div></form>
+{% else %}<p class="muted">You have read-only access.</p>{% endif %}
+<p class="small muted actions">{% if lead.first_response_at %}First response recorded {{ lead.first_response_at.strftime('%b %d, %H:%M') }}.{% else %}No response recorded yet.{% endif %}</p>
+</div>
+<div class="card actions"><h2>Customer record</h2>
+{% if lead.customer_id %}<p><a href="/app/customers/{{ lead.customer_id }}">Open customer and project</a></p>
+{% elif can('customers.write') %}<p class="muted">Turn this inquiry into a customer with a project.</p>
+<form method="post" action="/app/inquiries/{{ lead.id }}/convert"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost" type="submit">Create customer and project</button></form>
+{% else %}<p class="muted">Not yet a customer.</p>{% endif %}
+</div>
+</div>
+</div>
+{% endblock %}

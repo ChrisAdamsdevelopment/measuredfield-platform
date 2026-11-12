@@ -1,0 +1,36 @@
+{% extends "public/base.html" %}
+{% block title %}Privacy | {{ brand }}{% endblock %}
+{% block content %}
+<div class="legal"><div class="narrow">
+<div class="eyebrow">Privacy information</div>
+<h1>What we collect and what we do with it</h1>
+<div class="alert note">Draft for review. This page describes how the software actually behaves. It has not yet been reviewed by a lawyer and is not a final privacy policy.</div>
+
+<h2>When you take the assessment</h2>
+<p>We store your business name, your name, your email address, the optional website address, your type of business, and your two answers. We use them to show you your assessment and to contact you about it, because you asked us to. We do not visit or scan your website from this form.</p>
+
+<h2>When you become a customer</h2>
+<p>Your business gets a private workspace. It holds what you and your team put there: website content, customer inquiries, customer and project records, proposals, documents and notes. Only people you invite can sign in to it. The database enforces this separation for every request, in addition to the checks in the application.</p>
+
+<h2>When someone contacts a business through a website we host</h2>
+<p>The name, email, optional phone number and message go to that business's workspace and nowhere else. We act on that business's behalf. Notification emails to the business say that an inquiry arrived; they do not contain the inquiry itself.</p>
+
+<h2>Website visit counts</h2>
+<p>Websites we host count page views, contact-form starts and completed inquiries as daily totals. We set no cookies for this, store no visitor identifiers and build no visitor profiles.</p>
+
+<h2>Cookies</h2>
+<p>We set one cookie, only after you sign in, to keep you signed in. We use no advertising or third-party tracking cookies.</p>
+
+<h2>Learning across businesses</h2>
+<p>Your business information is never shared with other customers. If, and only if, an owner or admin opts in, a team member can propose a <em>general method</em> (not customer data) for our shared library. It is automatically stripped of names, contact details and identifying terms, then reviewed by a person before anything is published. You can withdraw at any time, which removes what came from you.</p>
+
+<h2>Payments</h2>
+<p>When online payment is enabled, card details are entered on our payment provider's pages. They never pass through or get stored on our servers.</p>
+
+<h2>Keeping and deleting</h2>
+<p>An owner can export the entire workspace and can request its deletion from Settings. Deletion removes the workspace from the live database after a short waiting period during which it can be cancelled. Copies inside database backups expire on the backup schedule and cannot be removed individually; we say so on the deletion receipt.</p>
+
+<h2>Contact</h2>
+<p>{% if settings.support_email %}Questions or requests: <a href="mailto:{{ settings.support_email }}">{{ settings.support_email }}</a>.{% else %}A contact address will be published here before the service is offered to the public.{% endif %}</p>
+</div></div>
+{% endblock %}

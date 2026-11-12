@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>{% block title %}Workspace{% endblock %} | {{ org.name }}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell">
+<aside class="side">
+<a class="brand" href="/app">{{ brand }}<span>.</span></a>
+<div class="org"><strong>{{ org.name }}</strong>{{ role|capitalize }} access</div>
+<nav aria-label="Workspace">
+{% set links = [('/app','Dashboard'),('/app/inquiries','Inquiries'),('/app/website','Website'),('/app/customers','Customers'),('/app/documents','Documents'),('/app/improvements','Improvements'),('/app/insights','Insights'),('/app/learning','Notes and playbook'),('/app/team','Team'),('/app/activity','Activity'),('/app/settings','Settings')] %}
+{% for href, label in links %}<a href="{{ href }}"{% if path == href or (href != '/app' and path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+{% if principal.user.is_platform_admin %}<a href="/operator">Operator console</a>{% endif %}
+</nav>
+<div class="foot">
+{% if orgs|length > 1 %}<form method="post" action="/app/switch-org"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="org-switch">Workspace</label>
+<select id="org-switch" name="org_id">{% for o in orgs %}<option value="{{ o.id }}"{% if o.id == org.id %} selected{% endif %}>{{ o.name }}</option>{% endfor %}</select>
+<button class="linkbtn" type="submit">Switch</button></form>{% endif %}
+{{ principal.user.name or principal.user.email }}
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="linkbtn" type="submit">Sign out</button></form>
+</div>
+</aside>
+<main class="main" id="main">
+{% if org.status == 'deletion_pending' %}<div class="alert err" role="alert">This workspace is scheduled for deletion. An owner can cancel this in <a href="/app/settings">Settings</a>.</div>{% endif %}
+{% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
+{% if flash_error %}<div class="alert err" role="alert">{{ flash_error }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+</div>
+</body>
+</html>

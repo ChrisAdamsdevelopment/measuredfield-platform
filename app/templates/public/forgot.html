@@ -1,0 +1,19 @@
+{% extends "public/base.html" %}
+{% block title %}Reset your password | {{ brand }}{% endblock %}
+{% block content %}
+<div class="auth"><div class="step-card">
+<h1>Reset your password</h1>
+{% if sent %}
+<div class="alert ok" role="status">If an account exists for that address, a reset link has been created for it.</div>
+{% if settings.email_provider == 'none' %}<div class="alert note">Email delivery is not switched on in this environment, so no message was sent. An operator can relay the link.</div>{% endif %}
+<p class="links"><a href="/login">Back to sign in</a></p>
+{% else %}
+<p class="hint">Enter your email and we'll create a link to choose a new password.</p>
+<form method="post" action="/forgot">
+<div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required></div>
+<div class="field"><button class="btn primary block" type="submit">Send reset link</button></div>
+</form>
+<p class="links"><a href="/login">Back to sign in</a></p>
+{% endif %}
+</div></div>
+{% endblock %}

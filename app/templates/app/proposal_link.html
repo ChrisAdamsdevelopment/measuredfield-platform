@@ -1,0 +1,11 @@
+{% extends "app/base.html" %}
+{% block title %}Approval link{% endblock %}
+{% block content %}
+<header><div><h1>Approval link for {{ customer.name }}</h1><p>{{ proposal.title }} &middot; revision {{ proposal.revision }}</p></div></header>
+<div class="card">
+<div class="alert note">Copy this link now. It is shown only once, and any earlier link for this proposal no longer works.</div>
+<div class="copy-box">{{ link }}</div>
+<p class="actions">Send it to your customer yourself, by email or text. <strong>We have not sent anything to them.</strong> When they approve or decline, it shows on their customer page and in Activity.</p>
+<p><a class="btn" href="/app/customers/{{ customer.id }}">Back to {{ customer.name }}</a></p>
+</div>
+{% endblock %}

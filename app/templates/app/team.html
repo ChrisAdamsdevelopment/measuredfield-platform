@@ -1,0 +1,25 @@
+{% extends "app/base.html" %}
+{% block title %}Team{% endblock %}
+{% block content %}
+<header><div><h1>Team</h1><p>Who can sign in to this workspace and what they can do.</p></div></header>
+<div class="grid g-side">
+<div class="card"><div class="scroll"><table><thead><tr><th scope="col">Person</th><th scope="col">Access</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
+{% for m, u in members %}<tr><td>{{ u.name or 'Invited' }}<div class="small muted">{{ u.email }}</div></td>
+<td>{% if can('team.manage') and u.id != principal.user.id %}<form class="row" method="post" action="/app/team/{{ m.id }}/role"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="skip-link" for="r-{{ m.id }}">Access for {{ u.email }}</label><select id="r-{{ m.id }}" name="role">{% for r in roles %}<option value="{{ r }}"{% if r == m.role %} selected{% endif %}>{{ r|capitalize }}</option>{% endfor %}</select><button class="btn ghost small" type="submit">Save</button></form>
+{% else %}{{ m.role|capitalize }}{% if u.id == principal.user.id %} <span class="muted">(you)</span>{% endif %}{% endif %}</td>
+<td>{% if can('team.manage') and u.id != principal.user.id %}<form method="post" action="/app/team/{{ m.id }}/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn danger small" type="submit">Remove</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></div>
+<div>
+{% if can('team.manage') %}<div class="card"><h2>Invite someone</h2>
+<form method="post" action="/app/team/invite"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="email">Email</label><input id="email" name="email" type="email" required>
+<label for="role">Access</label><select id="role" name="role">{% for r in roles %}{% if r != 'owner' or can('team.owners') %}<option value="{{ r }}"{% if r == 'staff' %} selected{% endif %}>{{ r|capitalize }}</option>{% endif %}{% endfor %}</select>
+<div class="actions"><button class="btn" type="submit">Create invitation</button></div></form></div>{% endif %}
+<div class="card actions"><h2>Access levels</h2><dl class="kv">
+<dt>Owner</dt><dd>Everything, including billing, export and deletion.</dd>
+<dt>Admin</dt><dd>Publish the website, manage the team and settings.</dd>
+<dt>Staff</dt><dd>Handle inquiries, customers, documents and website drafts.</dd>
+<dt>Read-only</dt><dd>Look, but not change anything.</dd></dl></div>
+</div></div>
+{% endblock %}

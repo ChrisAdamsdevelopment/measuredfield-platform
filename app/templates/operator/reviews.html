@@ -1,0 +1,78 @@
+{% extends "public/base.html" %}
+{% block title %}Shared Skill Reviews | {{ brand }}{% endblock %}
+{% block description %}Operator-only privacy and learning review queue{% endblock %}
+{% block content %}
+<section class="section"><div class="wrap">
+  <div class="section-head">
+    <p class="eyebrow">Platform operations / shared learning</p>
+    <h1>Lesson Approval Queue</h1>
+    <p class="lead">Only sanitized lesson candidates appear here. Approval is a human decision, not an automatic publication.</p>
+    <p><a href="/operator">Back to operator console</a></p>
+  </div>
+  {% if flash %}<p class="flash flash-ok" role="status">{{ flash }}</p>{% endif %}
+  {% if flash_error %}<p class="flash flash-error" role="alert">{{ flash_error }}</p>{% endif %}
+  <section aria-labelledby="pending-heading">
+    <h2 id="pending-heading">Latest lesson submissions</h2>
+    {% if reviews %}
+    <div style="display:grid;gap:1rem">
+      {% for review in reviews %}
+      <article class="card" style="padding:1.25rem">
+        <div style="display:flex;gap:0.75rem;justify-content:space-between;align-items:center;flex-wrap:wrap">
+          <h3 style="margin:0">{{ review.title }}</h3>
+          <strong>{{ review.status }}</strong>
+        </div>
+        <p class="muted">Submitted {{ review.created_at }} · Review ID: {{ review.id }}</p>
+        <details>
+          <summary>Sanitized candidate and automated review evidence</summary>
+          <div style="display:grid;gap:1rem;margin-top:1rem">
+            <section><h4>Candidate</h4><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ review.sanitized_body }}</pre></section>
+            <section><h4>Checks (not a guarantee of anonymity)</h4><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ review.checks | tojson(indent=2) }}</pre></section>
+          </div>
+        </details>
+        {% if review.status == "pending" %}
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:1rem">
+          <form method="post" action="/operator/reviews/{{ review.id }}/decide">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="decision" value="approve">
+            <label>Skill slug (lowercase letters, numbers and hyphens)
+              <input name="skill_slug" required minlength="3" maxlength="80" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="structured-intake-triage">
+            </label>
+            <button class="btn secondary" type="submit">Approve sanitized lesson</button>
+          </form>
+          <form method="post" action="/operator/reviews/{{ review.id }}/decide">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="decision" value="reject">
+            <button class="btn secondary" type="submit">Reject candidate</button>
+          </form>
+        </div>
+        {% else %}<p class="muted">A decision has already been recorded for this submission.</p>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}<div class="card" style="padding:1.25rem"><p>No shared-learning reviews have been submitted.</p></div>{% endif %}
+  </section>
+  <section aria-labelledby="skills-heading" style="margin-top:2rem">
+    <h2 id="skills-heading">Published skill library</h2>
+    {% if skills %}
+    <div style="display:grid;gap:1rem">
+      {% for skill, version in skills %}
+      <article class="card" style="padding:1.25rem">
+        <h3>{{ skill.title }}</h3>
+        <p class="muted">Slug: {{ skill.slug }} · Current version: {% if version %}{{ version.number }} ({{ version.status }}){% else %}None active{% endif %}</p>
+        {% if version %}
+          <details><summary>View active version text</summary>
+            <pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ version.body }}</pre></details>
+          {% if version.status == 'active' %}
+          <form action="/operator/skills/{{ skill.id }}/rollback" method="post" style="margin-top:1rem">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn secondary" type="submit">Revoke active version</button>
+          </form>
+          {% endif %}
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}<div class="card" style="padding:1.25rem"><p>No approved shared skills yet.</p></div>{% endif %}
+  </section>
+</div></section>
+{% endblock %}

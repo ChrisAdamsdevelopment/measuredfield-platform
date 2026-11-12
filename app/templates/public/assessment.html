@@ -1,0 +1,46 @@
+{% extends "public/base.html" %}
+{% block title %}Your assessment | {{ brand }}{% endblock %}
+{% macro err(name) %}{% if errors.get(name) %}<div class="error" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}{% endmacro %}
+{% block content %}
+<div class="flow"><div class="narrow">
+<div class="eyebrow"><span class="eyebrow-line"></span> About five minutes</div>
+<h1>Two questions about your business.</h1>
+<p class="lead">Answer in your own words, the way you'd tell a friend. There are no wrong answers and nothing technical to fill in.</p>
+{% if errors.get('form') %}<div class="alert err" role="alert">{{ errors.form }}</div>{% endif %}
+{% if errors %}<div class="alert err" role="alert">Please check the highlighted answers below.</div>{% endif %}
+<form method="post" action="/assessment" novalidate>
+<fieldset class="step-card field{% if errors.get('excited') %} has-error{% endif %}">
+<div class="step-no">Question one</div>
+<legend><label for="excited">What are you doing in your business right now that you're most excited about?</label></legend>
+<p class="hint">A new service, a kind of customer you love working with, something you're proud of, or the reason you're starting out.</p>
+<textarea id="excited" name="excited" maxlength="1500" required {% if errors.get('excited') %}aria-describedby="excited-error" aria-invalid="true"{% endif %}>{{ values.get('excited', '') }}</textarea>
+{{ err('excited') }}
+</fieldset>
+<fieldset class="step-card field{% if errors.get('blocker') %} has-error{% endif %}">
+<div class="step-no">Question two</div>
+<legend><label for="blocker">What's keeping you from taking that to the next level?</label></legend>
+<p class="hint">Whatever comes to mind first: time, follow-up, getting found, quoting, tools that don't talk to each other, or something else entirely.</p>
+<textarea id="blocker" name="blocker" maxlength="1500" required {% if errors.get('blocker') %}aria-describedby="blocker-error" aria-invalid="true"{% endif %}>{{ values.get('blocker', '') }}</textarea>
+{{ err('blocker') }}
+</fieldset>
+<div class="step-card">
+<div class="step-no">So we can show you your assessment</div>
+<h2>A little about you</h2>
+<div class="two">
+<div class="field{% if errors.get('business_name') %} has-error{% endif %}"><label for="business_name">Business name</label><input id="business_name" name="business_name" maxlength="120" autocomplete="organization" required value="{{ values.get('business_name', '') }}">{{ err('business_name') }}</div>
+<div class="field"><label for="industry">Type of business</label><select id="industry" name="industry">
+{% for key, label in [('cleaning','Cleaning'),('construction','Construction or remodeling'),('landscaping','Landscaping or grounds'),('food','Food or hospitality'),('wellness','Health or wellness'),('professional','Professional services'),('retail','Retail or shop'),('other','Something else')] %}
+<option value="{{ key }}"{% if values.get('industry') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+<div class="field{% if errors.get('contact_name') %} has-error{% endif %}"><label for="contact_name">Your name</label><input id="contact_name" name="contact_name" maxlength="120" autocomplete="name" required value="{{ values.get('contact_name', '') }}">{{ err('contact_name') }}</div>
+<div class="field{% if errors.get('email') %} has-error{% endif %}"><label for="email">Email</label><input id="email" name="email" type="email" maxlength="254" autocomplete="email" required value="{{ values.get('email', '') }}">{{ err('email') }}</div>
+</div>
+<div class="field{% if errors.get('website') %} has-error{% endif %}"><label for="website">Current website <span class="optional">(optional)</span></label><input id="website" name="website" maxlength="250" autocomplete="url" placeholder="yourbusiness.com" value="{{ values.get('website', '') }}">{{ err('website') }}
+<p class="hint">We note the address. We don't visit or scan your site unless you ask us to later.</p></div>
+<div class="trap" aria-hidden="true"><label for="company_site">Leave this empty</label><input id="company_site" name="company_site" tabindex="-1" autocomplete="off"></div>
+<label class="check"><input type="checkbox" name="consent" value="yes" required><span>You may contact me about this assessment. I've read the <a href="/privacy">privacy information</a>.</span></label>
+{{ err('consent') }}
+<div class="field"><button class="btn primary block" type="submit">Show my assessment</button></div>
+</div>
+</form>
+</div></div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "public/base.html" %}
+{% block title %}Set up your sign-in | {{ brand }}{% endblock %}
+{% block content %}
+<div class="auth"><div class="step-card">
+<h1>{{ 'Join the workspace' if has_account else 'Set up your sign-in' }}</h1>
+<p class="hint">Invitation for <strong>{{ email }}</strong></p>
+{% if error %}<div class="alert err" role="alert">{{ error }}</div>{% endif %}
+<form method="post" action="/accept-invite">
+<input type="hidden" name="token" value="{{ token }}">
+{% if has_account %}
+<p class="hint">You already have an account. Enter your current password to join.</p>
+<div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+{% else %}
+<div class="field"><label for="name">Your name</label><input id="name" name="name" maxlength="120" autocomplete="name" required></div>
+<div class="field"><label for="password">Choose a password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required aria-describedby="pw-hint">
+<p class="hint" id="pw-hint">At least 12 characters. A short sentence works well.</p></div>
+{% endif %}
+<div class="field"><button class="btn primary block" type="submit">Continue</button></div>
+</form>
+</div></div>
+{% endblock %}

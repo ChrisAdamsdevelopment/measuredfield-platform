@@ -1,0 +1,37 @@
+{% extends "public/base.html" %}
+{% block title %}Your request | {{ brand }}{% endblock %}
+{% block content %}
+<div class="flow"><div class="narrow">
+<div class="eyebrow"><span class="eyebrow-line"></span> {{ a.business_name }}</div>
+<h1>{{ order.offer_snapshot.name }}</h1>
+<div class="status-box">
+{% if order.status == 'consult_requested' %}
+<h2>Working session requested</h2>
+<p>Thank you, {{ order.approved_name }}. There is nothing to pay. We'll contact you at <strong>{{ a.email }}</strong> to find a time.</p>
+{% elif order.status == 'approved_unpaid' %}
+<h2>Approval recorded. No payment has been taken.</h2>
+<p>You approved this service on {{ order.approved_at.strftime('%B %d, %Y') }}. We'll contact you at <strong>{{ a.email }}</strong> to arrange payment. Your workspace is created once payment is confirmed.</p>
+{% elif order.status == 'payment_pending' %}
+<h2>Waiting for payment confirmation</h2>
+<p>If you completed checkout, confirmation from the payment provider usually arrives within a minute; refresh this page. If you left checkout before paying, nothing was charged.</p>
+{% elif order.status == 'paid' %}
+<h2>Payment confirmed</h2>
+<p>We received confirmation of your payment. Your workspace is being set up and an invitation is on its way to <strong>{{ a.email }}</strong>.</p>
+{% elif order.status == 'provisioned' %}
+<h2>Your workspace is ready</h2>
+<p>An invitation to set up your sign-in was created for <strong>{{ a.email }}</strong>. If it doesn't arrive, contact us and we'll get it to you directly.</p>
+<p><a class="btn primary" href="/login">Sign in</a></p>
+{% else %}
+<h2>This request was cancelled</h2>
+{% endif %}
+<dl class="kv">
+<dt>Service</dt><dd>{{ order.offer_snapshot.name }}</dd>
+<dt>Price</dt><dd>{% if order.amount_cents == 0 %}Free{% else %}${{ '%.2f'|format(order.amount_cents / 100) }}{{ ' per month' if order.offer_snapshot.billing == 'monthly' else ' one time' }}{% endif %}</dd>
+<dt>Approved by</dt><dd>{{ order.approved_name }} on {{ order.approved_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+<dt>Payment</dt><dd>{% if order.paid_at %}Confirmed {{ order.paid_at.strftime('%Y-%m-%d') }}{% elif order.amount_cents == 0 %}Not required{% else %}Not yet received{% endif %}</dd>
+<dt>Terms version</dt><dd>{{ order.terms_version }}</dd>
+</dl>
+</div>
+<p><a href="/assessment/r/{{ token }}">Back to your assessment</a></p>
+</div></div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "app/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<header><div><h1>Good to see you{% if principal.user.name %}, {{ principal.user.name.split(' ')[0] }}{% endif %}</h1><p>Here's what needs attention at {{ org.name }}.</p></div></header>
+
+<div class="grid g4">
+<div class="card stat"><div class="n">{{ lead_counts.get('new', 0) }}</div><div class="l">New inquiries</div><div class="src"><span class="badge recorded">Recorded here</span></div></div>
+<div class="card stat"><div class="n">{{ due }}</div><div class="l">Follow-ups due today or overdue</div><div class="src"><span class="badge recorded">Recorded here</span></div></div>
+<div class="card stat"><div class="n">{{ measured.page_view }}</div><div class="l">Website visits, last 30 days</div><div class="src"><span class="badge {{ 'measured' if site and site.published_version_id else 'unknown' }}">{{ 'Measured' if site and site.published_version_id else 'No live site yet' }}</span></div></div>
+<div class="card stat"><div class="n">{{ improvements.get('implemented', 0) }}<span class="muted small"> / {{ improvements.values()|sum }}</span></div><div class="l">Improvements implemented</div><div class="src"><a href="/app/improvements">See the list</a></div></div>
+</div>
+
+<div class="grid g-side actions">
+<div class="card"><h2>Latest inquiries</h2>
+{% if recent %}<div class="scroll"><table><thead><tr><th scope="col">From</th><th scope="col">About</th><th scope="col">Status</th><th scope="col">Received</th></tr></thead><tbody>
+{% for lead in recent %}<tr><td><a href="/app/inquiries/{{ lead.id }}">{{ lead.name }}</a></td><td>{{ lead.service or lead.message[:60] }}</td><td><span class="badge {{ lead.status }}">{{ lead.status }}</span></td><td>{{ lead.created_at.strftime('%b %d') }}</td></tr>{% endfor %}
+</tbody></table></div><p class="actions"><a href="/app/inquiries">All inquiries</a></p>
+{% else %}<p class="empty">No inquiries yet. They'll appear here as soon as someone uses the form on your website.</p>{% endif %}
+</div>
+<div class="card"><h2>Your website</h2>
+{% if not site %}<p>You haven't set up your website yet.</p><p><a class="btn" href="/app/website">Create your website</a></p>
+{% elif site.published_version_id %}<p><span class="badge live">Live</span></p><p class="wrap-text"><a href="//{{ site_host }}" rel="noopener">{{ site_host }}</a></p><p class="small muted">{{ measured.form_start }} people started the contact form and {{ measured.lead }} sent it in the last 30 days.</p><p><a class="btn ghost" href="/app/website">Edit website</a></p>
+{% else %}<p><span class="badge draft">Not published</span></p><p>Your draft is saved. Preview it, save a version, then approve and publish.</p><p><a class="btn" href="/app/website">Continue</a></p>{% endif %}
+</div>
+</div>
+
+{% if unanswered %}<div class="alert note actions">{{ unanswered }} new {{ 'inquiry has' if unanswered == 1 else 'inquiries have' }} no recorded response yet. <a href="/app/inquiries?status=new">Review them</a></div>{% endif %}
+{% endblock %}

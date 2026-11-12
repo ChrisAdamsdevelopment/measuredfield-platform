@@ -1,0 +1,9 @@
+{% extends "app/base.html" %}
+{% block title %}Activity{% endblock %}
+{% block content %}
+<header><div><h1>Activity</h1><p>A record of meaningful actions in this workspace. It can't be edited.</p></div></header>
+<div class="card">{% if events %}<div class="scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Details</th></tr></thead><tbody>
+{% for e, actor in events %}<tr><td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ actor or ('Website visitor' if e.action in ('lead.received','proposal.approved','proposal.declined') else 'System') }}</td>
+<td>{{ e.action.replace('.', ': ').replace('_', ' ') }}</td><td class="small muted wrap-text">{% for k, v in e.meta.items() %}{{ k.replace('_',' ') }}: {{ v }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">Nothing recorded yet.</p>{% endif %}</div>
+{% endblock %}

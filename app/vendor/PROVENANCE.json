@@ -1,0 +1,41 @@
+{
+  "note": "Byte-identical copies. tests/test_units.py fails if any sha256 below stops matching. Do not edit these files in place; change behaviour in app/services and record why.",
+  "components": [
+    {
+      "file": "growth_engine.mjs",
+      "sha256": "0a13c37406004c4687ca6e56c7646be69a5dcfbbdb8e8df6ac0026e8096d36d6",
+      "copied_from": "shared_core/growth_engine.mjs",
+      "original": "D:\\PrescottsBestConstruction\\05_WEBSITE_AND_TECH\\PBC_ESTIMATOR_APP\\server\\growth-intelligence.mjs",
+      "original_sha256": "6e4217653f5ace91f238fe509a46fefc8566f3c089a2c7b6471ad57955c7e5e8",
+      "owner": "Prescott's Best Construction / project owner",
+      "restrictions": "No PBC OAuth, credentials, customer data or live connectors. Outputs are proposals requiring owner approval."
+    },
+    {
+      "file": "growth_cli.mjs",
+      "sha256": "77572d0b8286bbb3d00d7276433db05fcd12d70d4b0b45e039a4018f2330d166",
+      "copied_from": "shared_core/growth_cli.mjs",
+      "owner": "project owner (written by GPT-6 for the workbench)"
+    },
+    {
+      "file": "forge_chunker.py",
+      "sha256": "e0f917bd47a1de44c68e3f72664d39fbe8ed0ffca0551bd0eb88824c2832e566",
+      "copied_from": "shared_core/forge_chunker.py",
+      "original": "D:\\dev\\forge\\implementation\\backend\\forge\\rag\\chunker.py",
+      "license": "MIT (FORGE_LICENSE.txt)",
+      "restrictions": "Chunking only. Tenant isolation is enforced by the caller and the database."
+    },
+    {
+      "file": "hub_privacy_filter.py",
+      "sha256": "b098c9ae5013cc8979506d0b05e5683c0dd096f53838401835cdedc772d2da12",
+      "copied_from": "14_SHARED_LEARNING_HUB_20261111/privacy_filter.py",
+      "owner": "project owner (written by Gemini Argon)",
+      "known_defect": "Phone redaction runs before API-key redaction, so keys containing digit runs are partly rewritten and not reported as secrets. Compensated by app/services/learning.py::contains_secret."
+    }
+  ],
+  "derived_not_copied": [
+    {"file": "app/services/sitegen.py", "from": "13_MEASUREDFIELD_STUDIO_MVP_20261109/app.py", "source_sha256_at_extraction": "934a1f47a14ca614cf50d7fde544276438954f3eac793dc03f7840967418e3f6"},
+    {"file": "app/static/site.css", "from": "public_site/assets/site.css", "sha256": "9e0c9a06925b47e5fbfcfa5563680d565152f6c6447815a77a410a53dcd503be", "method": "unchanged copy"},
+    {"file": "app/services/growth.py", "from": "shared_core/growth_bridge.py"},
+    {"file": "app/services/learning.py", "from": "14_SHARED_LEARNING_HUB_20261111/learning_hub.py (gate sequence and fail-closed rules)"}
+  ]
+}

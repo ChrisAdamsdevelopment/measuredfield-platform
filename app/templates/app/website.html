@@ -1,0 +1,72 @@
+{% extends "app/base.html" %}
+{% block title %}Website{% endblock %}
+{% block content %}
+<header><div><h1>Website</h1><p>Edit, preview, save a version, approve it, then publish. Every published version can be restored.</p></div>
+{% if site %}<span class="badge {{ 'live' if site.published_version_id else 'draft' }}">{{ 'Live' if site.published_version_id else 'Not published' }}</span>{% endif %}</header>
+
+<div class="grid g-side">
+<div class="card"><h2>{{ 'Website details' if site else 'Create your website' }}</h2>
+{% if can('site.edit') %}
+<form method="post" action="/app/website/save"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="form-grid">
+<div><label for="name">Business name</label><input id="name" name="name" maxlength="90" required value="{{ draft.get('name','') }}"></div>
+<div><label for="city">Service area</label><input id="city" name="city" maxlength="100" required placeholder="Town, State" value="{{ draft.get('city','') }}"></div>
+<div><label for="industry">Type of business</label><select id="industry" name="industry">{% for i in industries %}<option value="{{ i }}"{% if draft.get('industry') == i %} selected{% endif %}>{{ i|capitalize }}</option>{% endfor %}</select></div>
+<div><label for="color">Brand color</label><select id="color" name="color">{% for c in colors %}<option value="{{ c }}"{% if draft.get('color') == c %} selected{% endif %}>{{ c|capitalize }}</option>{% endfor %}</select></div>
+<div><label for="email">Business email</label><input id="email" name="email" type="email" maxlength="120" value="{{ draft.get('email','') }}"></div>
+<div><label for="phone">Business phone</label><input id="phone" name="phone" maxlength="40" value="{{ draft.get('phone','') }}"></div>
+<div class="full"><label for="headline">Headline <span class="muted">(optional; we suggest one if empty)</span></label><input id="headline" name="headline" maxlength="90" value="{{ draft.get('headline','') }}"></div>
+<div class="full"><label for="intro">Introduction <span class="muted">(optional)</span></label><input id="intro" name="intro" maxlength="240" value="{{ draft.get('intro','') }}"></div>
+<div class="full"><label for="services">Services, one per line. Add a description after a | if you like.</label><textarea id="services" name="services" required placeholder="Deep cleaning | Top-to-bottom, including inside appliances&#10;Move-out cleaning">{{ services_text }}</textarea></div>
+<div class="full"><label for="about">About the business</label><textarea id="about" name="about" maxlength="800">{{ draft.get('about','') }}</textarea></div>
+<div><label for="response_window">Reply promise shown to customers</label><select id="response_window" name="response_window">{% for key, text in windows.items() %}<option value="{{ key }}"{% if draft.get('response_window') == key %} selected{% endif %}>{{ text }}</option>{% endfor %}</select></div>
+<div><label for="structured_intake">Inquiry form</label><select id="structured_intake" name="structured_intake"><option value="">Name, email, message</option><option value="on"{% if draft.get('structured_intake') %} selected{% endif %}>Also ask which service and when</option></select></div>
+{% if not site %}<div class="full"><label for="slug">Website address</label><input id="slug" name="slug" maxlength="50" required value="{{ suggested_slug }}" aria-describedby="slug-hint"><p class="small muted" id="slug-hint">Your site will be at <strong>your-address.{{ base_domain }}</strong>. You can connect your own domain later.</p></div>{% endif %}
+</div>
+<p class="small muted">Only promise a reply time you can keep. Use real contact details only when you're ready to publish.</p>
+<div class="actions"><button class="btn" type="submit">{{ 'Save draft' if site else 'Create website draft' }}</button></div>
+</form>
+{% else %}<p class="muted">You have read-only access to the website.</p>{% endif %}
+</div>
+
+<div>
+{% if site %}
+<div class="card"><h2>Publish</h2>
+{% if dirty %}<div class="alert note">Your draft has changes that aren't in a saved version yet.</div>{% endif %}
+{% if can('site.edit') %}<form method="post" action="/app/website/version"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="note">What changed? <span class="muted">(optional)</span></label><input id="note" name="note" maxlength="200">
+<div class="actions"><button class="btn" type="submit">Save draft as a new version</button></div></form>{% endif %}
+<p class="small muted actions">Saving a version takes a snapshot. An owner or admin approves it, then publishes it. Visitors only ever see a published version.</p>
+</div>
+<div class="card actions"><h2>Addresses</h2>
+{% for h in hosts %}<p class="wrap-text">{{ h.hostname }} {% if h.verified_at %}<span class="badge live">active</span>{% else %}<span class="badge pending">waiting for DNS check</span>{% endif %}</p>{% endfor %}
+{% if can('site.publish') %}<details class="box"><summary>Connect your own domain</summary>
+<form method="post" action="/app/website/domains"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="hostname">Domain</label><input id="hostname" name="hostname" placeholder="www.yourbusiness.com" required>
+<p class="small muted">We'll confirm the DNS settings with you. The domain serves your site only after that check.</p><button class="btn ghost" type="submit">Request</button></form></details>{% endif %}
+</div>
+{% else %}
+<div class="card"><h2>How publishing works</h2><ol class="small"><li>Fill in your details and create the draft.</li><li>Preview it exactly as visitors will see it.</li><li>Save a version, approve it, publish it.</li><li>Inquiries from the site arrive under Inquiries.</li></ol></div>
+{% endif %}
+</div>
+</div>
+
+{% if site %}
+<div class="card actions"><h2>Preview of your current draft</h2>
+<p class="small muted">The form works in preview but nothing is saved or sent.</p>
+<iframe class="preview" title="Preview of your website draft" src="/app/website/preview/"></iframe></div>
+
+<div class="card actions"><h2>Version history</h2>
+{% if versions %}<div class="scroll"><table><thead><tr><th scope="col">Version</th><th scope="col">Saved</th><th scope="col">Note</th><th scope="col">Status</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
+{% for v in versions %}<tr><td>#{{ v.number }}</td><td>{{ v.created_at.strftime('%b %d, %H:%M') }}</td><td>{{ v.note }}</td>
+<td>{% if site.published_version_id == v.id %}<span class="badge live">Live now</span>{% elif v.approved_at %}<span class="badge approved">Approved</span>{% else %}<span class="badge draft">Awaiting approval</span>{% endif %}</td>
+<td><div class="row"><a class="btn ghost small" href="/app/website/versions/{{ v.id }}/view/" target="_blank" rel="noopener">View</a>
+{% if can('site.publish') %}
+{% if not v.approved_at %}<form class="inline" method="post" action="/app/website/versions/{{ v.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small" type="submit">Approve</button></form>
+{% elif site.published_version_id != v.id %}<form class="inline" method="post" action="/app/website/versions/{{ v.id }}/publish"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small" type="submit">{{ 'Publish' if not site.published_version_id else 'Make this the live version' }}</button></form>{% endif %}
+{% endif %}</div></td></tr>{% endfor %}
+</tbody></table></div>
+{% if site.published_version_id and can('site.publish') %}<form class="actions" method="post" action="/app/website/unpublish"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn danger small" type="submit">Take the website offline</button></form>{% endif %}
+{% else %}<p class="empty">No saved versions yet.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
