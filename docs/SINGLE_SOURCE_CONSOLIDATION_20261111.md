@@ -1,7 +1,7 @@
 # One-source MeasuredField consolidation — November 11, 2026
 
 ## Owner decision
-ONE canonical checkout on Git main, serialized writing by Claude, GPT-6 and
+ONE canonical checkout on Git main, concurrent file-scoped writing by Claude, GPT-6 and
 Gemini Argon. No competing live MeasuredField versions.
 
 ## Consolidated commits
@@ -27,7 +27,7 @@ RLS for all added tenant tables, authorization and provider-mock tests.
 ## Coordination
 Agents start at:
 D:\GrowthEngineeringVenture\15_INTEGRATION_WORKBENCH_20261111\mf_platform
-One writer at a time. Check CLAUDE.md/AGENTS.md, git status, recent commits.
+Parallel coding only on disjoint scopes claimed in AGENT_BOARD. Hold the global gate for test and commit. Check CLAUDE.md/AGENTS.md and git status.
 Do not create another worktree or switch to a separate long-lived branch.
 No public deployment or provider activation until independently authorized.
 

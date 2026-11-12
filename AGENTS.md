@@ -19,7 +19,7 @@ Three surfaces: MeasuredField marketing website; websites for customer businesse
 - Preserve source provenance for the PBC-derived growth engine and Forge-derived chunker; do not copy real PBC credentials or customer data.
 
 ## Bounded coding and verification
-1. Single-source rule: Work ONLY in canonical mf_platform on Git main; never create divergent branches, worktrees or duplicate sources. Read CLAUDE.md and check git status first. Ensure only one writer at a time and preserve concurrent changes.
+1. Single-source rule: Work ONLY in canonical mf_platform on Git main; never create divergent branches, worktrees or duplicate sources. Read CLAUDE.md and check git status first. Allow concurrent writers only on atomically claimed disjoint file scopes; hold the board integration gate for tests and commits.
 2. Implement a coherent, testable improvement, not a new unconnected prototype.
 3. Run formatting, imports/compilation, focused unit tests and relevant regressions.
 4. Diagnose failures, fix and retest. No more than three repair attempts on the same failure without reporting the blocker.
