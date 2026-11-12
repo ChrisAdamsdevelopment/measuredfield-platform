@@ -184,9 +184,11 @@ def queue_auth_email(db, *, kind: str, to: str, subject: str, intro: str, outro:
 def _mint(db, token: AuthToken, *, via: str, ttl: timedelta, issued_by: str | None = None) -> str:
     """Create the one usable token for this row, replacing any earlier one."""
     raw = new_token()
-    token.token_hash, token.issued_at, token.issued_via = digest(raw), now(), via
+    issued_at = now()
+    token.token_hash, token.issued_at, token.issued_via = digest(raw), issued_at, via
     token.issued_by, token.issue_count = issued_by, (token.issue_count or 0) + 1
-    token.expires_at = now() + ttl
+    # Use one instant for both fields: exactly TTL, never TTL + microsecond drift.
+    token.expires_at = issued_at + ttl
     db.flush()
     return raw
 
