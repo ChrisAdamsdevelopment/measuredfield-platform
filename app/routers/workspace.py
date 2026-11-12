@@ -12,17 +12,17 @@ import re
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
-from ..models import (AssessmentReport, AuditEvent, Customer, DataRequest, Document, Improvement, Lead,
-                      LeadNote, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
-                      User, now)
+from ..models import (AssessmentReport, AuditEvent, BillingSubscription, Customer, DataRequest,
+                      Document, Improvement, Lead, LeadNote, LessonCandidate, Membership, MemoryItem,
+                      Project, Proposal, ServiceOrder, SiteVersion, User, now)
 from ..security import ROLES, digest, new_token, valid_email
-from ..services import growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
+from ..services import growth, jobs, lead_metrics, learning, orders, payments, sitegen, sites, tenant_data
 from ..services.audit import audit
 from .auth import list_orgs
 
@@ -764,3 +764,99 @@ def api_improvements(db: TenantSession = Depends(get_db), p: Principal = Depends
 
 
 __all__ = ["router", "timedelta", "jobs"]
+
+
+# ------------------------------------------- optional existing-customer Growth Partner
+
+def _growth_partner_offer() -> dict | None:
+    """Extra support is not available until a real Stripe Price and terms exist."""
+    settings = get_settings()
+    offer = settings.offer("growth_partner")
+    if (not offer or offer.get("add_on") is not True or
+            offer.get("billing") != "monthly" or
+            not str(offer.get("stripe_price_id") or "").startswith("price_") or
+            int(offer.get("price_cents") or 0) <= 0):
+        return None
+    if settings.is_production and settings.terms_version.endswith("-draft"):
+        return None
+    return offer
+
+
+@router.get("/app/billing")
+def customer_billing(request: Request, db: TenantSession = Depends(get_db),
+                     p: Principal = Depends(member("billing.read"))):
+    if p.role != "owner":
+        raise HTTPException(403, "Only the business owner can manage billing.")
+    rows = db.scalars(select(ServiceOrder).where(ServiceOrder.org_id == p.org.id)
+                      .order_by(ServiceOrder.created_at.desc()).limit(50)).all()
+    subscriptions = db.scalars(select(BillingSubscription).where(
+        BillingSubscription.org_id == p.org.id)).all()
+    subscription_by_order = {item.order_id: item for item in subscriptions}
+    entries = [(order, subscription_by_order.get(order.id)) for order in rows]
+    current = orders.active_subscription_for(db, p.org.id, "growth_partner")
+    offer = _growth_partner_offer() if payments.get_provider() is not None else None
+    return _page(request, db, p, "app/billing.html", {
+        "orders": entries, "growth_offer": offer, "growth_active": current,
+        "support_email": get_settings().support_email,
+    })
+
+
+@router.post("/app/billing/growth-partner")
+def purchase_growth_partner(request: Request, agree: str = Form(""),
+                            db: TenantSession = Depends(get_db),
+                            p: Principal = Depends(member_post("billing.read"))):
+    """Secure owner-approved optional service checkout, bound to an EXISTING org."""
+    if p.role != "owner" or p.org.status != "active":
+        raise HTTPException(403, "Only an active business owner can purchase support.")
+    if agree != "yes":
+        return back("/app/billing", err="Read and accept the service terms before continuing.")
+    offer = _growth_partner_offer()
+    provider = payments.get_provider()
+    if offer is None or provider is None:
+        return back("/app/billing", err="Growth Partner checkout is not available yet.")
+    if orders.active_subscription_for(db, p.org.id, "growth_partner"):
+        return back("/app/billing", err="Growth Partner is already active for this workspace.")
+
+    # A pending Stripe Checkout may remain payable much longer than a web page
+    # session. Never silently cancel/supersede an external checkout after 30 min;
+    # it could subsequently settle and be mistaken for an abandoned purchase.
+    previous = db.scalar(select(ServiceOrder).where(
+        ServiceOrder.org_id == p.org.id, ServiceOrder.offer_code == "growth_partner")
+        .order_by(ServiceOrder.created_at.desc()).with_for_update())
+    if previous is not None and previous.status in ("approved_unpaid", "payment_pending", "paid"):
+        return back("/app/billing", err=(
+            "A checkout is already open or processing. Contact support if you need "
+            "to restart it after Stripe confirms the original checkout has expired."))
+
+    # Reuse the authenticated business's original assessment, never a visitor
+    # supplied token or organization ID. The add-on order cannot create a new org.
+    base_order = db.scalar(select(ServiceOrder).where(
+        ServiceOrder.org_id == p.org.id, ServiceOrder.offer_code != "growth_partner",
+        ServiceOrder.status == "provisioned").order_by(ServiceOrder.created_at.asc()))
+    if base_order is None:
+        return back("/app/billing", err="Complete your Business Workspace setup first.")
+
+    new_order = ServiceOrder(
+        assessment_id=base_order.assessment_id,
+        offer_code="growth_partner", offer_snapshot=offer,
+        amount_cents=int(offer["price_cents"]), currency="usd",
+        status="approved_unpaid", approved_name=(p.user.name or p.user.email)[:120],
+        approved_at=now(), terms_version=get_settings().terms_version,
+        org_id=p.org.id,
+    )
+    db.add(new_order)
+    db.flush()
+    settings = get_settings()
+    try:
+        session = provider.create_checkout(
+            order_id=str(new_order.id), offer=offer, customer_email=p.user.email,
+            success_url=f"{settings.public_base_url}/app/billing",
+            cancel_url=f"{settings.public_base_url}/app/billing")
+    except payments.PaymentError:
+        # 5xx rolls back the unconfirmed DB order; no charge or access is recorded.
+        raise HTTPException(503, "Secure checkout is temporarily unavailable.") from None
+    new_order.provider_ref, new_order.payment_provider = session["id"], "stripe"
+    new_order.status = "payment_pending"
+    audit(db, p.org.id, p.user.id, "billing.growth_checkout_started",
+          "service_order", new_order.id, {"offer_code": "growth_partner"})
+    return RedirectResponse(session["url"], status_code=303)

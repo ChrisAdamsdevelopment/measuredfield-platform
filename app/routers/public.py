@@ -22,9 +22,14 @@ from ..services.audit import audit
 router = APIRouter()
 
 
+def _public_offers() -> list[dict]:
+    # Existing-customer extras must never be sold as stand-alone new workspaces.
+    return [offer for offer in get_settings().offers if not offer.get("add_on")]
+
+
 @router.get("/")
 def home(request: Request, principal: Principal | None = Depends(get_principal)):
-    return render(request, "public/home.html", {"offers": get_settings().offers})
+    return render(request, "public/home.html", {"offers": _public_offers()})
 
 
 @router.get("/privacy")
@@ -118,7 +123,7 @@ def assessment_result(token: str, request: Request, db: TenantSession = Depends(
     order = db.scalar(select(ServiceOrder).where(ServiceOrder.assessment_id == row.id,
                                                  ServiceOrder.status != "cancelled").order_by(ServiceOrder.created_at.desc()))
     return render(request, "public/result.html", {
-        "a": row, "r": row.result, "token": token, "offers": settings.offers, "order": order,
+        "a": row, "r": row.result, "token": token, "offers": _public_offers(), "order": order,
         "payments_live": payments.get_provider() is not None, "errors": {}})
 
 
@@ -143,7 +148,7 @@ def order_create(token: str, request: Request, db: TenantSession = Depends(get_d
         errors["form"] = str(exc)
     if errors:
         return render(request, "public/result.html", {
-            "a": row, "r": row.result, "token": token, "offers": settings.offers, "order": None,
+            "a": row, "r": row.result, "token": token, "offers": _public_offers(), "order": None,
             "payments_live": payments.get_provider() is not None, "errors": errors,
             "chosen": offer_code}, status_code=422)
     provider = payments.get_provider()

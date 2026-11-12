@@ -74,3 +74,14 @@ details.box{border:1px solid var(--line);border-radius:9px;padding:10px 14px;mar
   .inquiries-table tbody td::before{content:attr(data-label);font-weight:600;text-align:left;flex-shrink:0}
   .lead-cell-main{align-items:flex-end;text-align:right}
 }
+
+/* Billing history and promotional code display */
+.billing-table-scroll{max-width:100%;overflow-x:auto}
+.billing-history{border-collapse:collapse;width:100%;min-width:630px}
+.billing-history th,.billing-history td{padding:12px;border-bottom:1px solid #ccdad5;text-align:left;vertical-align:top}
+.billing-history th{font-size:.86rem}
+.promo-panel{background:#e5f5ec;border:1px solid #86c8a9;color:#17483c;padding:16px;border-radius:12px;margin:17px 0}
+.promo-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:12px 0}
+.promo-code{padding:10px 14px;border:1px dashed #549e78;background:white;border-radius:7px;letter-spacing:.08em;user-select:all}
+.promo-copy{min-height:44px}
+.promo-status{font-size:.91rem;font-weight:700}
