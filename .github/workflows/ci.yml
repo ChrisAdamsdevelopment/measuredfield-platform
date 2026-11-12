@@ -41,6 +41,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Reject credentials and sensitive tracked files
+        run: python -B scripts/secret_scan.py --tracked
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
