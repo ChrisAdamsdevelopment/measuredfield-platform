@@ -1,0 +1,5 @@
+# Separate MeasuredField ChatGPT MCP Streamable HTTP service dependencies.
+# Install into an isolated venv: python -m pip install -r app/mcp_auth/requirements-mcp.txt
+-r ../../requirements.txt
+mcp==2.3.0
+PyJWT[crypto]>=2.13,<3.0
