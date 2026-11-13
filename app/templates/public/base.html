@@ -6,6 +6,13 @@
 <meta name="description" content="{% block description %}{{ brand }} helps small-business owners get found, handle every inquiry and simplify the work behind the work.{% endblock %}">
 {% if not settings.is_production or settings.env == 'staging' %}<meta name="robots" content="noindex,nofollow">{% endif %}
 <title>{% block title %}{{ brand }} | Make your business easier to run{% endblock %}</title>
+<meta name="theme-color" content="#102a2e">
+<link rel="icon" href="/static/media/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/media/measuredfield-icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/media/measuredfield-icon-180.png">
+<link rel="manifest" href="/static/media/site.webmanifest">
+{% block social_meta %}{% endblock %}
+{% block structured_data %}{% endblock %}
 <link rel="stylesheet" href="/static/site.css">
 <link rel="stylesheet" href="/static/mf.css">
 </head>
@@ -13,15 +20,15 @@
 <a class="skip-link" href="#main">Skip to content</a>
 {% if settings.env != 'production' %}<div class="env-ribbon">{{ settings.env|capitalize }} environment — not the live service</div>{% endif %}
 <header class="site-header"><div class="wrap nav">
-<a class="brand" href="/" aria-label="{{ brand }} home"><span class="brand-mark" aria-hidden="true">M<span>.</span></span><span>{{ brand }}</span></a>
+<a class="brand" href="/" aria-label="{{ brand }} home"><img class="brand-icon" src="/static/media/measuredfield-icon-master-transparent.webp" alt="" width="42" height="42" decoding="async"><span>{{ brand }}</span></a>
 <nav aria-label="Main navigation">
-<a href="/#what">What we improve</a><a href="/#examples">Examples</a><a href="/#pricing">Pricing</a>
+<a href="/#what">What we improve</a><a href="/#results">Results</a><a href="/watch/measuredfield-business-launch">Watch video</a><a href="/#pricing">Pricing</a>
 {% if principal %}<a class="nav-signin" href="{{ '/app' if principal.org else '/operator' if principal.user.is_platform_admin else '/app' }}">Open workspace</a>
 {% else %}<a class="nav-signin" href="/login">Sign in</a>{% endif %}
 <a class="nav-cta" href="/assessment">Start your assessment</a>
 </nav></div></header>
 <main id="main">{% block content %}{% endblock %}</main>
-<footer><div class="wrap footer-row"><div><div class="footer-brand">{{ brand }}<span>.</span></div><p>Practical systems for the people doing the work.</p></div>
+<footer><div class="wrap footer-row"><div><div class="footer-brand"><img src="/static/media/measuredfield-logo-light-transparent.webp" alt="MeasuredField — Build smarter. Grow clearer." width="236" height="79" loading="lazy" decoding="async"></div><p>Practical systems for the people doing the work.</p></div>
 <div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login">Sign in</a>{% if settings.support_email %}<a href="mailto:{{ settings.support_email }}">Contact</a>{% endif %}<span>&copy; 2026 {{ brand }}</span></div></div></footer>
 {% block scripts %}{% endblock %}
 </body>

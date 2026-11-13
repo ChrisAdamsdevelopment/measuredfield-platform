@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import mimetypes
 import re
 import secrets
 import time
@@ -69,6 +70,10 @@ async def lifespan(app: FastAPI):
 def create_main_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="MeasuredField", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    # Windows/older OS MIME registries may not recognize WebP. Browsers and
+    # social preview crawlers need the correct type rather than octet-stream.
+    mimetypes.add_type("image/webp", ".webp", strict=True)
+    mimetypes.add_type("text/vtt", ".vtt", strict=True)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
     for module in (public, auth, workspace, operator):
         app.include_router(module.router)

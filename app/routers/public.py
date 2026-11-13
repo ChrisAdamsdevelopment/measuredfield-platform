@@ -7,7 +7,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 from sqlalchemy import select
 
 from ..config import get_settings
@@ -25,6 +25,56 @@ router = APIRouter()
 @router.get("/")
 def home(request: Request, principal: Principal | None = Depends(get_principal)):
     return render(request, "public/home.html", {"offers": get_settings().offers})
+
+
+@router.get("/robots.txt")
+def public_robots():
+    settings = get_settings()
+    if settings.env != "production":
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
+    return PlainTextResponse(
+        "User-agent: *\nAllow: /\nSitemap: "
+        + settings.public_base_url.rstrip("/") + "/sitemap.xml\n"
+    )
+
+
+@router.get("/sitemap.xml")
+def public_sitemap():
+    """Canonical MeasuredField app sitemap; no private/customer URL disclosure."""
+    from xml.sax.saxutils import escape as xml_escape
+
+    settings = get_settings()
+    if settings.env != "production":
+        raise HTTPException(404, "Not found")
+    base = settings.public_base_url.rstrip("/")
+    paths = ["/", "/assessment", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
+    entries = []
+    for path in paths:
+        extra = ""
+        if path.endswith("/measuredfield-business-launch") and settings.video_publication_date:
+            video = (
+                "<video:video>"
+                "<video:thumbnail_loc>" + xml_escape(base + "/static/media/measuredfield-business-launch-film-poster.jpg") + "</video:thumbnail_loc>"
+                "<video:title>MeasuredField business launch commercial</video:title>"
+                "<video:description>A 30-second introduction to clearer business websites and inquiry management.</video:description>"
+                "<video:content_loc>" + xml_escape(base + "/static/media/measuredfield-business-launch-film-portrait.mp4") + "</video:content_loc>"
+                "<video:publication_date>" + xml_escape(settings.video_publication_date) + "</video:publication_date>"
+                "</video:video>"
+            )
+            extra = video
+        entries.append("<url><loc>" + xml_escape(base + path) + "</loc>" + extra + "</url>")
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">'
+        + "".join(entries) + "</urlset>"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
+@router.get("/watch/measuredfield-business-launch")
+def watch_measuredfield_launch(request: Request, principal: Principal | None = Depends(get_principal)):
+    return render(request, "public/watch.html")
 
 
 @router.get("/privacy")

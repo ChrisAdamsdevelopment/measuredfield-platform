@@ -11,6 +11,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -27,6 +28,15 @@ TEXT_EXTENSIONS = {
     ".env", ".conf", ".properties",
 }
 MAX_BYTES = 3 * 1024 * 1024
+# Exactly one audited, original AI-generated MP4 is allowed above the normal
+# source-scan threshold. Every future change requires a new reviewed SHA-256.
+# No wildcard video bypass, directory exception, or adjustable size allowance.
+PINNED_LARGE_MEDIA = {
+    "app/static/media/measuredfield-business-launch-film-portrait.mp4": (
+        "6fda494826d3bec8552dcb71458805585c5a1817c635b6777e3ef1f9003dd7fb"
+    ),
+}
+MAX_PINNED_MEDIA_BYTES = 12 * 1024 * 1024
 BLOCKED_BASE_NAMES = {
     "credentials.json", "token.json", "service-account.json",
     "service_account.json", "secrets.json", "secret.json",
@@ -102,7 +112,14 @@ def scan_bytes(path: str, raw: bytes) -> list[Finding]:
     if blocked:
         return [Finding(path, 0, blocked)]
     if len(raw) > MAX_BYTES:
-        return [Finding(path, 0, "oversized_unscanned_file")]
+        pinned = PINNED_LARGE_MEDIA.get(path)
+        if (pinned is None or len(raw) > MAX_PINNED_MEDIA_BYTES
+                or len(raw) < 12 or raw[4:8] != b"ftyp"
+                or hashlib.sha256(raw).hexdigest() != pinned):
+            return [Finding(path, 0, "oversized_unscanned_file")]
+        # Byte-for-byte validated against the independently archived media.
+        # This MP4 cannot be replaced or extended without failing the scan.
+        return []
     # Scan binary as bytes as well: recognizable credentials can be embedded in
     # non-text assets. Malformed UTF-8 is handled without crashing.
     issues: list[Finding] = []
