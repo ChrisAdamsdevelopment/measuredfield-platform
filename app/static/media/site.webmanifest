@@ -1,0 +1,13 @@
+{
+ "name":"MeasuredField",
+ "short_name":"MeasuredField",
+ "description":"Business workspace for small-business owners",
+ "start_url":"/",
+ "display":"browser",
+ "background_color":"#ffffff",
+ "theme_color":"#102a2e",
+ "icons":[
+  {"src":"/static/media/measuredfield-icon-192.png","sizes":"192x192","type":"image/png"},
+  {"src":"/static/media/measuredfield-icon-512.png","sizes":"512x512","type":"image/png"}
+ ]
+}

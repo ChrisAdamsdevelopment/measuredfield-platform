@@ -1,4 +1,45 @@
 {% extends "public/base.html" %}
+{% block description %}MeasuredField helps small-business owners launch a professional website, stay on top of customer inquiries and measure business improvements in one workspace.{% endblock %}
+{% block social_meta %}
+<link rel="canonical" href="{{ settings.public_base_url.rstrip('/') }}/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MeasuredField">
+<meta property="og:title" content="MeasuredField | Build smarter. Grow clearer.">
+<meta property="og:description" content="A simpler way to build your business, manage inquiries and measure progress. Start with a free assessment.">
+<meta property="og:url" content="{{ settings.public_base_url.rstrip('/') }}/">
+<meta property="og:image" content="{{ settings.public_base_url.rstrip('/') }}/static/media/measuredfield-social-preview.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="MeasuredField — small-business owner with website, inquiry and analytics tools">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MeasuredField | Build smarter. Grow clearer.">
+<meta name="twitter:description" content="Build a better business around the work you do.">
+<meta name="twitter:image" content="{{ settings.public_base_url.rstrip('/') }}/static/media/measuredfield-social-preview.jpg">
+{% endblock %}
+{% block structured_data %}
+{% set root_url = settings.public_base_url.rstrip('/') %}
+{% set schema = {"@context": "https://schema.org", "@graph": [
+  {"@type": "Organization", "@id": root_url ~ "/#organization", "name": "MeasuredField",
+   "url": root_url ~ "/", "logo": {"@type": "ImageObject", "url": root_url ~ "/static/media/measuredfield-logo-primary.webp",
+   "contentUrl": root_url ~ "/static/media/measuredfield-logo-primary.webp",
+   "caption": "MeasuredField primary brand logo"}},
+  {"@type": "WebSite", "@id": root_url ~ "/#website", "url": root_url ~ "/",
+   "name": "MeasuredField", "publisher": {"@id": root_url ~ "/#organization"},
+   "image": root_url ~ "/static/media/measuredfield-social-preview.jpg"},
+  {"@type": "Service", "@id": root_url ~ "/#workspace-service", "name": "MeasuredField Business Workspace",
+   "description": "A subscription workspace to build and run the business around your work, including website and inquiry management.",
+   "serviceType": "Small-business software and operating workspace",
+   "provider": {"@id": root_url ~ "/#organization"},
+   "image": root_url ~ "/static/media/measuredfield-business-workspace-99-month.webp",
+   "offers": {"@type": "Offer", "price": "99.00", "priceCurrency": "USD", "url": root_url ~ "/#pricing"}},
+  {"@type": "Service", "@id": root_url ~ "/#growth-service", "name": "MeasuredField Growth Partner",
+   "description": "Optional monthly business-building and marketing strategy support for owners with a MeasuredField workspace.",
+   "provider": {"@id": root_url ~ "/#organization"},
+   "image": root_url ~ "/static/media/measuredfield-growth-partner-99-month.webp",
+   "offers": {"@type": "Offer", "price": "99.00", "priceCurrency": "USD", "url": root_url ~ "/#pricing"}}
+] } %}
+<script type="application/ld+json">{{ schema | tojson }}</script>
+{% endblock %}
 {% block content %}
 <section class="hero"><div class="wrap hero-grid">
 <div><div class="eyebrow"><span class="eyebrow-line"></span> For owners building or improving a small business</div>
@@ -7,6 +48,12 @@
 <div class="actions"><a class="btn primary" href="/assessment">Answer two questions <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="#how">See how it works</a></div>
 <div class="hero-foot">About five minutes. No sales call required. We tell you plainly what we can and can't help with.</div>
 </div>
+<figure class="hero-media">
+<img src="/static/media/measuredfield-hero-business-tools.webp"
+ alt="Illustrated MeasuredField concept showing a business owner with website, inquiry, messaging and analytics panels"
+ width="1500" height="844" fetchpriority="high" decoding="async">
+<figcaption>One place to organize the work, find opportunities, and see progress.</figcaption>
+</figure>
 <div class="hero-questions" aria-label="The two questions we start with">
 <p>Every engagement starts with the same two questions.</p>
 <div class="q"><span>Question one</span><strong>What are you doing in your business right now that you're most excited about?</strong></div>
@@ -54,6 +101,11 @@
 <div class="pricing">
 {% for offer in offers %}
 <article class="plan{% if offer.code == 'launch' %} featured{% endif %}">
+{% if offer.code == 'operate' or offer.code == 'business_workspace' %}
+<img class="plan-visual" src="/static/media/measuredfield-business-workspace-99-month.webp"
+ alt="Business Workspace plan illustration showing website, lead capture and analytics features"
+ width="1200" height="900" loading="lazy" decoding="async">
+{% endif %}
 <h3>{{ offer.name }}</h3>
 <div class="price">{% if offer.price_cents == 0 %}Free{% else %}${{ '%.0f'|format(offer.price_cents / 100) }}{% if offer.billing == 'monthly' %} <small>per month</small>{% else %} <small>one time</small>{% endif %}{% endif %}</div>
 <p>{{ offer.summary }}</p>
@@ -61,6 +113,16 @@
 <a class="btn {{ 'primary' if offer.code == 'launch' else 'secondary' }}" href="/assessment">Start with the assessment</a>
 </article>
 {% endfor %}
+<article class="plan add-on">
+<img class="plan-visual" src="/static/media/measuredfield-growth-partner-99-month.webp"
+ alt="Growth Partner add-on illustration featuring launch assistance, marketing ideas and ongoing optimization"
+ width="1200" height="900" loading="lazy" decoding="async">
+<h3>Growth Partner</h3>
+<div class="price">+$99 <small>per month</small></div>
+<p>Optional hands-on help with business priorities, marketing ideas, campaigns and improvements alongside your Business Workspace.</p>
+<p class="plan-helper">Available as an add-on for workspace owners. Your service scope and renewal terms are confirmed before purchase.</p>
+<a class="btn secondary" href="/assessment">Discuss your business</a>
+</article>
 </div>
 <p class="fine-print">Prices shown are our current introductory prices and may change. You see the exact scope and price, and approve it, before any charge.</p>
 </div></section>

@@ -71,3 +71,22 @@ fieldset.step-card{min-width:0;margin-left:0;margin-right:0}
 table.lines{width:100%;border-collapse:collapse;margin:14px 0}table.lines th,table.lines td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:.94rem}
 table.lines td.num,table.lines th.num{text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:760px){.examples,.pricing,.two{grid-template-columns:1fr}.step-card{padding:22px}.kv{grid-template-columns:1fr}.hero-questions{padding:24px}}
+
+/* Generated MeasuredField production brand assets, 2026-11 */
+.site-header .brand-icon {display:block;object-fit:contain;flex-shrink:0;border-radius:9px}
+.footer-brand img {display:block;object-fit:contain;border-radius:8px;background:#fff;padding:3px}
+.hero-grid {grid-template-columns: minmax(0,1.08fr) minmax(320px,.92fr);gap:30px 46px}
+.hero-media {margin:0;align-self:center;background:#f7faf8;border:1px solid #d3e9df;
+ border-radius:18px;overflow:hidden;box-shadow:0 18px 60px #0d47381a}
+.hero-media img {display:block;width:100%;height:auto;object-fit:contain}
+.hero-media figcaption {padding:12px 19px;text-align:center;color:#486a65;
+ font-size:.82rem;font-weight:650;line-height:1.5}
+.hero-questions {grid-column:2;grid-row:2;margin-top:10px}
+.hero-grid>div:first-child {grid-row:1 / span 2}
+.plan-visual {display:block;width:100%;height:auto;object-fit:contain;
+ border:1px solid #e0ede7;border-radius:9px;margin-bottom:17px}
+.plan.add-on {background:#f6fbf8;border:1px solid #b7dac8}
+.plan-helper {font-size:.83rem;color:#4b6a62}
+@media(max-width:950px){.hero-grid{gap:30px}.hero-questions{grid-row:auto;grid-column:auto}.hero-grid>div:first-child{grid-row:auto}}
+@media(max-width:760px){.hero-grid{grid-template-columns:minmax(0,1fr)}
+ .hero-media,.hero-questions{grid-column:auto}.hero-media img{max-width:100%}}
