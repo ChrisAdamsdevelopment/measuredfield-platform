@@ -73,6 +73,7 @@ def create_main_app() -> FastAPI:
     # Windows/older OS MIME registries may not recognize WebP. Browsers and
     # social preview crawlers need the correct type rather than octet-stream.
     mimetypes.add_type("image/webp", ".webp", strict=True)
+    mimetypes.add_type("text/vtt", ".vtt", strict=True)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
     for module in (public, auth, workspace, operator):
         app.include_router(module.router)

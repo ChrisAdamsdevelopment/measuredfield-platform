@@ -17,7 +17,7 @@ def test_homepage_image_assets_and_schema(platform):
     assert 'name="twitter:card" content="summary_large_image"' in body
     assert 'property="og:image"' in body
     assert 'name="robots" content="noindex,nofollow"' in body  # test/staging not indexable
-    assert "measuredfield-logo-primary.webp" in body
+    assert "measuredfield-logo-light-transparent.webp" in body and "measuredfield-logo-dark-transparent.webp" in body
     assert "measuredfield-hero-business-tools.webp" in body
     assert "measuredfield-business-workspace-99-month.webp" in body
     assert "measuredfield-growth-partner-99-month.webp" in body

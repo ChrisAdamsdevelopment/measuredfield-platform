@@ -90,3 +90,46 @@ table.lines td.num,table.lines th.num{text-align:right;font-variant-numeric:tabu
 @media(max-width:950px){.hero-grid{gap:30px}.hero-questions{grid-row:auto;grid-column:auto}.hero-grid>div:first-child{grid-row:auto}}
 @media(max-width:760px){.hero-grid{grid-template-columns:minmax(0,1fr)}
  .hero-media,.hero-questions{grid-column:auto}.hero-media img{max-width:100%}}
+
+/* MeasuredField original Gemini film and new creative; clip source 2026-11-13 */
+.site-header .brand-icon {border-radius:0}
+.footer-brand img {background:transparent;padding:0;width:min(260px,100%);height:auto}
+.hero-media picture,.hero-media picture img {display:block;width:100%;height:auto}
+.how-image {grid-column:1/-1;margin:18px 0 0;max-width:980px;justify-self:center}
+.how-image img {display:block;width:100%;height:auto;border-radius:13px;box-shadow:0 18px 40px #001b1922}
+.how-image figcaption {color:#c1d6ce;font-size:.84rem;text-align:center;margin-top:12px}
+.results-proof {background:#f8fbf8}
+.proof-grid {display:grid;grid-template-columns:1fr .9fr;gap:50px;align-items:center}
+.results-proof .proof-number {color:#14695f;font-size:1.35rem;font-weight:750;margin:28px 0 12px}
+.results-proof .proof-number strong {font-size:clamp(2.8rem,6vw,5.4rem);line-height:1}
+.results-proof .proof-source {font-size:.78rem;color:#5d706c;line-height:1.5;margin:18px 0}
+.proof-visual {margin:0}.proof-visual img {width:100%;height:auto;border-radius:12px;box-shadow:0 20px 50px #1539301c}
+.proof-visual figcaption {font-size:.76rem;color:#526c65;margin-top:9px}
+.video-showcase {background:#103238;color:#f1fbf6}
+.video-layout {display:grid;grid-template-columns:1fr minmax(260px,390px);gap:65px;align-items:center}
+.video-showcase .eyebrow {color:#8fd8bd}.video-showcase h2 {font-size:clamp(2rem,4.5vw,3.3rem)}
+.video-showcase p {color:#d0e4df;max-width:550px}
+.video-showcase .video-help {color:#a8c9be;font-size:.88rem;margin:24px 0}
+.video-frame,.watch-player {border-radius:16px;overflow:hidden;background:#071619;box-shadow:0 16px 48px #0007}
+.video-frame video,.watch-player video {display:block;width:100%;height:auto;aspect-ratio:9/16;object-fit:contain}
+.watch-page {background:linear-gradient(100deg,#f7fbf8,#e3f1eb)}
+.watch-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,410px);gap:70px;align-items:center}
+.watch-summary h1 {font-size:clamp(2.4rem,5vw,4.3rem)}
+.watch-summary .lead {font-size:1.14rem}
+.watch-summary .method {font-size:.85rem;color:#516d63;margin:22px 0}
+.watch-description {max-width:850px}
+.watch-description ol {line-height:1.9;color:#44615b;padding-left:22px}
+@media(max-width:820px){
+ .proof-grid,.video-layout,.watch-layout {grid-template-columns:1fr;gap:28px}
+ .video-frame,.watch-player {width:min(100%,380px);margin:0 auto}
+ .how-image {margin-top:15px}
+}
+@media(max-width:760px){
+ .hero-media {width:100%;max-width:440px;margin-inline:auto}
+ .hero-media picture img {max-height:none}
+ .video-showcase {padding:62px 0}
+}
+
+.video-transcript {border:1px solid #c4d9d0;border-radius:11px;background:#fff;margin-top:22px;padding:16px 20px}
+.video-transcript summary {font-weight:800;color:#13493c;cursor:pointer}
+.video-transcript p {margin:12px 0;max-width:800px;color:#344f48}

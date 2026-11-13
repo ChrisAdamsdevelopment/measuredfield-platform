@@ -163,3 +163,15 @@ def test_cli_exit_code_and_output_hide_credential_values():
         assert "SECRET_SCAN_FAIL" in result.stdout
         assert token not in result.stdout
         assert token not in result.stderr
+
+
+def test_pinned_large_mp4_requires_exact_approved_bytes():
+    from scripts.secret_scan import PINNED_LARGE_MEDIA, MAX_BYTES
+    repo = Path(__file__).resolve().parents[1]
+    name = "app/static/media/measuredfield-business-launch-film-portrait.mp4"
+    raw = (repo / name).read_bytes()
+    assert len(raw) > MAX_BYTES
+    assert scan_bytes(name, raw) == []
+    assert scan_bytes(name, raw + b"tampered") [0].rule == "oversized_unscanned_file"
+    assert scan_bytes("app/static/media/other-video.mp4", raw)[0].rule == "oversized_unscanned_file"
+    assert name in PINNED_LARGE_MEDIA

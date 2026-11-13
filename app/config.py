@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     brand_name: str = "MeasuredField"
     support_email: str = ""
+    # Set when the first publicly accessible VideoObject is deployed.
+    # Leaving this blank keeps pre-launch / test pages from claiming a publication date.
+    video_publication_date: str = ""
 
     session_ttl_hours: int = 12
     session_idle_minutes: int = 120
@@ -104,6 +107,19 @@ class Settings(BaseSettings):
     # X-Forwarded-For). Only the entry written by our own outermost trusted proxy is used.
     trusted_proxy_hops: int = 0
     log_level: str = "INFO"
+
+    @field_validator("video_publication_date")
+    @classmethod
+    def _validate_video_publication_date(cls, value: str) -> str:
+        from datetime import datetime
+        if value:
+            try:
+                date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if date.tzinfo is None or date.utcoffset() is None:
+                    raise ValueError("Video publication date must include a timezone")
+            except ValueError as exc:
+                raise ValueError("MF_VIDEO_PUBLICATION_DATE must be an ISO-8601 timestamp with timezone") from exc
+        return value
 
     @field_validator("database_url")
     @classmethod
