@@ -14,8 +14,8 @@ MF-015 builds directly on MF-014's SSRF-pinned static HTML scanner and determini
 2. **Typed AI Visual Schemas & Cross-Inventory Validation (`app/schemas/ai_visual.py`)**:
    - `BrandAssetCandidate`, `EvidenceItem`, `ProposalComponentConfig`, `ProposalChange`, and `VisualDesignProposal` enforce strict Pydantic v2 validation.
    - **Never Executable Code**: Any string containing `<tag>`, `javascript:`, `on*=`, `url(...)`, or `@import` is rejected at schema validation time.
-   - **Zero Unverified Claims**: Any string containing dollar amounts (`$`), labor-hour estimates, permit claims, license claims, search ranking guarantees (`#1 on Google`), or conversion-lift percentages (`% more leads`) is rejected.
-   - `validate_proposal_against_inventory(proposal, evidence_items, assets)` verifies that every `ProposalChange.evidence_ids` entry exists in the scanner's `EvidenceItem` list (and is not solely `unable_to_determine`), and that every referenced `asset_id` exists in the safe raster asset inventory.
+   - **Zero Unverified Claims & Server-Controlled Disclosures**: Any string containing dollar amounts (`$`), labor-hour estimates, permit claims, license claims, search ranking guarantees (`#1 on Google`), conversion-lift percentages (`% more leads`), or false pre-approval/auto-publish claims (`fully approved`, `accurately verified`, `publish immediately`) is rejected. `VisualDesignProposal.ai_disclosure` is pinned to `DEFAULT_AI_DISCLOSURE`, `ProposalComponentConfig.requires_owner_confirmation` is locked to `Literal[True]`, and `MANDATORY_UNKNOWNS` are always preserved.
+   - `validate_proposal_against_inventory(proposal, evidence_items, assets)` verifies that every `ProposalChange.evidence_ids` entry exists in the scanner's `EvidenceItem` list (and is not solely `unable_to_determine`), enforces the canonical deficiency-to-evidence contract (`DEFICIENCY_CHANGE_TYPE_TO_SOURCE_FIELD`, requiring `status == "not_observed"` for missing-feature change types and rejecting prose that contradicts `status == "observed"` evidence), and verifies that every referenced `asset_id` exists in the safe raster asset inventory.
 
 3. **Server-Side Cost-Controlled Gemini Service (`app/services/gemini_preview.py`)**:
    - `GeminiPreviewService` is **disabled by default** (`enabled=False`, `monthly_budget_usd=0.0`).
@@ -42,3 +42,9 @@ Because MF-015 was implemented strictly within its reserved file scopes, the fol
 2. **`app/routers/public.py` & Preview Session Routes**:
    - Require explicit visitor checkbox disclosure before submitting a scanned URL summary to `GeminiPreviewService.propose(..., user_disclosure_accepted=True)`.
    - Enforce per-IP and global rate limits via `security.rate_limited()` before invoking scanner or AI preview services.
+3. **Controlled Media Storage & Owner-Authorized Image Rendering Boundary**:
+   - In this isolated milestone, the preview displays candidate asset metadata and structured slots (`data-mf-asset-slot`) without hotlinking third-party `<img src="https://...">` URLs, preventing referrer leakage, third-party tracking beacons, and unconsented copyright reuse while preserving strict `img-src 'self' data:` CSP.
+   - To render actual business logos and photography in the upcoming customer-facing preview workflow, an authenticated owner must attest ownership/usage rights (`license_state="owner_attested"`). Upon attestation, the platform ingests the asset via `sniff_asset_candidate()` (pinned public IP, magic-byte raster verification, SVG/polyglot rejection, and size cap), strips metadata, and stores a clean raster derivative in MeasuredField's controlled static/object media storage served from `'self'`.
+4. **Durable Application-Wide Monthly Spend Ledger & Quota Gate**:
+   - `GeminiPreviewService.monthly_budget_usd` and `spent_usd` provide an in-memory per-instance circuit breaker for unit tests and bounded development runs, not a multi-worker durable global ledger.
+   - Do not enable live Gemini calls publicly until a PostgreSQL-backed monthly AI usage ledger, per-tenant/per-IP quota accounting, and atomic budget reservation are wired into the shared database layer.

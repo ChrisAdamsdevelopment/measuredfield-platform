@@ -97,12 +97,50 @@ _EXECUTABLE_MARKUP_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Rejects unverified financial, labor, permit, ranking, or conversion claims
+# Rejects unverified financial, labor, permit, ranking, conversion, or false pre-approval claims
 _FORBIDDEN_PROPOSAL_CLAIM_RE = re.compile(
     r"(\$\s*\d+|\b\d+\s*(?:usd|dollars?)\b|\b\d+\s*(?:hrs?|hours?)\s*(?:of\s+labor|estimate)\b"
     r"|\bguaranteed?\s+#?1\b|\bpage\s+1\s+on\s+google\b|\brank\s*#\s*\d+\b"
     r"|\b\d+(?:\.\d+)?%\s*(?:more\s+leads|conversion|increase|lift)\b"
-    r"|\bno\s+permit\s+required\b|\blicensed\s+and\s+bonded\b)",
+    r"|\bno\s+permit\s+required\b|\blicensed\s+and\s+bonded\b"
+    r"|\bfully\s+approved\b|\baccurately\s+verified\b|\bpublish\s+immediately\b"
+    r"|\bno\s+owner\s+(?:review|confirmation|approval)\b)",
+    re.IGNORECASE,
+)
+
+# Canonical contract mapping deficiency change_types to required 'not_observed' evidence source_field
+DEFICIENCY_CHANGE_TYPE_TO_SOURCE_FIELD: dict[str, str] = {
+    "headline_clarity": "h1",
+    "tap_to_call_placement": "tap_to_call",
+    "structured_scope_intake": "contact_form",
+    "mobile_readiness": "viewport_meta",
+    "cta_prominence": "cta",
+}
+
+# Feature-specific patterns used to detect when AI text contradicts an 'observed' EvidenceItem
+FEATURE_KEYWORDS_BY_SOURCE_FIELD: dict[str, re.Pattern[str]] = {
+    "tap_to_call": re.compile(
+        r"\b(?:tel\s*:|phone\s+link|tap[\s\-]*to[\s\-]*call|call\s+link|clickable\s+phone)\b",
+        re.IGNORECASE,
+    ),
+    "h1": re.compile(r"\b(?:h1\b|primary\s+heading|hero\s+heading)\b", re.IGNORECASE),
+    "title": re.compile(r"\b(?:title\s+tag|page\s+title|meta\s+title)\b", re.IGNORECASE),
+    "contact_form": re.compile(
+        r"\b(?:contact\s+form|inquiry\s+form|lead\s+form|form\s+fields?)\b",
+        re.IGNORECASE,
+    ),
+    "viewport_meta": re.compile(
+        r"\b(?:viewport|mobile\s+scaling|width=device-width)\b",
+        re.IGNORECASE,
+    ),
+    "cta": re.compile(
+        r"\b(?:cta\b|call[\s\-]*to[\s\-]*action)\b",
+        re.IGNORECASE,
+    ),
+}
+
+_ABSENCE_CLAIM_RE = re.compile(
+    r"\b(?:no|not|none|missing|lacks?|lacked|absent|without|unobserved)\b",
     re.IGNORECASE,
 )
 
@@ -111,6 +149,12 @@ DEFAULT_AI_DISCLOSURE = (
     "candidate brand asset metadata. No live customer data was accessed, no search rankings or "
     "conversion outcomes are promised, and all content, imagery rights, and settings require "
     "business owner confirmation before publication."
+)
+
+MANDATORY_UNKNOWNS: tuple[str, ...] = (
+    "Ownership and redistribution rights for discovered logos and photographs",
+    "JavaScript-rendered UI components not present in initial static HTML",
+    "Actual visitor conversion rates, search rankings, and response times",
 )
 
 
@@ -236,7 +280,7 @@ class ProposalComponentConfig(BaseModel):
     layout_preset: LayoutPreset = "split_hero_intake"
     show_tap_to_call: bool = False
     show_scope_explorer: bool = True
-    requires_owner_confirmation: bool = True
+    requires_owner_confirmation: Literal[True] = True
 
     @field_validator("heading_text")
     @classmethod
@@ -319,11 +363,7 @@ class VisualDesignProposal(BaseModel):
     changes: list[ProposalChange] = Field(default_factory=list, max_length=8)
     warnings: list[str] = Field(default_factory=list, max_length=12)
     unknowns: list[str] = Field(
-        default_factory=lambda: [
-            "Ownership and redistribution rights for discovered logos and photographs",
-            "JavaScript-rendered UI components not present in initial static HTML",
-            "Actual visitor conversion rates, search rankings, and response times",
-        ],
+        default_factory=lambda: list(MANDATORY_UNKNOWNS),
         max_length=12,
     )
     ai_disclosure: str = Field(default=DEFAULT_AI_DISCLOSURE, min_length=20, max_length=600)
@@ -341,15 +381,44 @@ class VisualDesignProposal(BaseModel):
             raise ValueError(f"Unsupported recommended_palette {key!r}")
         return key
 
-    @field_validator("warnings", "unknowns")
+    @field_validator("warnings")
     @classmethod
-    def _clean_lists(cls, items: list[str]) -> list[str]:
+    def _clean_warnings(cls, items: list[str]) -> list[str]:
         return [_validate_safe_text(item, 300, "list_item") for item in items if item and item.strip()]
+
+    @field_validator("unknowns")
+    @classmethod
+    def _clean_and_enforce_mandatory_unknowns(cls, items: list[str]) -> list[str]:
+        cleaned = [_validate_safe_text(item, 300, "list_item") for item in items if item and item.strip()]
+        merged = list(MANDATORY_UNKNOWNS)
+        for item in cleaned:
+            if item not in merged and len(merged) < 12:
+                merged.append(item)
+        return merged
 
     @field_validator("ai_disclosure")
     @classmethod
     def _clean_disclosure(cls, v: str) -> str:
-        return _validate_safe_text(v, 600, "ai_disclosure")
+        cleaned = _validate_safe_text(v, 600, "ai_disclosure")
+        if cleaned != DEFAULT_AI_DISCLOSURE:
+            raise ValueError(
+                "ai_disclosure is server-controlled and cannot be overridden by model or caller input."
+            )
+        return DEFAULT_AI_DISCLOSURE
+
+
+def build_authoritative_before_state(
+    evidence_ids: Sequence[str],
+    evidence_by_id: dict[str, EvidenceItem],
+) -> str:
+    """Construct the authoritative before-state summary strictly from scanner EvidenceItems."""
+    parts: list[str] = []
+    for eid in evidence_ids:
+        ev = evidence_by_id.get(eid)
+        if ev is not None and ev.summary:
+            parts.append(ev.summary)
+    joined = " ".join(parts).strip()
+    return _clean_text(joined or "Observed public HTML state.", 300)
 
 
 def validate_proposal_against_inventory(
@@ -357,7 +426,7 @@ def validate_proposal_against_inventory(
     evidence_items: Sequence[EvidenceItem],
     assets: Sequence[BrandAssetCandidate],
 ) -> VisualDesignProposal:
-    """Verify that every evidence_id and asset_id in ``proposal`` exists and is safe."""
+    """Verify that every evidence_id and asset_id in ``proposal`` exists, is safe, and is semantically consistent."""
     evidence_by_id = {ev.id: ev for ev in evidence_items}
     safe_assets_by_id = {
         a.id: a
@@ -379,6 +448,7 @@ def validate_proposal_against_inventory(
         )
 
     seen_change_ids: set[str] = set()
+    normalized_changes: list[ProposalChange] = []
     for chg in proposal.changes:
         if chg.change_id in seen_change_ids:
             raise ValueError(f"Duplicate change_id in proposal: {chg.change_id!r}")
@@ -390,12 +460,46 @@ def validate_proposal_against_inventory(
                     f"ProposalChange {chg.change_id!r} references unknown evidence_id: {ev_id!r}"
                 )
 
-        # If all linked evidence items are unable_to_determine, a change cannot assert missing features
-        linked_statuses = {evidence_by_id[eid].status for eid in chg.evidence_ids}
+        linked_evidence = [evidence_by_id[eid] for eid in chg.evidence_ids]
+        linked_statuses = {ev.status for ev in linked_evidence}
         if linked_statuses == {"unable_to_determine"}:
             raise ValueError(
                 f"ProposalChange {chg.change_id!r} cannot recommend changes based solely on unable_to_determine evidence."
             )
+
+        # 1. Canonical deficiency change_type contract: must cite corresponding source_field with status=='not_observed'
+        required_field = DEFICIENCY_CHANGE_TYPE_TO_SOURCE_FIELD.get(chg.change_type)
+        if required_field is not None:
+            matching_field_ev = [ev for ev in linked_evidence if ev.source_field == required_field]
+            if not matching_field_ev:
+                raise ValueError(
+                    f"ProposalChange {chg.change_id!r} ({chg.change_type}) must reference evidence for source_field={required_field!r}."
+                )
+            if any(ev.status != "not_observed" for ev in matching_field_ev):
+                bad_statuses = [ev.status for ev in matching_field_ev]
+                raise ValueError(
+                    f"ProposalChange {chg.change_id!r} ({chg.change_type}) requires {required_field!r} status='not_observed', got {bad_statuses!r}."
+                )
+
+        # 2. Semantic & mixed-status contradiction check:
+        #    - Any missing-feature claim requires at least one linked evidence item with status=='not_observed'.
+        #    - Even in mixed-status evidence lists (e.g. ev_tap_to_call='observed' + ev_brand_assets='observed',
+        #      or ev_h1='unable_to_determine' + ev_brand_assets='observed'), AI text cannot claim an observed
+        #      or unable_to_determine feature is missing.
+        combined_text = f"{chg.title} {chg.rationale} {chg.before_state}"
+        has_absence_claim = bool(_ABSENCE_CLAIM_RE.search(combined_text))
+        if has_absence_claim:
+            for ev in linked_evidence:
+                if ev.status in ("observed", "unable_to_determine"):
+                    feat_re = FEATURE_KEYWORDS_BY_SOURCE_FIELD.get(ev.source_field)
+                    if feat_re is not None and feat_re.search(combined_text):
+                        raise ValueError(
+                            f"ProposalChange {chg.change_id!r} claims missing {ev.source_field!r} but {ev.id!r} has status={ev.status!r}."
+                        )
+            if "not_observed" not in linked_statuses:
+                raise ValueError(
+                    f"ProposalChange {chg.change_id!r} claims a missing feature without any 'not_observed' evidence (statuses={sorted(linked_statuses)!r})."
+                )
 
         cfg_asset = chg.after_config.asset_id
         if cfg_asset is not None and cfg_asset not in safe_assets_by_id:
@@ -403,4 +507,13 @@ def validate_proposal_against_inventory(
                 f"ProposalChange {chg.change_id!r} references unknown or unsafe asset_id: {cfg_asset!r}"
             )
 
-    return proposal
+        # 3. Replace AI-authored before_state with authoritative scanner evidence summary
+        authoritative_before = build_authoritative_before_state(chg.evidence_ids, evidence_by_id)
+        normalized_changes.append(chg.model_copy(update={"before_state": authoritative_before}))
+
+    return proposal.model_copy(
+        update={
+            "changes": normalized_changes,
+            "ai_disclosure": DEFAULT_AI_DISCLOSURE,
+        }
+    )

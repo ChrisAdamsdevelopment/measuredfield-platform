@@ -9,11 +9,13 @@ import json
 import re
 import socket
 import struct
+import subprocess
 import httpx
 import pytest
 from pydantic import ValidationError
 
 from app.schemas.ai_visual import (
+    DEFAULT_AI_DISCLOSURE,
     BrandAssetCandidate,
     EvidenceItem,
     ProposalChange,
@@ -736,4 +738,423 @@ def test_incomplete_scan_never_invokes_gemini_and_merge_proposal_respects_active
     assert merged_profile.headline != ""
     assert "headline" in merged_profile.unconfirmed_fields
     assert "brand_logo_rights" in merged_profile.unconfirmed_fields
+
+    # Selective active_change_ids=set() keeps baseline headline while applying recommended palette
+    merged_none = merge_proposal_with_concept(
+        base_profile,
+        det_prop,
+        evidence_items=evidence,
+        assets=assets,
+        active_change_ids=set(),
+    )
+    assert merged_none.headline == ""
+
+
+def test_semantic_contradiction_rejected_when_evidence_is_observed():
+    # 1. Exact GPT-6 adversarial repro: observed tap-to-call link cannot be cited for a missing-phone recommendation
+    ev_phone = EvidenceItem(
+        id="ev_tap_to_call",
+        source_field="tap_to_call",
+        status="observed",
+        summary="An existing tap-to-call link was observed",
+        observed_value="928-555-0148",
+    )
+    change_contradictory_type = ProposalChange(
+        change_id="chg_fake_missing_phone",
+        evidence_ids=["ev_tap_to_call"],
+        component_id="primary_cta",
+        change_type="tap_to_call_placement",
+        title="Fix missing phone link",
+        rationale="No phone link was observed; add one now.",
+        before_state="No tel: link found in the current website",
+        after_config=ProposalComponentConfig(
+            cta_label="Call now",
+            cta_target="tel_link",
+            show_tap_to_call=True,
+        ),
+        confidence="high",
+    )
+    prop_a = VisualDesignProposal(
+        source_url="https://example.org/",
+        changes=[change_contradictory_type],
+    )
+    with pytest.raises(ValueError, match="tap_to_call"):
+        validate_proposal_against_inventory(prop_a, [ev_phone], [])
+
+    # 2. Even if AI uses a non-deficiency change_type ('visual_hierarchy'), claiming missing phone when observed is rejected
+    change_contradictory_prose = ProposalChange(
+        change_id="chg_sneaky_missing_phone",
+        evidence_ids=["ev_tap_to_call"],
+        component_id="primary_cta",
+        change_type="visual_hierarchy",
+        title="Fix missing phone link",
+        rationale="No phone link was observed; add one now.",
+        before_state="No tel: link found in the current website",
+        after_config=ProposalComponentConfig(
+            cta_label="Call now",
+            cta_target="tel_link",
+            show_tap_to_call=True,
+        ),
+        confidence="high",
+    )
+    prop_b = VisualDesignProposal(
+        source_url="https://example.org/",
+        changes=[change_contradictory_prose],
+    )
+    with pytest.raises(ValueError, match="observed"):
+        validate_proposal_against_inventory(prop_b, [ev_phone], [])
+
+    # 3. Mixed-status evidence: pairing unable_to_determine H1 with observed brand_assets still rejects missing-H1 claim
+    ev_h1_unknown = EvidenceItem(
+        id="ev_h1",
+        source_field="h1",
+        status="unable_to_determine",
+        summary="Unable to determine H1 heading due to incomplete scan.",
+    )
+    ev_assets_obs = EvidenceItem(
+        id="ev_brand_assets",
+        source_field="asset_discovery",
+        status="observed",
+        summary="Discovered 1 candidate brand asset requiring owner rights confirmation.",
+    )
+    mixed_unknown_change = ProposalChange(
+        change_id="chg_mixed_unknown_h1",
+        evidence_ids=["ev_h1", "ev_brand_assets"],
+        component_id="hero_banner",
+        change_type="visual_hierarchy",
+        title="Add missing primary H1 heading",
+        rationale="No H1 heading was found on the page.",
+        before_state="Missing H1 heading.",
+        after_config=ProposalComponentConfig(heading_text="Remodeling & Carpentry"),
+    )
+    with pytest.raises(ValueError):
+        validate_proposal_against_inventory(
+            VisualDesignProposal(source_url="https://example.org/", changes=[mixed_unknown_change]),
+            [ev_h1_unknown, ev_assets_obs],
+            [],
+        )
+
+    # 4. Authoritative before_state replacement: AI-authored before_state is replaced by scanner EvidenceItem.summary
+    ev_h1_missing = EvidenceItem(
+        id="ev_h1",
+        source_field="h1",
+        status="not_observed",
+        summary="No non-empty H1 heading observed in static HTML.",
+    )
+    valid_change = ProposalChange(
+        change_id="chg_valid_h1",
+        evidence_ids=["ev_h1"],
+        component_id="hero_banner",
+        change_type="headline_clarity",
+        title="Add primary H1 heading",
+        rationale="No primary H1 heading was observed in static HTML.",
+        before_state="Arbitrary AI-authored before state that should be replaced by scanner summary",
+        after_config=ProposalComponentConfig(heading_text="Trusted Remodeling"),
+    )
+    normalized_prop = validate_proposal_against_inventory(
+        VisualDesignProposal(source_url="https://example.org/", changes=[valid_change]),
+        [ev_h1_missing],
+        [],
+    )
+    assert normalized_prop.changes[0].before_state == "No non-empty H1 heading observed in static HTML."
+
+
+def test_recommendation_toggles_apply_and_revert_rendered_after_components():
+    html_doc = _sample_contractor_html()
+    card = inspect_public_url(
+        "https://granitebasin.example/",
+        resolver=_public_resolver("93.184.216.34"),
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(200, headers={"Content-Type": "text/html"}, html=html_doc)
+        ),
+    )
+    assets = extract_asset_candidates(html_doc, "https://granitebasin.example/")
+    proposal = build_deterministic_visual_proposal(card, assets, industry="construction")
+    profile = PreviewConceptProfile(
+        name="Granite Basin Builders",
+        city="Prescott, AZ",
+        industry="construction",
+    )
+    bundle = compose_interactive_visual_preview(profile, card, assets, proposal)
+    composed_html = bundle["html"]
+    composed_js = bundle["js"]
+
+    # Toggle inputs carry affected component and after-state attributes
+    assert 'data-mf-affected-component="hero_banner"' in composed_html
+    assert 'data-mf-after-heading="' in composed_html
+    assert 'data-mf-after-subheading="' in composed_html
+    assert 'data-mf-after-cta="' in composed_html
+
+    # Rendered After page has targetable component nodes and baseline state attributes
+    assert 'data-mf-preview-component="hero_banner"' in composed_html
+    assert 'data-mf-preview-component="scope_explorer"' in composed_html
+    assert 'data-mf-preview-component="brand_header"' in composed_html
+    assert 'data-mf-change-target="chg_hero_heading"' in composed_html
+    assert 'data-mf-preview-heading="true"' in composed_html
+    assert 'data-mf-preview-subheading="true"' in composed_html
+    assert 'data-mf-preview-cta="true"' in composed_html
+    assert 'data-mf-before-heading="Granite Basin Builders"' in composed_html
+
+    # Execute VISUAL_PREVIEW_JS in Node.js against a live DOM harness to verify actual toggle/revert/restore behavior
+    node_harness = r"""
+const fs = require('fs');
+const payload = JSON.parse(fs.readFileSync(0, 'utf8'));
+function makeEl(attrs) {
+  return {
+    attrs: Object.assign({}, attrs),
+    checked: attrs.checked !== undefined ? attrs.checked : true,
+    hidden: false,
+    textContent: attrs.textContent || '',
+    listeners: {},
+    classList: {
+      set: new Set(),
+      add(c) { this.set.add(c); },
+      remove(c) { this.set.delete(c); }
+    },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+    trigger(ev) { (this.listeners[ev] || []).forEach(fn => fn({ preventDefault(){} })); },
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+}
+const studio = makeEl({
+  'data-mf-studio': 'true',
+  'data-mf-view': 'split',
+  'data-mf-viewport': 'desktop',
+  'data-mf-layout': 'craft_showcase',
+  'data-mf-palette': 'copper',
+  'data-mf-before-layout': 'split_hero_intake',
+  'data-mf-before-palette': 'ocean'
+});
+const heroEl = makeEl({
+  'data-mf-preview-component': 'hero_banner',
+  'data-mf-visible': 'true',
+  'data-mf-before-heading': 'Granite Basin Builders',
+  'data-mf-before-subheading': 'Serving Prescott, AZ.',
+  'data-mf-before-cta': 'Request a conversation',
+  'data-mf-before-target': '#contact'
+});
+const headingEl = makeEl({ 'data-mf-preview-heading': 'true', textContent: 'Dependable construction, done right.' });
+const subheadingEl = makeEl({ 'data-mf-preview-subheading': 'true', textContent: 'Proposed subheading' });
+const ctaEl = makeEl({ 'data-mf-preview-cta': 'true', href: '#scope-explorer', textContent: 'Explore project scope' });
+const scopeComp = makeEl({ 'data-mf-preview-component': 'scope_explorer', 'data-mf-visible': 'true' });
+const brandComp = makeEl({ 'data-mf-preview-component': 'brand_header', 'data-mf-visible': 'true' });
+const counter = makeEl({ 'data-mf-active-changes': 'true', textContent: '3 of 3 proposed improvements enabled in preview' });
+
+const chgCards = {
+  chg_hero_heading: makeEl({ 'data-mf-change-card': 'chg_hero_heading', 'data-mf-change-enabled': 'true' }),
+  chg_scope_intake: makeEl({ 'data-mf-change-card': 'chg_scope_intake', 'data-mf-change-enabled': 'true' }),
+  chg_brand_header_logo: makeEl({ 'data-mf-change-card': 'chg_brand_header_logo', 'data-mf-change-enabled': 'true' })
+};
+const chgTargets = {
+  chg_hero_heading: [makeEl({ 'data-mf-change-target': 'chg_hero_heading', 'data-mf-visible': 'true' })],
+  chg_scope_intake: [makeEl({ 'data-mf-change-target': 'chg_scope_intake', 'data-mf-visible': 'true' })],
+  chg_brand_header_logo: [makeEl({ 'data-mf-change-target': 'chg_brand_header_logo', 'data-mf-visible': 'true' })]
+};
+const toggles = [
+  makeEl({
+    'data-mf-toggle-change': 'chg_hero_heading',
+    'data-mf-affected-component': 'hero_banner',
+    'data-mf-after-heading': 'Dependable construction, done right.',
+    'data-mf-after-subheading': 'Proposed subheading',
+    'data-mf-after-cta': 'Explore project scope',
+    'data-mf-after-target': '#scope-explorer',
+    'data-mf-after-palette': 'copper',
+    'data-mf-after-layout': 'craft_showcase',
+    checked: true
+  }),
+  makeEl({
+    'data-mf-toggle-change': 'chg_scope_intake',
+    'data-mf-affected-component': 'scope_explorer',
+    'data-mf-after-palette': 'copper',
+    'data-mf-after-layout': 'craft_showcase',
+    checked: true
+  }),
+  makeEl({
+    'data-mf-toggle-change': 'chg_brand_header_logo',
+    'data-mf-affected-component': 'brand_header',
+    'data-mf-after-palette': 'copper',
+    'data-mf-after-layout': 'craft_showcase',
+    checked: true
+  })
+];
+
+studio.querySelector = function(sel) {
+  if (sel === '[data-mf-active-changes]') return counter;
+  if (sel === '[data-mf-preview-component="hero_banner"]') return heroEl;
+  if (sel === '[data-mf-preview-heading]') return headingEl;
+  if (sel === '[data-mf-preview-subheading]') return subheadingEl;
+  if (sel === '[data-mf-preview-cta]') return ctaEl;
+  const m = sel.match(/^\[data-mf-change-card="([^"]+)"\]$/);
+  if (m) return chgCards[m[1]] || null;
+  return null;
+};
+studio.querySelectorAll = function(sel) {
+  if (sel === 'input[data-mf-toggle-change]') return toggles;
+  if (sel === '[data-mf-set-view]' || sel === '[data-mf-set-viewport]' || sel === 'input[data-mf-attest-asset]') return [];
+  const mt = sel.match(/^\[data-mf-change-target="([^"]+)"\]$/);
+  if (mt) return chgTargets[mt[1]] || [];
+  const mc = sel.match(/^\[data-mf-preview-component="([^"]+)"\]$/);
+  if (mc) {
+    if (mc[1] === 'scope_explorer') return [scopeComp];
+    if (mc[1] === 'brand_header') return [brandComp];
+  }
+  return [];
+};
+global.document = {
+  getElementById() { return null; },
+  querySelector(sel) { return sel === '[data-mf-studio]' ? studio : null; },
+  querySelectorAll() { return []; }
+};
+
+eval(payload.js);
+
+// 1. Disable all 3 toggles and verify After DOM reverts to baseline
+toggles.forEach(t => { t.checked = false; t.trigger('change'); });
+const disabledState = {
+  heading: headingEl.textContent,
+  subheading: subheadingEl.textContent,
+  ctaText: ctaEl.textContent,
+  ctaHref: ctaEl.getAttribute('href'),
+  scopeVisible: scopeComp.getAttribute('data-mf-visible'),
+  scopeHidden: scopeComp.hidden,
+  brandVisible: brandComp.getAttribute('data-mf-visible'),
+  brandHidden: brandComp.hidden,
+  targetVisible: chgTargets.chg_hero_heading[0].getAttribute('data-mf-visible'),
+  targetHidden: chgTargets.chg_hero_heading[0].hidden,
+  layout: studio.getAttribute('data-mf-layout'),
+  palette: studio.getAttribute('data-mf-palette'),
+  counter: counter.textContent
+};
+
+// 2. Re-enable all 3 toggles and verify After DOM restores proposed improvements
+toggles.forEach(t => { t.checked = true; t.trigger('change'); });
+const restoredState = {
+  heading: headingEl.textContent,
+  subheading: subheadingEl.textContent,
+  ctaText: ctaEl.textContent,
+  ctaHref: ctaEl.getAttribute('href'),
+  scopeVisible: scopeComp.getAttribute('data-mf-visible'),
+  scopeHidden: scopeComp.hidden,
+  brandVisible: brandComp.getAttribute('data-mf-visible'),
+  brandHidden: brandComp.hidden,
+  targetVisible: chgTargets.chg_hero_heading[0].getAttribute('data-mf-visible'),
+  targetHidden: chgTargets.chg_hero_heading[0].hidden,
+  layout: studio.getAttribute('data-mf-layout'),
+  palette: studio.getAttribute('data-mf-palette'),
+  counter: counter.textContent
+};
+process.stdout.write(JSON.stringify({ disabledState, restoredState }));
+"""
+    proc = subprocess.run(
+        ["node", "-e", node_harness],
+        input=json.dumps({"js": composed_js}),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    dom_result = json.loads(proc.stdout)
+    disabled = dom_result["disabledState"]
+    restored = dom_result["restoredState"]
+
+    assert disabled["heading"] == "Granite Basin Builders"
+    assert disabled["subheading"] == "Serving Prescott, AZ."
+    assert disabled["ctaText"] == "Request a conversation"
+    assert disabled["ctaHref"] == "#contact"
+    assert disabled["scopeVisible"] == "false"
+    assert disabled["scopeHidden"] is True
+    assert disabled["brandVisible"] == "false"
+    assert disabled["brandHidden"] is True
+    assert disabled["targetVisible"] == "false"
+    assert disabled["targetHidden"] is True
+    assert disabled["layout"] == "split_hero_intake"
+    assert disabled["palette"] == "ocean"
+    assert disabled["counter"] == "0 of 3 proposed improvements enabled in preview"
+
+    assert restored["heading"] == "Dependable construction, done right."
+    assert restored["subheading"] == "Proposed subheading"
+    assert restored["ctaText"] == "Explore project scope"
+    assert restored["ctaHref"] == "#scope-explorer"
+    assert restored["scopeVisible"] == "true"
+    assert restored["scopeHidden"] is False
+    assert restored["brandVisible"] == "true"
+    assert restored["brandHidden"] is False
+    assert restored["targetVisible"] == "true"
+    assert restored["targetHidden"] is False
+    assert restored["layout"] == "craft_showcase"
+    assert restored["palette"] == "copper"
+    assert restored["counter"] == "3 of 3 proposed improvements enabled in preview"
+
+
+def test_malicious_ai_disclosure_and_owner_approval_override_rejected():
+    # 1. Exact GPT-6 repro: overriding ai_disclosure with false verified-and-publishable claim is rejected
+    malicious_text = "Everything here is fully approved and accurately verified, so you can publish immediately."
+    with pytest.raises(ValidationError):
+        VisualDesignProposal(
+            source_url="https://example.org/",
+            ai_disclosure=malicious_text,
+        )
+
+    # 2. Even benign custom prose attempting to replace server-controlled DEFAULT_AI_DISCLOSURE is rejected
+    with pytest.raises(ValidationError, match="ai_disclosure is server-controlled"):
+        VisualDesignProposal(
+            source_url="https://example.org/",
+            ai_disclosure="This custom disclosure replaces the platform notice with shorter text.",
+        )
+
+    # 3. Attempting to set requires_owner_confirmation=False on ProposalComponentConfig is rejected
+    with pytest.raises(ValidationError):
+        ProposalComponentConfig(
+            heading_text="Valid heading",
+            requires_owner_confirmation=False,  # type: ignore[arg-type]
+        )
+
+    # 4. Mocked Gemini response attempting to override ai_disclosure fails validation and triggers fallback
+    html_doc = _sample_contractor_html()
+    card = inspect_public_url(
+        "https://granitebasin.example/",
+        resolver=_public_resolver("93.184.216.34"),
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(200, headers={"Content-Type": "text/html"}, html=html_doc)
+        ),
+    )
+    assets = extract_asset_candidates(html_doc, "https://granitebasin.example/")
+
+    def malicious_disclosure_transport(_req: httpx.Request) -> httpx.Response:
+        bad_payload = {
+            "schema_version": "1.0",
+            "source_url": "https://granitebasin.example/",
+            "recommended_palette": "copper",
+            "recommended_layout": "craft_showcase",
+            "ai_disclosure": malicious_text,
+            "changes": [],
+        }
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(bad_payload)}]}}]},
+        )
+
+    svc = GeminiPreviewService(
+        enabled=True,
+        api_key="test-key-do-not-expose",
+        monthly_budget_usd=2.0,
+        transport=httpx.MockTransport(malicious_disclosure_transport),
+    )
+    with pytest.raises(GeminiValidationError):
+        svc.propose(card, assets, user_disclosure_accepted=True, fallback_on_error=False)
+
+    fallback = svc.propose(card, assets, user_disclosure_accepted=True, fallback_on_error=True)
+    assert fallback.model_id == "deterministic-fallback"
+    assert fallback.ai_disclosure == DEFAULT_AI_DISCLOSURE
+
+    # Verify composed preview retains mandatory server-controlled disclosure and excludes malicious text
+    profile = PreviewConceptProfile(name="Granite Basin Builders", city="Prescott, AZ", industry="construction")
+    bundle = compose_interactive_visual_preview(profile, card, assets, fallback)
+    assert DEFAULT_AI_DISCLOSURE in bundle["html"]
+    assert malicious_text not in bundle["html"]
+
+
 

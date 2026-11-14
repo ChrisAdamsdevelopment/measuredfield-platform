@@ -11,9 +11,11 @@ import re
 from typing import Any, Sequence
 
 from ..schemas.ai_visual import (
+    DEFAULT_AI_DISCLOSURE,
     BrandAssetCandidate,
     EvidenceItem,
     VisualDesignProposal,
+    build_authoritative_before_state,
     validate_proposal_against_inventory,
 )
 from ..schemas.preview import (
@@ -60,6 +62,8 @@ VISUAL_STUDIO_CSS = """
 .mf-change-toggle input{width:18px;height:18px;min-height:18px;margin:0}
 .mf-brand-slot{border:2px dashed #8ab3ad;background:#f4faf8;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:.88rem;color:#18353c}
 .mf-brand-slot-authorized{border-style:solid;border-color:var(--accent);background:#eaf6f3}
+.mf-applied-component-bar{background:#eaf6f3;border:1px solid #9ec2bc;border-radius:9px;padding:10px 14px;margin:10px 0;font-size:.86rem;color:#18353c}
+[data-mf-preview-component][data-mf-visible="false"]{display:none}
 .mf-ai-disclosure{font-size:.83rem;color:#4d6669;margin-top:12px}
 @media(max-width:720px){.mf-asset-grid,.mf-change-list{grid-template-columns:1fr}}
 """.strip()
@@ -96,18 +100,77 @@ for(var k=0;k<vpBtns.length;k++){
 }
 var toggles=studio.querySelectorAll('input[data-mf-toggle-change]');
 var counter=studio.querySelector('[data-mf-active-changes]');
+var heroEl=studio.querySelector('[data-mf-preview-component="hero_banner"]');
+var headingEl=studio.querySelector('[data-mf-preview-heading]');
+var subheadingEl=studio.querySelector('[data-mf-preview-subheading]');
+var ctaEl=studio.querySelector('[data-mf-preview-cta]');
 function updateChangeCount(){
   var active=0;
+  var heroApplied=false;
+  var ctaApplied=false;
+  var activeLayout=studio.getAttribute('data-mf-before-layout')||'split_hero_intake';
+  var activePalette=studio.getAttribute('data-mf-before-palette')||'ocean';
   for(var n=0;n<toggles.length;n++){
-    var chgId=toggles[n].getAttribute('data-mf-toggle-change');
+    var box=toggles[n];
+    var isOn=!!box.checked;
+    var chgId=box.getAttribute('data-mf-toggle-change');
+    var compId=box.getAttribute('data-mf-affected-component')||'';
     var target=studio.querySelector('[data-mf-change-card="'+chgId+'"]');
-    if(toggles[n].checked){
+    if(isOn){
       active++;
       if(target)target.setAttribute('data-mf-change-enabled','true');
+      var propLayout=box.getAttribute('data-mf-after-layout');
+      var propPalette=box.getAttribute('data-mf-after-palette');
+      if(propLayout)activeLayout=propLayout;
+      if(propPalette)activePalette=propPalette;
     }else{
       if(target)target.setAttribute('data-mf-change-enabled','false');
     }
+    var changeTargets=studio.querySelectorAll('[data-mf-change-target="'+chgId+'"]');
+    for(var c=0;c<changeTargets.length;c++){
+      changeTargets[c].setAttribute('data-mf-visible',isOn?'true':'false');
+      changeTargets[c].hidden=!isOn;
+    }
+    if(compId&&compId!=='hero_banner'){
+      var compEls=studio.querySelectorAll('[data-mf-preview-component="'+compId+'"]');
+      for(var p=0;p<compEls.length;p++){
+        compEls[p].setAttribute('data-mf-visible',isOn?'true':'false');
+        compEls[p].hidden=!isOn;
+      }
+    }
+    if(compId==='hero_banner'&&isOn){
+      heroApplied=true;
+      var afterH=box.getAttribute('data-mf-after-heading');
+      var afterSub=box.getAttribute('data-mf-after-subheading');
+      var afterCta=box.getAttribute('data-mf-after-cta');
+      var afterTarget=box.getAttribute('data-mf-after-target');
+      if(headingEl&&afterH)headingEl.textContent=afterH;
+      if(subheadingEl&&afterSub)subheadingEl.textContent=afterSub;
+      if(ctaEl&&afterCta)ctaEl.textContent=afterCta;
+      if(ctaEl&&afterTarget&&afterTarget.charAt(0)==='#')ctaEl.setAttribute('href',afterTarget);
+    }
+    if(compId==='primary_cta'&&isOn){
+      ctaApplied=true;
+      var ctaLbl=box.getAttribute('data-mf-after-cta');
+      if(ctaEl&&ctaLbl)ctaEl.textContent=ctaLbl;
+    }
   }
+  if(!heroApplied&&heroEl){
+    var beforeH=heroEl.getAttribute('data-mf-before-heading')||'';
+    var beforeSub=heroEl.getAttribute('data-mf-before-subheading')||'';
+    if(headingEl&&beforeH)headingEl.textContent=beforeH;
+    if(subheadingEl&&beforeSub)subheadingEl.textContent=beforeSub;
+  }
+  if(!heroApplied&&!ctaApplied&&heroEl&&ctaEl){
+    var beforeCta=heroEl.getAttribute('data-mf-before-cta')||'Request a conversation';
+    var beforeHref=heroEl.getAttribute('data-mf-before-target')||'#contact';
+    ctaEl.textContent=beforeCta;
+    ctaEl.setAttribute('href',beforeHref);
+    ctaEl.setAttribute('data-mf-visible','true');
+    ctaEl.hidden=false;
+  }
+  studio.setAttribute('data-mf-layout',activeLayout);
+  studio.setAttribute('data-mf-palette',activePalette);
   if(counter){
     counter.textContent=active+' of '+toggles.length+' proposed improvements enabled in preview';
   }
@@ -145,6 +208,7 @@ def merge_proposal_with_concept(
     *,
     evidence_items: Sequence[EvidenceItem],
     assets: Sequence[BrandAssetCandidate],
+    active_change_ids: set[str] | None = None,
 ) -> PreviewConceptProfile:
     """Validate ``proposal`` against inventory and merge safe recommendations into a ``PreviewConceptProfile``."""
     validate_proposal_against_inventory(proposal, evidence_items, assets)
@@ -159,6 +223,8 @@ def merge_proposal_with_concept(
     unconfirmed = list(concept.unconfirmed_fields)
 
     for chg in proposal.changes:
+        if active_change_ids is not None and chg.change_id not in active_change_ids:
+            continue
         if chg.component_id == "hero_banner" and chg.after_config.heading_text and not concept.headline:
             updates["headline"] = chg.after_config.heading_text
             if "headline" not in unconfirmed:
@@ -232,7 +298,11 @@ def _render_asset_inventory_html(
     )
 
 
-def _render_proposal_inspector_html(proposal: VisualDesignProposal) -> str:
+def _render_proposal_inspector_html(
+    proposal: VisualDesignProposal,
+    evidence_items: Sequence[EvidenceItem] = (),
+) -> str:
+    evidence_by_id = {ev.id: ev for ev in evidence_items}
     if not proposal.changes:
         changes_html = (
             "<p>No missing-feature layout changes were proposed from the static HTML observations.</p>"
@@ -241,6 +311,11 @@ def _render_proposal_inspector_html(proposal: VisualDesignProposal) -> str:
         cards: list[str] = []
         for chg in proposal.changes:
             ev_list = ", ".join(_e(eid) for eid in chg.evidence_ids)
+            authoritative_before = (
+                build_authoritative_before_state(chg.evidence_ids, evidence_by_id)
+                if evidence_by_id
+                else chg.before_state
+            )
             asset_note = (
                 f" &middot; Candidate asset: <code>{_e(chg.after_config.asset_id)}</code>"
                 if chg.after_config.asset_id
@@ -254,11 +329,18 @@ def _render_proposal_inspector_html(proposal: VisualDesignProposal) -> str:
                 f"Confidence: {_e(chg.confidence)}{asset_note}"
                 f"</div>"
                 f"<h4>{_e(chg.title)}</h4>"
-                f"<p><strong>Observed before:</strong> {_e(chg.before_state)}</p>"
+                f"<p><strong>Observed before:</strong> {_e(authoritative_before)}</p>"
                 f"<p><strong>Why change this:</strong> {_e(chg.rationale)}</p>"
                 f'<label class="mf-change-toggle" for="mf-toggle-{_e(chg.change_id)}">'
                 f'<input type="checkbox" id="mf-toggle-{_e(chg.change_id)}" '
-                f'data-mf-toggle-change="{_e(chg.change_id)}" checked>'
+                f'data-mf-toggle-change="{_e(chg.change_id)}" '
+                f'data-mf-affected-component="{_e(chg.component_id)}" '
+                f'data-mf-after-heading="{_e(chg.after_config.heading_text)}" '
+                f'data-mf-after-subheading="{_e(chg.after_config.subheading_text)}" '
+                f'data-mf-after-cta="{_e(chg.after_config.cta_label)}" '
+                f'data-mf-after-target="{_e(chg.after_config.cta_target)}" '
+                f'data-mf-after-palette="{_e(chg.after_config.palette_key)}" '
+                f'data-mf-after-layout="{_e(chg.after_config.layout_preset)}" checked>'
                 f"Include this improvement in draft"
                 f"</label>"
                 f"</article>"
@@ -280,7 +362,7 @@ def _render_proposal_inspector_html(proposal: VisualDesignProposal) -> str:
         f"{len(proposal.changes)} of {len(proposal.changes)} proposed improvements enabled in preview</p>"
         f"{changes_html}"
         f"{warnings_html}"
-        f'<p class="mf-ai-disclosure">{_e(proposal.ai_disclosure)}</p>'
+        f'<p class="mf-ai-disclosure">{_e(DEFAULT_AI_DISCLOSURE)}</p>'
         "</div></aside>"
     )
 
@@ -290,6 +372,7 @@ def _render_brand_slot_html(
     *,
     authorized: bool,
     slot_role: str,
+    component_id: str = "brand_header",
 ) -> str:
     cls = "mf-brand-slot mf-brand-slot-authorized" if authorized else "mf-brand-slot"
     state_label = (
@@ -303,7 +386,8 @@ def _render_brand_slot_html(
         else ""
     )
     return (
-        f'<div class="{cls}" data-mf-asset-slot="{_e(asset.id)}" data-mf-slot-role="{_e(slot_role)}">'
+        f'<div class="{cls}" data-mf-asset-slot="{_e(asset.id)}" data-mf-slot-role="{_e(slot_role)}" '
+        f'data-mf-preview-component="{_e(component_id)}" data-mf-visible="true">'
         f"<strong>Candidate {_e(asset.kind.replace('_', ' ').title())}: {_e(asset.id)}</strong>"
         f"{_e(dims_str)} &mdash; {_e(asset.alt_text or asset.discovery_source)} "
         f'(<span data-mf-asset-slot-state="true">{_e(state_label)}</span>)'
@@ -323,9 +407,15 @@ def compose_interactive_visual_preview(
     """Compose a complete interactive Before/After visual preview bundle."""
     authorized_ids = set(owner_authorized_asset_ids or ())
     evidence_items = build_evidence_items_from_card(card, assets)
+    validated_proposal = validate_proposal_against_inventory(proposal, evidence_items, assets)
+    initial_concept = (
+        profile.model_copy(deep=True)
+        if isinstance(profile, PreviewConceptProfile)
+        else PreviewConceptProfile.model_validate(profile)
+    )
     merged_concept = merge_proposal_with_concept(
-        profile,
-        proposal,
+        initial_concept,
+        validated_proposal,
         evidence_items=evidence_items,
         assets=assets,
     )
@@ -333,6 +423,72 @@ def compose_interactive_visual_preview(
     # Render the After concept page without inline diagnostic card so Before and After are distinct panes
     base_bundle = render_concept_preview(merged_concept, card=None, asset_base=asset_base)
     after_html = base_bundle["html"]
+
+    # Annotate rendered After website components so recommendation toggles reversibly apply/revert them
+    before_heading = initial_concept.headline or card.observed_h1 or initial_concept.name
+    before_subheading = (
+        initial_concept.intro
+        or card.observed_title
+        or f"Serving {initial_concept.city or 'Service Area To Be Confirmed'}."
+    )
+    after_html = after_html.replace(
+        '<div class="hero">',
+        f'<div class="hero" data-mf-preview-component="hero_banner" data-mf-visible="true" '
+        f'data-mf-before-heading="{_e(before_heading)}" '
+        f'data-mf-before-subheading="{_e(before_subheading)}" '
+        f'data-mf-before-cta="Request a conversation" '
+        f'data-mf-before-target="#contact">',
+        1,
+    )
+    after_html = after_html.replace("<h1>", '<h1 data-mf-preview-heading="true">', 1)
+    after_html = after_html.replace(
+        '</h1><p>',
+        '</h1><p data-mf-preview-subheading="true">',
+        1,
+    )
+    after_html = after_html.replace(
+        '<a href="#contact" class="btn">Request a conversation</a>',
+        '<a href="#contact" class="btn" data-mf-preview-cta="true" '
+        'data-mf-preview-component="primary_cta" data-mf-visible="true">Request a conversation</a>',
+        1,
+    )
+    after_html = after_html.replace(
+        'data-mf-widget="scope-explorer">',
+        'data-mf-widget="scope-explorer" data-mf-preview-component="scope_explorer" data-mf-visible="true">',
+        1,
+    )
+    after_html = after_html.replace(
+        '<section id="services">',
+        '<section id="services" data-mf-preview-component="service_cards" data-mf-visible="true">',
+        1,
+    )
+    after_html = after_html.replace(
+        '<section id="about" class="about">',
+        '<section id="about" class="about" data-mf-preview-component="trust_summary" data-mf-visible="true">',
+        1,
+    )
+    after_html = after_html.replace(
+        '<section id="contact">',
+        '<section id="contact" data-mf-preview-component="contact_intake" data-mf-visible="true">',
+        1,
+    )
+
+    # Render reversible change target callout bars inside the After preview for each proposed change
+    if proposal.changes:
+        target_bars = "".join(
+            f'<div class="mf-applied-component-bar" '
+            f'data-mf-change-target="{_e(chg.change_id)}" '
+            f'data-mf-preview-component="{_e(chg.component_id)}" '
+            f'data-mf-visible="true">'
+            f"<strong>Active Preview Change ({_e(chg.component_id)}):</strong> {_e(chg.title)}"
+            f"</div>"
+            for chg in proposal.changes
+        )
+        after_html = after_html.replace(
+            '<main id="top">',
+            f'<main id="top"><div class="wrap" data-mf-applied-changes-strip="true">{target_bars}</div>',
+            1,
+        )
 
     safe_assets_by_id = {
         a.id: a
@@ -347,6 +503,7 @@ def compose_interactive_visual_preview(
             logo_asset,
             authorized=(logo_asset.id in authorized_ids or logo_asset.license_state == "owner_attested"),
             slot_role="header_logo",
+            component_id="brand_header",
         )
         after_html = after_html.replace(
             "</header>",
@@ -360,10 +517,11 @@ def compose_interactive_visual_preview(
             hero_asset,
             authorized=(hero_asset.id in authorized_ids or hero_asset.license_state == "owner_attested"),
             slot_role="hero_visual",
+            component_id="hero_banner",
         )
         after_html = after_html.replace(
-            '<a href="#contact" class="btn">Request a conversation</a>',
-            '<a href="#contact" class="btn">Request a conversation</a>' + hero_slot,
+            'data-mf-visible="true">Request a conversation</a>',
+            'data-mf-visible="true">Request a conversation</a>' + hero_slot,
             1,
         )
 
@@ -406,13 +564,16 @@ def compose_interactive_visual_preview(
         '<h2 id="mf-after-title">AFTER: Interactive Improvement Concept (Not Published)</h2>'
         "<p>Toggle individual recommendations, explore scope intake, and test mobile/desktop layouts with zero network side effects.</p>"
         "</div></div>"
-        + _render_proposal_inspector_html(proposal)
+        + _render_proposal_inspector_html(validated_proposal, evidence_items)
     )
 
     # Wrap <main id="top">...</main> inside the studio container with Before and After panes
     studio_open = (
         f'<div class="mf-visual-studio" data-mf-studio="true" data-mf-view="split" '
-        f'data-mf-viewport="desktop" data-mf-layout="{_e(proposal.recommended_layout)}">'
+        f'data-mf-viewport="desktop" data-mf-layout="{_e(validated_proposal.recommended_layout)}" '
+        f'data-mf-palette="{_e(validated_proposal.recommended_palette)}" '
+        f'data-mf-before-layout="split_hero_intake" '
+        f'data-mf-before-palette="{_e(initial_concept.color)}">'
         + toolbar_html
         + before_pane_html
         + after_header_and_inspector
@@ -430,7 +591,7 @@ def compose_interactive_visual_preview(
         "css": combined_css,
         "js": VISUAL_PREVIEW_JS,
         "csp": PREVIEW_CSP,
-        "proposal": proposal.model_dump(mode="json"),
+        "proposal": validated_proposal.model_dump(mode="json"),
         "evidence_items": [ev.model_dump() for ev in evidence_items],
         "unconfirmed_fields": list(merged_concept.unconfirmed_fields),
     }

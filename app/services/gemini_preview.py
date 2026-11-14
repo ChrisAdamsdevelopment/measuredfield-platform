@@ -571,7 +571,7 @@ class GeminiPreviewService:
                 for a in assets
                 if a.verification_state != "rejected_unsafe" and a.license_state != "rejected"
             ]
-            validate_proposal_against_inventory(proposal, sanitized_evidence, safe_assets)
+            proposal = validate_proposal_against_inventory(proposal, sanitized_evidence, safe_assets)
             return proposal
         except (ValueError, KeyError, IndexError, ValidationError) as exc:
             safe_err = self._scrub_secret(f"Gemini output validation failed: {exc}")
