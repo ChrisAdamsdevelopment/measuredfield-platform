@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from ..schemas.ai_visual import (
     DEFAULT_AI_DISCLOSURE,
@@ -22,6 +22,7 @@ from ..schemas.preview import (
     DiagnosticObservationCard,
     PreviewConceptProfile,
 )
+from ..schemas.preview_media import IngestedPreviewMedia
 from .brand_assets import build_evidence_items_from_card
 from .preview_renderer import (
     DEMO_PREVIEW_JS,
@@ -62,6 +63,7 @@ VISUAL_STUDIO_CSS = """
 .mf-change-toggle input{width:18px;height:18px;min-height:18px;margin:0}
 .mf-brand-slot{border:2px dashed #8ab3ad;background:#f4faf8;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:.88rem;color:#18353c}
 .mf-brand-slot-authorized{border-style:solid;border-color:var(--accent);background:#eaf6f3}
+.mf-authorized-brand-img{display:block;max-width:100%;height:auto;border-radius:8px;margin-top:8px}
 .mf-applied-component-bar{background:#eaf6f3;border:1px solid #9ec2bc;border-radius:9px;padding:10px 14px;margin:10px 0;font-size:.86rem;color:#18353c}
 [data-mf-preview-component][data-mf-visible="false"]{display:none}
 .mf-ai-disclosure{font-size:.83rem;color:#4d6669;margin-top:12px}
@@ -104,25 +106,49 @@ var heroEl=studio.querySelector('[data-mf-preview-component="hero_banner"]');
 var headingEl=studio.querySelector('[data-mf-preview-heading]');
 var subheadingEl=studio.querySelector('[data-mf-preview-subheading]');
 var ctaEl=studio.querySelector('[data-mf-preview-cta]');
+var optionalComponents={'brand_header':true,'scope_explorer':true};
 function updateChangeCount(){
   var active=0;
-  var heroApplied=false;
-  var ctaApplied=false;
+  var beforeH=(heroEl&&heroEl.getAttribute('data-mf-before-heading'))||'';
+  var beforeSub=(heroEl&&heroEl.getAttribute('data-mf-before-subheading'))||'';
+  var beforeCta=(heroEl&&heroEl.getAttribute('data-mf-before-cta'))||'Request a conversation';
+  var beforeHref=(heroEl&&heroEl.getAttribute('data-mf-before-target'))||'#contact';
+  var nextHeading=beforeH;
+  var nextSub=beforeSub;
+  var nextCta=beforeCta;
+  var nextHref=beforeHref;
   var activeLayout=studio.getAttribute('data-mf-before-layout')||'split_hero_intake';
   var activePalette=studio.getAttribute('data-mf-before-palette')||'ocean';
+  var compHasToggle={};
+  var compAnyEnabled={};
   for(var n=0;n<toggles.length;n++){
     var box=toggles[n];
     var isOn=!!box.checked;
     var chgId=box.getAttribute('data-mf-toggle-change');
     var compId=box.getAttribute('data-mf-affected-component')||'';
+    if(compId)compHasToggle[compId]=true;
     var target=studio.querySelector('[data-mf-change-card="'+chgId+'"]');
     if(isOn){
       active++;
+      if(compId)compAnyEnabled[compId]=true;
       if(target)target.setAttribute('data-mf-change-enabled','true');
       var propLayout=box.getAttribute('data-mf-after-layout');
       var propPalette=box.getAttribute('data-mf-after-palette');
       if(propLayout)activeLayout=propLayout;
       if(propPalette)activePalette=propPalette;
+      var afterH=box.getAttribute('data-mf-after-heading');
+      var afterSub=box.getAttribute('data-mf-after-subheading');
+      var afterCta=box.getAttribute('data-mf-after-cta');
+      var afterTarget=box.getAttribute('data-mf-after-target');
+      if(compId==='hero_banner'){
+        if(afterH)nextHeading=afterH;
+        if(afterSub)nextSub=afterSub;
+        if(afterCta)nextCta=afterCta;
+        if(afterTarget&&afterTarget.charAt(0)==='#')nextHref=afterTarget;
+      }else if(compId==='primary_cta'){
+        if(afterCta)nextCta=afterCta;
+        if(afterTarget)nextHref=(afterTarget==='tel_link')?'#contact':afterTarget;
+      }
     }else{
       if(target)target.setAttribute('data-mf-change-enabled','false');
     }
@@ -131,41 +157,24 @@ function updateChangeCount(){
       changeTargets[c].setAttribute('data-mf-visible',isOn?'true':'false');
       changeTargets[c].hidden=!isOn;
     }
-    if(compId&&compId!=='hero_banner'){
-      var compEls=studio.querySelectorAll('[data-mf-preview-component="'+compId+'"]');
+  }
+  for(var cid in compHasToggle){
+    if(!Object.prototype.hasOwnProperty.call(compHasToggle,cid))continue;
+    var anyOn=!!compAnyEnabled[cid];
+    if(optionalComponents[cid]){
+      var compEls=studio.querySelectorAll('[data-mf-preview-component="'+cid+'"]');
       for(var p=0;p<compEls.length;p++){
-        compEls[p].setAttribute('data-mf-visible',isOn?'true':'false');
-        compEls[p].hidden=!isOn;
+        if(compEls[p].getAttribute('data-mf-change-target'))continue;
+        compEls[p].setAttribute('data-mf-visible',anyOn?'true':'false');
+        compEls[p].hidden=!anyOn;
       }
     }
-    if(compId==='hero_banner'&&isOn){
-      heroApplied=true;
-      var afterH=box.getAttribute('data-mf-after-heading');
-      var afterSub=box.getAttribute('data-mf-after-subheading');
-      var afterCta=box.getAttribute('data-mf-after-cta');
-      var afterTarget=box.getAttribute('data-mf-after-target');
-      if(headingEl&&afterH)headingEl.textContent=afterH;
-      if(subheadingEl&&afterSub)subheadingEl.textContent=afterSub;
-      if(ctaEl&&afterCta)ctaEl.textContent=afterCta;
-      if(ctaEl&&afterTarget&&afterTarget.charAt(0)==='#')ctaEl.setAttribute('href',afterTarget);
-    }
-    if(compId==='primary_cta'&&isOn){
-      ctaApplied=true;
-      var ctaLbl=box.getAttribute('data-mf-after-cta');
-      if(ctaEl&&ctaLbl)ctaEl.textContent=ctaLbl;
-    }
   }
-  if(!heroApplied&&heroEl){
-    var beforeH=heroEl.getAttribute('data-mf-before-heading')||'';
-    var beforeSub=heroEl.getAttribute('data-mf-before-subheading')||'';
-    if(headingEl&&beforeH)headingEl.textContent=beforeH;
-    if(subheadingEl&&beforeSub)subheadingEl.textContent=beforeSub;
-  }
-  if(!heroApplied&&!ctaApplied&&heroEl&&ctaEl){
-    var beforeCta=heroEl.getAttribute('data-mf-before-cta')||'Request a conversation';
-    var beforeHref=heroEl.getAttribute('data-mf-before-target')||'#contact';
-    ctaEl.textContent=beforeCta;
-    ctaEl.setAttribute('href',beforeHref);
+  if(headingEl&&nextHeading)headingEl.textContent=nextHeading;
+  if(subheadingEl&&nextSub)subheadingEl.textContent=nextSub;
+  if(ctaEl){
+    ctaEl.textContent=nextCta;
+    ctaEl.setAttribute('href',nextHref);
     ctaEl.setAttribute('data-mf-visible','true');
     ctaEl.hidden=false;
   }
@@ -321,6 +330,16 @@ def _render_proposal_inspector_html(
                 if chg.after_config.asset_id
                 else ""
             )
+            after_cta_attr = (
+                chg.after_config.cta_label
+                if not (chg.component_id == "hero_banner" and chg.change_type == "mobile_readiness")
+                else ""
+            )
+            after_target_attr = (
+                chg.after_config.cta_target
+                if not (chg.component_id == "hero_banner" and chg.change_type == "mobile_readiness")
+                else ""
+            )
             cards.append(
                 f'<article class="mf-change-card" data-mf-change-card="{_e(chg.change_id)}" data-mf-change-enabled="true">'
                 f'<div class="mf-change-meta">'
@@ -337,8 +356,8 @@ def _render_proposal_inspector_html(
                 f'data-mf-affected-component="{_e(chg.component_id)}" '
                 f'data-mf-after-heading="{_e(chg.after_config.heading_text)}" '
                 f'data-mf-after-subheading="{_e(chg.after_config.subheading_text)}" '
-                f'data-mf-after-cta="{_e(chg.after_config.cta_label)}" '
-                f'data-mf-after-target="{_e(chg.after_config.cta_target)}" '
+                f'data-mf-after-cta="{_e(after_cta_attr)}" '
+                f'data-mf-after-target="{_e(after_target_attr)}" '
                 f'data-mf-after-palette="{_e(chg.after_config.palette_key)}" '
                 f'data-mf-after-layout="{_e(chg.after_config.layout_preset)}" checked>'
                 f"Include this improvement in draft"
@@ -373,24 +392,49 @@ def _render_brand_slot_html(
     authorized: bool,
     slot_role: str,
     component_id: str = "brand_header",
+    media: IngestedPreviewMedia | None = None,
 ) -> str:
     cls = "mf-brand-slot mf-brand-slot-authorized" if authorized else "mf-brand-slot"
-    state_label = (
-        "Owner rights attested in preview (saved only upon claim)"
-        if authorized
-        else "Unconfirmed candidate — owner rights confirmation required"
+    has_clean_media = (
+        authorized
+        and media is not None
+        and media.same_origin_path.startswith("/dev/visual-preview/media/")
     )
+    if has_clean_media and media is not None:
+        state_label = "Owner rights confirmed — serving clean re-encoded raster from same-origin temporary store"
+        alt_text = media.alt_text or asset.alt_text or f"Authorized {slot_role.replace('_', ' ')}"
+        img_html = (
+            f'<img class="mf-authorized-brand-img" '
+            f'src="{_e(media.same_origin_path)}" '
+            f'alt="{_e(alt_text)}" '
+            f'width="{int(media.width)}" '
+            f'height="{int(media.height)}" '
+            f'data-mf-authorized-img="{_e(asset.id)}">'
+        )
+    else:
+        state_label = (
+            "Owner rights attested in preview (saved only upon claim)"
+            if authorized
+            else "Unconfirmed candidate — owner rights confirmation required"
+        )
+        img_html = ""
+
     dims_str = (
-        f" ({asset.dimensions.width}x{asset.dimensions.height}px)"
-        if asset.dimensions
-        else ""
+        f" ({media.width}x{media.height}px)"
+        if has_clean_media and media is not None
+        else (
+            f" ({asset.dimensions.width}x{asset.dimensions.height}px)"
+            if asset.dimensions
+            else ""
+        )
     )
     return (
         f'<div class="{cls}" data-mf-asset-slot="{_e(asset.id)}" data-mf-slot-role="{_e(slot_role)}" '
         f'data-mf-preview-component="{_e(component_id)}" data-mf-visible="true">'
-        f"<strong>Candidate {_e(asset.kind.replace('_', ' ').title())}: {_e(asset.id)}</strong>"
+        f"{img_html}"
+        f"<div><strong>Candidate {_e(asset.kind.replace('_', ' ').title())}: {_e(asset.id)}</strong>"
         f"{_e(dims_str)} &mdash; {_e(asset.alt_text or asset.discovery_source)} "
-        f'(<span data-mf-asset-slot-state="true">{_e(state_label)}</span>)'
+        f'(<span data-mf-asset-slot-state="true">{_e(state_label)}</span>)</div>'
         f"</div>"
     )
 
@@ -402,10 +446,12 @@ def compose_interactive_visual_preview(
     proposal: VisualDesignProposal,
     *,
     owner_authorized_asset_ids: set[str] | None = None,
+    ingested_media_by_asset_id: Mapping[str, IngestedPreviewMedia] | None = None,
     asset_base: str = "/preview-assets/",
 ) -> dict[str, Any]:
     """Compose a complete interactive Before/After visual preview bundle."""
-    authorized_ids = set(owner_authorized_asset_ids or ())
+    media_map: dict[str, IngestedPreviewMedia] = dict(ingested_media_by_asset_id or {})
+    authorized_ids = set(owner_authorized_asset_ids or ()) | set(media_map.keys())
     evidence_items = build_evidence_items_from_card(card, assets)
     validated_proposal = validate_proposal_against_inventory(proposal, evidence_items, assets)
     initial_concept = (
@@ -496,14 +542,30 @@ def compose_interactive_visual_preview(
         if a.verification_state != "rejected_unsafe" and a.license_state != "rejected"
     }
 
-    # Inject safe brand asset slots into After concept if selected in proposal
-    if proposal.selected_logo_asset_id and proposal.selected_logo_asset_id in safe_assets_by_id:
-        logo_asset = safe_assets_by_id[proposal.selected_logo_asset_id]
+    # Resolve selected logo and hero asset IDs (including owner-attested ingested media slots)
+    selected_logo_id = proposal.selected_logo_asset_id
+    if not selected_logo_id:
+        for aid, m in media_map.items():
+            if m.slot_role == "header_logo" and aid in safe_assets_by_id:
+                selected_logo_id = aid
+                break
+
+    selected_hero_id = proposal.selected_hero_asset_id
+    if not selected_hero_id:
+        for aid, m in media_map.items():
+            if m.slot_role == "hero_visual" and aid in safe_assets_by_id:
+                selected_hero_id = aid
+                break
+
+    # Inject safe brand asset slots into After concept if selected in proposal or attested in media store
+    if selected_logo_id and selected_logo_id in safe_assets_by_id:
+        logo_asset = safe_assets_by_id[selected_logo_id]
         logo_slot = _render_brand_slot_html(
             logo_asset,
             authorized=(logo_asset.id in authorized_ids or logo_asset.license_state == "owner_attested"),
             slot_role="header_logo",
             component_id="brand_header",
+            media=media_map.get(logo_asset.id),
         )
         after_html = after_html.replace(
             "</header>",
@@ -511,13 +573,14 @@ def compose_interactive_visual_preview(
             1,
         )
 
-    if proposal.selected_hero_asset_id and proposal.selected_hero_asset_id in safe_assets_by_id:
-        hero_asset = safe_assets_by_id[proposal.selected_hero_asset_id]
+    if selected_hero_id and selected_hero_id in safe_assets_by_id:
+        hero_asset = safe_assets_by_id[selected_hero_id]
         hero_slot = _render_brand_slot_html(
             hero_asset,
             authorized=(hero_asset.id in authorized_ids or hero_asset.license_state == "owner_attested"),
             slot_role="hero_visual",
             component_id="hero_banner",
+            media=media_map.get(hero_asset.id),
         )
         after_html = after_html.replace(
             'data-mf-visible="true">Request a conversation</a>',
@@ -533,7 +596,7 @@ def compose_interactive_visual_preview(
         '<button type="button" class="mf-tool-btn" data-mf-set-view="split" aria-pressed="true">'
         "Split Compare (Before &amp; After)</button>"
         '<button type="button" class="mf-tool-btn" data-mf-set-view="before" aria-pressed="false">'
-        "Before: Public HTML &amp; Assets</button>"
+        "Before: Static HTML Diagnostics &amp; Assets</button>"
         '<button type="button" class="mf-tool-btn" data-mf-set-view="after" aria-pressed="false">'
         "After: Interactive Redesign Concept</button>"
         "</div>"
@@ -550,8 +613,9 @@ def compose_interactive_visual_preview(
     before_pane_html = (
         '<section id="mf-pane-before" class="mf-studio-pane mf-pane-before" aria-labelledby="mf-before-title">'
         '<div class="mf-pane-header"><div class="wrap">'
-        '<h2 id="mf-before-title">BEFORE: Observed Public HTML &amp; Discovered Brand Media</h2>'
-        "<p>Deterministic non-JS HTML observations and candidate brand assets from the current URL.</p>"
+        '<h2 id="mf-before-title">BEFORE: Observed Static HTML Diagnostics &amp; Discovered Asset Metadata</h2>'
+        "<p>Deterministic non-JS HTML observations and candidate brand asset metadata from the current URL "
+        "(this pane presents static HTML diagnostic evidence, not a rendered screenshot of the original website).</p>"
         "</div></div>"
         + render_diagnostic_card_html(card)
         + _render_asset_inventory_html(assets, authorized_ids)

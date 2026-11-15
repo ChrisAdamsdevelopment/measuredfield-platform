@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import get_settings
 from .db import finish_request_session, get_engine, isolation_self_check
 from .deps import BASE_DIR, LoginRequired, render
-from .routers import auth, operator, public, site_host, workspace
+from .routers import auth, operator, public, site_host, visual_preview, workspace
 from .services import jobs
 
 log = logging.getLogger("mf")
@@ -75,7 +75,7 @@ def create_main_app() -> FastAPI:
     mimetypes.add_type("image/webp", ".webp", strict=True)
     mimetypes.add_type("text/vtt", ".vtt", strict=True)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-    for module in (public, auth, workspace, operator):
+    for module in (public, auth, workspace, operator, visual_preview):
         app.include_router(module.router)
 
     @app.middleware("http")
@@ -98,7 +98,7 @@ def create_main_app() -> FastAPI:
         if jobs_pending and settings.inline_jobs:
             await run_in_threadpool(jobs.run_due, 25)
         _security_headers(response, production=settings.is_production)
-        if request.url.path.startswith(("/app", "/operator", "/api", "/assessment/r", "/order", "/p/")):
+        if request.url.path.startswith(("/app", "/operator", "/api", "/assessment/r", "/order", "/p/", "/dev/visual-preview")):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Request-ID"] = request_id
         # Path only: never the query string, body, cookies or client address.
