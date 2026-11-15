@@ -27,6 +27,7 @@ import secrets
 import socket
 import time
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -35,14 +36,28 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ..config import get_settings
 from ..db import get_db
 from ..deps import Principal, client_key, get_principal
-from ..schemas.ai_visual import BrandAssetCandidate, VisualDesignProposal
+from ..schemas.ai_visual import (
+    _EXECUTABLE_MARKUP_RE,
+    _FORBIDDEN_PROPOSAL_CLAIM_RE,
+    BrandAssetCandidate,
+    VisualDesignProposal,
+)
 from ..schemas.preview import (
+    _UNVERIFIED_CLAIM_RE,
     DiagnosticObservationCard,
     PreviewConceptProfile,
+    normalize_industry,
 )
 from ..schemas.preview_media import IngestedPreviewMedia, OwnerMediaAttestation
-from ..services.brand_assets import extract_asset_candidates, sniff_asset_candidate
-from ..services.gemini_preview import build_deterministic_visual_proposal
+from ..services.brand_assets import (
+    _VerifiedTransportWrapper,
+    extract_asset_candidates,
+    sniff_asset_candidate,
+)
+from ..services.gemini_preview import (
+    build_deterministic_visual_proposal,
+    sanitize_untrusted_observation_text,
+)
 from ..services.preview_composition import compose_interactive_visual_preview
 from ..services.preview_media import (
     DEFAULT_PREVIEW_MEDIA_STORE,
@@ -51,7 +66,15 @@ from ..services.preview_media import (
     download_and_ingest_attested_media,
     generate_synthetic_fixture_media_bytes,
 )
-from ..services.scanner import SSRFBlockedError, inspect_public_url
+from ..services.scanner import (
+    MAX_HTML_BYTES,
+    MAX_REDIRECTS,
+    PinnedPublicIPTransport,
+    SSRFBlockedError,
+    build_pinned_request,
+    inspect_public_url,
+    validate_and_resolve_url,
+)
 from ..services.widgets import default_widget_for_industry
 
 router = APIRouter(prefix="/dev/visual-preview", tags=["dev_visual_preview"])
@@ -363,6 +386,113 @@ def _synthetic_dns_resolver(host: str, port: int = 443, *_args: Any) -> list[Any
     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
 
+def _sanitize_live_profile_text(raw: str, *, limit: int = 80) -> str:
+    """Sanitize untrusted webpage or form text and reject prompt injection or forbidden claims."""
+    cleaned, was_redacted = sanitize_untrusted_observation_text(raw, limit=limit)
+    if was_redacted or cleaned == "[REDACTED_UNTRUSTED_PAGE_TEXT]" or not cleaned:
+        return ""
+    if (
+        _UNVERIFIED_CLAIM_RE.search(cleaned)
+        or _FORBIDDEN_PROPOSAL_CLAIM_RE.search(cleaned)
+        or _EXECUTABLE_MARKUP_RE.search(cleaned)
+    ):
+        return ""
+    return cleaned
+
+
+def _fetch_bounded_live_html_for_assets(
+    raw_url: str,
+    *,
+    resolver: Any = None,
+    transport: httpx.BaseTransport | None = None,
+    max_bytes: int = MAX_HTML_BYTES,
+    max_redirects: int = MAX_REDIRECTS,
+    timeout: float = 4.0,
+) -> tuple[str, str]:
+    """Safely stream at most ``max_bytes`` of HTML over pinned IP transport with redirect validation."""
+    current_target = validate_and_resolve_url(raw_url, resolver=resolver)
+    active_transport: httpx.BaseTransport = (
+        _VerifiedTransportWrapper(transport)
+        if transport is not None
+        else PinnedPublicIPTransport()
+    )
+    timeout_cfg = httpx.Timeout(connect=min(timeout, 3.0), read=timeout, write=2.0, pool=2.0)
+
+    try:
+        with httpx.Client(
+            transport=active_transport,
+            trust_env=False,
+            follow_redirects=False,
+            timeout=timeout_cfg,
+        ) as client:
+            redirects_followed = 0
+            while True:
+                request = build_pinned_request(current_target)
+                try:
+                    response = client.send(request, stream=True)
+                except SSRFBlockedError:
+                    raise
+                except Exception:
+                    return "", current_target.normalized_url
+
+                try:
+                    status_code = response.status_code
+                    if status_code in (301, 302, 303, 307, 308):
+                        location = (response.headers.get("location") or "").strip()
+                        if not location or redirects_followed >= max_redirects:
+                            return "", current_target.normalized_url
+                        next_url = urljoin(current_target.normalized_url, location)
+                        current_target = validate_and_resolve_url(next_url, resolver=resolver)
+                        redirects_followed += 1
+                        continue
+
+                    if status_code != 200:
+                        return "", current_target.normalized_url
+
+                    raw_ct = (response.headers.get("content-type") or "").strip()
+                    media_type = raw_ct.split(";")[0].strip().lower()
+                    if media_type and media_type not in ("text/html", "application/xhtml+xml"):
+                        return "", current_target.normalized_url
+
+                    cl_header = (response.headers.get("content-length") or "").strip()
+                    if cl_header:
+                        try:
+                            declared_len = int(cl_header)
+                            if declared_len < 0 or declared_len > max_bytes:
+                                return "", current_target.normalized_url
+                        except ValueError:
+                            return "", current_target.normalized_url
+
+                    chunks: list[bytes] = []
+                    total_read = 0
+                    try:
+                        for chunk in response.iter_bytes():
+                            if not chunk:
+                                continue
+                            remaining = max_bytes - total_read
+                            if remaining <= 0:
+                                break
+                            chunks.append(chunk[:remaining])
+                            total_read += len(chunks[-1])
+                            if total_read >= max_bytes:
+                                break
+                    except SSRFBlockedError:
+                        raise
+                    except Exception:
+                        return "", current_target.normalized_url
+
+                    raw_bytes = b"".join(chunks)
+                    return (
+                        raw_bytes.decode("utf-8", errors="replace"),
+                        current_target.normalized_url,
+                    )
+                finally:
+                    response.close()
+    finally:
+        if transport is None:
+            active_transport.close()
+
+
 def _create_inspection_session(
     *,
     mode: str,
@@ -391,29 +521,19 @@ def _create_inspection_session(
             for c in raw_candidates
         ]
     elif card.scan_state == "completed":
-        raw_candidates = []
-        try:
-            from ..services.brand_assets import _VerifiedTransportWrapper
-            from ..services.scanner import (
-                PinnedPublicIPTransport,
-                build_pinned_request,
-                validate_and_resolve_url,
-            )
-
-            target = validate_and_resolve_url(effective_url, resolver=effective_dns)
-            req_transport = (
-                _VerifiedTransportWrapper(effective_transport)
-                if effective_transport is not None
-                else PinnedPublicIPTransport()
-            )
-            with httpx.Client(transport=req_transport, follow_redirects=False, timeout=4.0) as client:
-                req = build_pinned_request(target)
-                resp = client.send(req)
-                if resp.status_code == 200 and "html" in resp.headers.get("content-type", "").lower():
-                    html_text = resp.content[:262144].decode("utf-8", errors="replace")
-                    raw_candidates = extract_asset_candidates(html_text, effective_url)
-        except Exception:
-            raw_candidates = []
+        fetch_start_url = card.final_url or effective_url
+        html_text, resolved_page_url = _fetch_bounded_live_html_for_assets(
+            fetch_start_url,
+            resolver=effective_dns,
+            transport=effective_transport,
+            max_bytes=MAX_HTML_BYTES,
+            max_redirects=MAX_REDIRECTS,
+        )
+        raw_candidates = (
+            extract_asset_candidates(html_text, resolved_page_url or fetch_start_url)
+            if html_text
+            else []
+        )
         assets = [
             sniff_asset_candidate(c, resolver=effective_dns, transport=effective_transport)
             for c in raw_candidates[:8]
@@ -421,35 +541,118 @@ def _create_inspection_session(
     else:
         assets = []
 
-    resolved_name = (
-        business_name.strip()
-        or (card.observed_title.split("|")[0].strip() if card.observed_title else "")
-        or "Granite Peak Kitchen & Bath Remodeling"
-    )
-    resolved_city = city.strip() or "Prescott, AZ"
-    resolved_industry = (
-        industry.strip()
-        if industry in {"remodeling", "construction", "cleaning", "landscaping", "professional", "retail", "wellness", "food", "other"}
-        else "remodeling"
-    )
+    if is_synthetic:
+        resolved_name = (
+            _sanitize_live_profile_text(business_name, limit=80)
+            or (card.observed_title.split("|")[0].strip() if card.observed_title else "")
+            or "Granite Peak Kitchen & Bath Remodeling"
+        )
+        resolved_city = _sanitize_live_profile_text(city, limit=80) or "Prescott, AZ"
+        resolved_industry = (
+            industry.strip()
+            if industry
+            in {
+                "remodeling",
+                "construction",
+                "cleaning",
+                "landscaping",
+                "professional",
+                "retail",
+                "wellness",
+                "food",
+                "other",
+            }
+            else "remodeling"
+        )
+        profile = PreviewConceptProfile(
+            name=resolved_name[:80],
+            industry=resolved_industry,
+            city=resolved_city[:80],
+            headline=card.observed_h1 or "Welcome",
+            intro=f"{resolved_name[:80]} serves {resolved_city[:80]} with residential remodeling craftsmanship.",
+            phone="(928) 555-0148",
+            email="projects@example.com",
+            color="slate",
+            services=[
+                "Custom Kitchen Remodeling",
+                "Walk-In Tile Showers & Baths",
+                "Structural Room Additions",
+                "Cabinetry & Countertop Installation",
+            ],
+            widgets=[default_widget_for_industry(resolved_industry)],
+        )
+    else:
+        resolved_industry = normalize_industry(industry)
+        unconfirmed: list[str] = []
 
-    profile = PreviewConceptProfile(
-        name=resolved_name[:80],
-        industry=resolved_industry,
-        city=resolved_city[:80],
-        headline=card.observed_h1 or "Welcome",
-        intro=f"{resolved_name[:80]} serves {resolved_city[:80]} with residential remodeling craftsmanship.",
-        phone="(928) 555-0148",
-        email="projects@example.com",
-        color="slate",
-        services=[
-            "Custom Kitchen Remodeling",
-            "Walk-In Tile Showers & Baths",
-            "Structural Room Additions",
-            "Cabinetry & Countertop Installation",
-        ],
-        widgets=[default_widget_for_industry(resolved_industry)],
-    )
+        explicit_name = _sanitize_live_profile_text(business_name, limit=80)
+        if explicit_name:
+            resolved_name = explicit_name
+        else:
+            title_head = (
+                re.split(r"\s*(?:\||—|–|\s-\s)\s*", card.observed_title)[0].strip()
+                if card.title_status == "observed" and card.observed_title
+                else ""
+            )
+            observed_name = _sanitize_live_profile_text(title_head, limit=80) or (
+                _sanitize_live_profile_text(card.observed_h1, limit=80)
+                if card.h1_status == "observed" and card.observed_h1
+                else ""
+            )
+            resolved_name = observed_name or "Business Name To Be Confirmed"
+            unconfirmed.append("name")
+
+        resolved_city = _sanitize_live_profile_text(city, limit=80)
+        if not resolved_city:
+            unconfirmed.append("city")
+
+        observed_phone = (
+            _sanitize_live_profile_text(card.observed_tel_links[0], limit=40)
+            if card.tap_to_call_status == "observed" and card.observed_tel_links
+            else ""
+        )
+        unconfirmed.append("phone")
+
+        observed_email = (
+            _sanitize_live_profile_text(card.observed_mailto_links[0], limit=120)
+            if card.mailto_status == "observed" and card.observed_mailto_links
+            else ""
+        )
+        unconfirmed.append("email")
+
+        observed_headline = (
+            _sanitize_live_profile_text(card.observed_h1, limit=90)
+            if card.h1_status == "observed" and card.observed_h1
+            else ""
+        )
+        unconfirmed.append("headline")
+
+        if resolved_city:
+            speculative_intro = (
+                f"Speculative concept preview for {resolved_name[:60]} in {resolved_city[:40]} "
+                "(offerings, service area, and contact details require owner confirmation)."
+            )
+        else:
+            speculative_intro = (
+                f"Speculative concept preview for {resolved_name[:60]} "
+                "(service area, offerings, and contact details require owner confirmation)."
+            )
+        unconfirmed.extend(["intro", "services"])
+
+        profile = PreviewConceptProfile(
+            name=resolved_name[:80],
+            industry=resolved_industry,
+            city=resolved_city[:80],
+            headline=observed_headline,
+            intro=speculative_intro[:240],
+            phone=observed_phone,
+            email=observed_email,
+            color="slate",
+            services=[],
+            widgets=[default_widget_for_industry(resolved_industry)],
+            unconfirmed_fields=unconfirmed,
+        )
+
     proposal = build_deterministic_visual_proposal(
         card,
         assets,
@@ -670,9 +873,9 @@ def inspect_for_visual_preview(
     csrf_token: str = Form(default=""),
     mode: str = Form(default="synthetic_fixture"),
     target_url: str = Form(default=SYNTHETIC_FIXTURE_URL),
-    business_name: str = Form(default="Granite Peak Kitchen & Bath Remodeling"),
-    city: str = Form(default="Prescott, AZ"),
-    industry: str = Form(default="remodeling"),
+    business_name: str = Form(default=""),
+    city: str = Form(default=""),
+    industry: str = Form(default=""),
     _: None = Depends(_require_visual_demo_allowed),
 ) -> Response:
     """Stage 1: Run SSRF-safe static HTML diagnostics & candidate asset discovery (zero media stored)."""
@@ -690,7 +893,10 @@ def inspect_for_visual_preview(
             industry=industry,
         )
     except (SSRFBlockedError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail="The submitted URL could not be inspected because it failed public network or format safety checks.",
+        ) from exc
     response = RedirectResponse(
         url=f"/dev/visual-preview/session/{session.session_id}",
         status_code=303,
@@ -785,8 +991,13 @@ def attest_and_ingest_brand_media(
                 )
             ingested_count += 1
         except (PreviewMediaError, SSRFBlockedError) as exc:
-            session.last_notice = f"Media ingestion rejected for {candidate.id}: {exc}"
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            session.last_notice = (
+                f"Media ingestion rejected for {candidate.id}: candidate failed raster safety or network verification."
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Selected candidate media could not be ingested because it failed raster safety or network verification.",
+            ) from exc
 
     session.last_notice = (
         f"Owner attestation recorded: {ingested_count} brand asset(s) safely decoded, stripped of metadata, "
