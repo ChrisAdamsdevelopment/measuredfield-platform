@@ -97,7 +97,11 @@ const lab = {
 };
 app.addEventListener("mf:request-visibility-state", (event) => event.detail.resolve(lab));
 let rows = [];
-let questions = [];
+let questions = [{
+  id: "old-approved", text: "Who remodels kitchens?",
+  origin: "gsc_suggestion", status: "approved",
+  snapshot_id: "snap-old", market: "Prescott, Arizona",
+}];
 let plans = [];
 const posts = [];
 globalThis.fetch = async (url, options = {}) => {
@@ -116,16 +120,17 @@ globalThis.fetch = async (url, options = {}) => {
       return ok({ snapshot: rows[0], created: true });
     }
     if (suffix === "/snapshots/snap-1/suggestions") {
-      questions = [{
+      questions.push({
         id: "question-uuid", text: "Who remodels kitchens?",
         origin: "gsc_suggestion", status: "draft",
         snapshot_id: "snap-1", market: "Prescott, Arizona",
-      }];
+      });
       return ok({ created: 1, already_existed: 0 });
     }
     if (suffix === "/questions/question-uuid/review") {
-      questions[0].status = data.status;
-      return ok({ question: questions[0] });
+      const current = questions.find((question) => question.id === "question-uuid");
+      current.status = data.status;
+      return ok({ question: current });
     }
     if (suffix === "/experiments") {
       assert.deepEqual(data.questions.map((x) => x.id),
@@ -178,13 +183,32 @@ async function click(id) {
   assert.equal(posts[0].data.date_start, null);
   assert.equal(posts[0].data.date_end, null);
   assert.equal(posts[1].suffix, "/snapshots/snap-1/suggestions");
-  assert.equal(questions[0].status, "draft");
+  assert.equal(questions[0].status, "approved");
+  assert.equal(questions[1].status, "draft");
   await click("mf-save-questions");
   assert.equal(questions[0].status, "approved");
+  assert.equal(questions[0].snapshot_id, "snap-old");
+  assert.equal(questions[1].status, "approved");
+  assert(posts.some((post) => post.suffix === "/questions/question-uuid/review"));
   await click("mf-save-plan");
   assert.equal(plans[0].provider_requests_executed, 0);
   assert.equal(plans[0].request_count, 4);
   assert.match(byId("mf-save-status").textContent, /0 provider calls executed/);
+  const planCount = posts.filter((p) => p.suffix === "/experiments").length;
+  // A truncated question list must fail closed, never attach an older approved snapshot.
+  questions = questions.filter((q) => q.snapshot_id === "snap-old");
+  await click("mf-refresh-saved");
+  await click("mf-save-plan");
+  assert.equal(posts.filter((p) => p.suffix === "/experiments").length, planCount);
+  assert.match(byId("mf-save-status").textContent, /Save and explicitly approve GSC question/);
+  // Nor can an unsaved or synthetic CSV piggyback on the older approved question text.
+  lab.csv_text = "Different unsaved CSV";
+  lab.synthetic_sample = true;
+  app.dispatchEvent({ type: "mf:visibility-changed" });
+  assert.equal(byId("mf-save-plan").disabled, true);
+  await click("mf-save-plan");
+  assert.equal(posts.filter((p) => p.suffix === "/experiments").length, planCount);
+  assert.match(byId("mf-save-status").textContent, /current genuine GSC source/);
   console.log("SAVED_WORKFLOW_BRIDGE_PASS");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """

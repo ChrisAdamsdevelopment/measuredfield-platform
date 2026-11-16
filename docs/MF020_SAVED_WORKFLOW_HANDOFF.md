@@ -63,3 +63,17 @@ Finish and review MF-020; then implement MF-021 provider-neutral immutable searc
 - Google Search Analytics: https://developers.google.com/webmaster-tools/v1/searchanalytics/query
 - OpenAI Responses web search: https://developers.openai.com/api/docs/guides/tools-web-search
 - ChatGPT custom MCP connecting: https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt
+
+## MF-020 corrective review — cross-snapshot provenance (November 15, 2026)
+
+Independent Gemini Argon review identified a genuine bug: the saved-workspace UI previously allowed an older approved question with identical text but a different GSC source snapshot to satisfy a new source's draft or planned experiment. The original module was returned from review rather than approved without correction.
+
+Corrective behavior:
+- Explicit question approval matches the active saved snapshot ID as well as question text and GSC origin, never substituting an older same-text approval.
+- Saving an experiment with any GSC-derived question requires the currently analyzed genuine saved CSV. Synthetic and unsaved CSVs cannot reuse previous approvals.
+- Experiments may use GSC question IDs only from approved questions attached to the active snapshot; benchmark-only plans remain available without GSC imports.
+- If the active source question is missing from the API response (which is capped at 250 recent workspace questions), the UI fails closed instead of binding a different snapshot. A source-filtered API is needed for complete pagination.
+- The Node mocked client test includes an older approved same-text question before the current draft and verifies that the current question alone is reviewed and chosen in the plan, and rejects unsaved/synthetic and missing-current-source paths.
+- No external model execution, Google API call, OAuth, spending, customer access or publishing is enabled.
+
+Next backend improvement: source-filtered paginated GET /questions?snapshot_id=... or stable question IDs returned by source-specific suggestions. This must preserve tenant authentication, FORCE RLS and real ownership checks.

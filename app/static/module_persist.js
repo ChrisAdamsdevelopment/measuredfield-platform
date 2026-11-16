@@ -33,11 +33,15 @@
     const lab = localState();
     const canSave = writeEnabled && !state.busy;
     const eligibleCsv = lab && lab.has_analysis && !lab.synthetic_sample;
+    const selections = (lab && Array.isArray(lab.selected)) ? lab.selected : [];
+    const hasGscSelection = selections.some((choice) => choice.source !== "benchmark");
+    const readyGsc = Boolean(eligibleCsv && selectedCsvIsSaved(lab));
     if ($("mf-save-gsc")) $("mf-save-gsc").disabled = !canSave || !eligibleCsv;
     if ($("mf-save-questions")) $("mf-save-questions").disabled =
       !canSave || !eligibleCsv || !selectedCsvIsSaved(lab) || !lab.approved.length;
     if ($("mf-save-plan")) $("mf-save-plan").disabled =
-      !canSave || !lab || !lab.has_plan || !lab.selected.length;
+      !canSave || !lab || !lab.has_plan || !selections.length ||
+      (hasGscSelection && !readyGsc);
     if (!writeEnabled) status("Read-only workspace: you can inspect saved research, but cannot change it.");
   }
   async function request(path, body) {
@@ -210,9 +214,8 @@
     for (const approval of lab.approved) {
       const q = (all.questions || []).find((item) =>
         item.origin === "gsc_suggestion" && item.text === approval.text &&
-        (item.snapshot_id === snapshotId || item.status === "approved"));
-      if (!q) throw new Error("Question could not be matched to a saved draft; import the GSC source again.");
-      if (claimed.has(q.id)) continue;
+        item.snapshot_id === snapshotId && !claimed.has(item.id));
+      if (!q) throw new Error("Question is missing from the active saved GSC source; import or refresh the source before approving.");
       claimed.add(q.id);
       if (q.status !== "approved") {
         await request("/questions/" + encodeURIComponent(q.id) + "/review", { status: "approved" });
@@ -228,13 +231,18 @@
     if (!lab || !lab.has_plan || !lab.selected.length) {
       throw new Error("Build a research plan and select questions before saving.");
     }
+    const hasGscSelection = lab.selected.some((choice) => choice.source !== "benchmark");
+    if (hasGscSelection && (lab.synthetic_sample || !lab.has_analysis || !selectedCsvIsSaved(lab))) {
+      throw new Error("Save the current genuine GSC source and approve its questions before saving this plan.");
+    }
     const questions = [];
     for (const choice of lab.selected) {
       if (choice.source === "benchmark") {
         questions.push({ id: choice.id, text: choice.text });
       } else {
         const match = state.questions.find((q) => q.text === choice.text &&
-          q.origin === "gsc_suggestion" && q.status === "approved");
+          q.origin === "gsc_suggestion" && q.status === "approved" &&
+          q.snapshot_id === state.active.id);
         if (!match) throw new Error("Save and explicitly approve GSC question '" +
           choice.text + "' before saving a plan.");
         questions.push({ id: match.id, text: match.text });
