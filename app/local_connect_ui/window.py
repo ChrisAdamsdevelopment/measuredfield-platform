@@ -10,8 +10,9 @@ from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 from typing import Callable
 
 from app.local_connect import AccessDenied, ConflictError
+from app.account_link import AccountLinkController, AccountBoundPairingController
+from .account_panel import AccountPanel
 from .controller import ChangeReview, OwnerWorkspaceController, safe_display
-from .pairing_controller import PairingOwnerController
 from .pairing_panel import PairingPanel
 
 
@@ -50,8 +51,11 @@ class ConnectedWorkspaceWindow:
         self.proposals_tab = ttk.Frame(self.tabs, padding=12)
         self.activity_tab = ttk.Frame(self.tabs, padding=12)
         self.tabs.add(self.connections_tab, text="My connected folders")
+        self.account_controller = AccountLinkController(self.controller.store)
+        self.account_panel = AccountPanel(self.tabs, self.account_controller)
+        self.tabs.add(self.account_panel, text="Connect this computer")
         self.pairing_panel = PairingPanel(
-            self.tabs, PairingOwnerController(self.controller.store),
+            self.tabs, AccountBoundPairingController(self.account_controller),
             report=lambda message: self.status.set(message),
         )
         self.tabs.add(self.pairing_panel, text="Trusted connections")
@@ -213,6 +217,8 @@ class ConnectedWorkspaceWindow:
             if not name or not name.strip():
                 return
             writable = bool(self.allow_proposals.get())
+            if writable and not self.account_controller.can_suggest_edits():
+                raise AccessDenied("Your linked account is Read only; suggestions are disabled.")
             if writable:
                 yes = messagebox.askyesno(
                     "Allow suggested edits?",
@@ -310,6 +316,8 @@ class ConnectedWorkspaceWindow:
                 )
                 return
             reviewed = self.reviewed
+            if not self.account_controller.can_suggest_edits():
+                raise AccessDenied("Your linked account does not currently permit suggested edits.")
             if not messagebox.askyesno(
                 "Apply this file change?",
                 "Apply the exact change you reviewed to:\n"
@@ -393,6 +401,7 @@ class ConnectedWorkspaceWindow:
                     )
                 )
             self.pairing_panel.refresh()
+            self.account_panel.render()
             count = len(self.controller.projects())
             self.status.set(
                 f"{count} project folder{'s' if count != 1 else ''} connected."
