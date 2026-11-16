@@ -487,14 +487,115 @@ class DeletionReceipt(Base):
     created_at: Mapped[datetime] = TS()
 
 
+# ------------------------------------------------------------------ AI visibility lab
+# Tenant-scoped, conservative provenance. No import can grant itself verified_live.
+
+class VisibilityGscSnapshot(Base):
+    __tablename__ = "visibility_gsc_snapshots"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), default="owner_csv", nullable=False)
+    date_start: Mapped[date | None] = mapped_column(Date())
+    date_end: Mapped[date | None] = mapped_column(Date())
+    row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    invalid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    impressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    clicks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rows: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "digest", name="uq_vgs_org_digest"),
+        UniqueConstraint("org_id", "id", name="uq_vgs_org_id"),
+        Index("ix_vgs_org_created", "org_id", "created_at"),
+    )
+
+
+class VisibilityQuestion(Base):
+    __tablename__ = "visibility_questions"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    source_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    question_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(80), default="Residential remodeling", nullable=False)
+    market: Mapped[str] = mapped_column(String(90), default="Prescott, Arizona", nullable=False)
+    origin: Mapped[str] = mapped_column(String(30), default="gsc_suggestion", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)
+    source_queries: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "question_hash", name="uq_vq_org_hash"),
+        UniqueConstraint("org_id", "id", name="uq_vq_org_id"),
+        ForeignKeyConstraint(
+            ["org_id", "source_snapshot_id"],
+            ["visibility_gsc_snapshots.org_id", "visibility_gsc_snapshots.id"],
+            name="fk_vq_snapshot_same_tenant"),
+        Index("ix_vq_org_status", "org_id", "status"),
+    )
+
+
+class VisibilityExperiment(Base):
+    __tablename__ = "visibility_experiments"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    configuration: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(22), default="planned", nullable=False)
+    provider_requests_executed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_ve_org_id"),
+        Index("ix_ve_org_created", "org_id", "created_at"),
+    )
+
+
+class VisibilityObservation(Base):
+    __tablename__ = "visibility_observations"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    source_run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
+    question: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actual_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    provider: Mapped[str] = mapped_column(String(90), default="", nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    grounding: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    source_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    reported_mentioned: Mapped[bool | None] = mapped_column(Boolean)
+    observed_at: Mapped[datetime | None] = OPT_TS()
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "source_run_id", name="uq_vo_org_external"),
+        ForeignKeyConstraint(
+            ["org_id", "experiment_id"],
+            ["visibility_experiments.org_id", "visibility_experiments.id"],
+            name="fk_vo_experiment_same_tenant"),
+        Index("ix_vo_org_experiment", "org_id", "experiment_id"),
+        Index("ix_vo_org_provenance", "org_id", "provenance"),
+    )
+
 # Every table that carries org_id and must be covered by row-level security.
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
+    "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
 TENANT_MODELS = {
+    "visibility_observations": VisibilityObservation,
+    "visibility_experiments": VisibilityExperiment,
+    "visibility_questions": VisibilityQuestion,
+    "visibility_gsc_snapshots": VisibilityGscSnapshot,
     "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
     "customers": Customer, "memory_items": MemoryItem, "documents": Document,
     "lesson_candidates": LessonCandidate, "assessment_reports": AssessmentReport,
