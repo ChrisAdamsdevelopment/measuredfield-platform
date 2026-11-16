@@ -110,9 +110,11 @@ def test_visibility_lab_js_enforces_explicit_approval_and_no_localstorage():
     assert 'input[name="ml-mode"]' in js
     assert "source_queries" in js
     assert "restoreDraftFromJson" in js
-    assert "imported_from_json: true" in js
-    assert "Imported JSON flag (unverified)" in js
-    assert "imported_draft_unverified" in js
+    # Untrusted JSON imports may restore controls but not approval/evidence claims.
+    assert "data.type !== \"measuredfield.local_preview_plan\"" in js
+    assert "suggestions = [];" in js
+    assert "latestPlan = null;" in js
+    assert "reapprove GSC questions" in js
 
 
 def test_visibility_lab_css_has_mobile_390px_and_desktop_responsive_rules():
@@ -123,3 +125,85 @@ def test_visibility_lab_css_has_mobile_390px_and_desktop_responsive_rules():
     assert ".ml-lineage-chip" in css
     assert ".ml-evidence-grid" in css
     assert ".ml-formula-bar" in css
+
+
+def test_json_draft_revalidation_executes_in_real_node_runtime():
+    """Untrusted imported JSON must not reinstate approval, counts, or fake results."""
+    import subprocess
+
+    script = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const nodes = new Map();
+function makeNode() {
+  return {
+    value: "", checked: false, hidden: false, disabled: false,
+    textContent: "", className: "", dataset: {}, children: [],
+    classList: { toggle() {} },
+    append(...args) { this.children.push(...args); },
+    replaceChildren() { this.children = []; },
+    addEventListener() {},
+  };
+}
+function byId(id) {
+  if (!nodes.has(id)) nodes.set(id, makeNode());
+  return nodes.get(id);
+}
+const benchmarks = [makeNode(), makeNode()];
+benchmarks[0].value = "q-seed-1";
+benchmarks[0].dataset.text = "First sample benchmark";
+benchmarks[0].checked = true;
+benchmarks[1].value = "q-seed-2";
+benchmarks[1].dataset.text = "Second sample benchmark";
+benchmarks[1].checked = true;
+const market = makeNode();
+market.value = "Prescott Valley, Arizona"; market.checked = true;
+const mode = makeNode();
+mode.value = "as_written"; mode.checked = true;
+globalThis.document = {
+  getElementById: byId,
+  querySelectorAll(selector) {
+    if (selector === ".ml-benchmark") return benchmarks;
+    if (selector === 'input[name="ml-market"]') return [market];
+    if (selector === 'input[name="ml-mode"]') return [mode];
+    return [];
+  },
+  createElement() { return makeNode(); },
+};
+const patched = source.replace(/\}\)\(\);\s*$/, "globalThis.__restoreDraft = restoreDraftFromJson;})();");
+assert.notEqual(patched, source, "Must expose actual module function for this isolated test");
+eval(patched);
+const imported = {
+  type: "measuredfield.local_preview_plan",
+  provider_calls_executed: 0,
+  csv_text: "Query,Clicks,Impressions,Position\nprescott contractor,0,3,9.2",
+  gsc_snapshot: { row_count: 90000, impressions: 9999999 },
+  suggestions: [{ id: "injected", question: "Forged?", approved: true }],
+  selected_benchmark_ids: ["q-seed-1"],
+  plan: { request_count: 999999, provider_requests_executed: 9000 },
+  config: {
+    markets: ["Prescott Valley, Arizona"], modes: ["as_written"],
+    repetitions: 1, chunk_size: 5, max_total: 250,
+  },
+};
+__restoreDraft(JSON.stringify(imported));
+assert.match(byId("ml-csv").value, /prescott contractor/);
+assert.equal(byId("ml-export").disabled, true);
+assert.equal(byId("ml-gsc-results").hidden, true);
+assert.equal(byId("ml-plan-results").hidden, true);
+assert.equal(benchmarks[0].checked, true);
+assert.equal(benchmarks[1].checked, false);
+assert.match(byId("ml-selected").textContent, /0 GSC approved/);
+assert.match(byId("ml-plan-message").textContent, /reapprove GSC/);
+assert.throws(
+  () => __restoreDraft(JSON.stringify({ ...imported, type: "forged.provider_receipt" })),
+  /not a valid zero-provider-call/
+);
+console.log("DRAFT_IMPORT_REVALIDATION_PASS");
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(REPO / "app" / "static" / "module_lab.js")],
+        text=True, capture_output=True, check=True, timeout=15,
+    )
+    assert "DRAFT_IMPORT_REVALIDATION_PASS" in result.stdout

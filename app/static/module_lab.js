@@ -577,7 +577,7 @@
     try {
       const text = await file.text();
       restoreDraftFromJson(text);
-      issue("ml-draft-message", `Restored unverified local JSON draft from ${file.name}. Review imported selections; 0 live provider calls executed.`);
+      issue("ml-draft-message", `Restored local CSV and planning controls from ${file.name}. Re-analyze GSC rows, reapprove suggestions, and rebuild the plan. Imported results are not trusted.`);
     } catch (error) {
       issue("ml-draft-message", error.message, true);
     }
