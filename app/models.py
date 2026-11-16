@@ -618,6 +618,66 @@ class VisibilityObservation(Base):
         Index("ix_vo_org_provenance", "org_id", "provenance"),
     )
 
+class VisibilityResearchBudget(Base):
+    """Owner-approved tenant-local monthly reservation ceiling, in USD micro-units.
+
+    A reservation is NOT a bill. Unknown outcomes remain reserved until reconciled.
+    """
+    __tablename__ = "visibility_research_budgets"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    period_month: Mapped[date] = mapped_column(Date(), nullable=False)
+    ceiling_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    held_micros: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    reconciled_micros: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    authorized_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    authorized_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "period_month", name="uq_vrb_org_month"),
+        UniqueConstraint("org_id", "id", name="uq_vrb_org_id"),
+        CheckConstraint("ceiling_micros >= 0 AND ceiling_micros <= 500000000",
+                        name="ck_vrb_ceiling"),
+        CheckConstraint("held_micros >= 0 AND reconciled_micros >= 0",
+                        name="ck_vrb_positive"),
+        CheckConstraint("held_micros + reconciled_micros <= ceiling_micros",
+                        name="ck_vrb_within_ceiling"),
+    )
+
+
+class VisibilityResearchReservation(Base):
+    """Durable idempotent signed run reservation. No provider call in MF-036."""
+    __tablename__ = "visibility_research_reservations"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    budget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    planned_run_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    plan_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    ceiling_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    approved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    approved_at: Mapped[datetime] = TS()
+    cancelled_at: Mapped[datetime | None] = OPT_TS()
+    dispatch_started_at: Mapped[datetime | None] = OPT_TS()
+    provider_response_id: Mapped[str | None] = mapped_column(String(200))
+    __table_args__ = (
+        UniqueConstraint("org_id", "idempotency_key", name="uq_vrr_org_idempotency"),
+        ForeignKeyConstraint(
+            ["org_id", "budget_id"],
+            ["visibility_research_budgets.org_id", "visibility_research_budgets.id"],
+            ondelete="RESTRICT", name="fk_vrr_budget_same_tenant"),
+        CheckConstraint("ceiling_micros > 0 AND ceiling_micros <= 100000000",
+                        name="ck_vrr_ceiling"),
+        CheckConstraint("status IN ('reserved','cancelled','dispatch_unknown','reconciled')",
+                        name="ck_vrr_status"),
+        Index("ix_vrr_org_status", "org_id", "status"),
+        Index("ix_vrr_org_budget", "org_id", "budget_id"),
+    )
+
+
 class ConnectedDevice(Base):
     """A computer an owner connected to their business (MF-032). Tenant table.
 
@@ -685,6 +745,7 @@ class DevicePairingCode(Base):
 # Every table that carries org_id and must be covered by row-level security.
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
+    "visibility_research_reservations", "visibility_research_budgets",
     "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
@@ -692,6 +753,8 @@ TENANT_TABLES = [
     "sites", "data_requests", "audit_events", "memberships",
 ]
 TENANT_MODELS = {
+    "visibility_research_reservations": VisibilityResearchReservation,
+    "visibility_research_budgets": VisibilityResearchBudget,
     "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
     "visibility_observations": VisibilityObservation,
     "visibility_experiments": VisibilityExperiment,
