@@ -11,6 +11,8 @@ from typing import Callable
 
 from app.local_connect import AccessDenied, ConflictError
 from .controller import ChangeReview, OwnerWorkspaceController, safe_display
+from .pairing_controller import PairingOwnerController
+from .pairing_panel import PairingPanel
 
 
 class ConnectedWorkspaceWindow:
@@ -48,6 +50,11 @@ class ConnectedWorkspaceWindow:
         self.proposals_tab = ttk.Frame(self.tabs, padding=12)
         self.activity_tab = ttk.Frame(self.tabs, padding=12)
         self.tabs.add(self.connections_tab, text="My connected folders")
+        self.pairing_panel = PairingPanel(
+            self.tabs, PairingOwnerController(self.controller.store),
+            report=lambda message: self.status.set(message),
+        )
+        self.tabs.add(self.pairing_panel, text="Trusted connections")
         self.tabs.add(self.proposals_tab, text="Review changes")
         self.tabs.add(self.activity_tab, text="Activity history")
 
@@ -385,6 +392,7 @@ class ConnectedWorkspaceWindow:
                         safe_display(item["relative_path"] or "")
                     )
                 )
+            self.pairing_panel.refresh()
             count = len(self.controller.projects())
             self.status.set(
                 f"{count} project folder{'s' if count != 1 else ''} connected."
