@@ -4,6 +4,7 @@ from __future__ import annotations
 import socket
 import tkinter as tk
 from tkinter import ttk
+from typing import Callable
 
 from app.account_link.client import DeviceClientError
 from app.account_link.secret_store import SecureStoreUnavailable
@@ -14,9 +15,11 @@ from app.local_connect import AccessDenied
 class AccountPanel(ttk.Frame):
     POLL_MS = 15_000
 
-    def __init__(self, parent: ttk.Notebook, controller: AccountLinkController):
+    def __init__(self, parent: ttk.Notebook, controller: AccountLinkController,
+                 on_change: Callable[[], None] | None = None):
         super().__init__(parent, padding=14)
         self.controller = controller
+        self.on_change = on_change
         self.url = tk.StringVar(value=self.controller.view().server_url or "")
         self.device_name = tk.StringVar(value=socket.gethostname()[:80] or "My computer")
         self.code = tk.StringVar()
@@ -55,7 +58,8 @@ class AccountPanel(ttk.Frame):
         ttk.Label(self, text="This does not activate a public tunnel, remote control, or a ChatGPT connection.",
                   wraplength=850).pack(anchor="w")
         self.render()
-        self.after(self.POLL_MS, self._poll)
+        # Do not trust persisted permissions during the first 15 seconds of a new window.
+        self.after(100, self._poll)
 
     def render(self, view: AccountView | None = None) -> None:
         view = view or self.controller.view()
@@ -82,6 +86,8 @@ class AccountPanel(ttk.Frame):
         try:
             view = fn()
             self.render(view)
+            if self.on_change is not None:
+                self.on_change()
         except (AccessDenied, DeviceClientError, SecureStoreUnavailable, OSError, ValueError):
             # Untrusted server text, codes and credentials must never appear in the UI.
             self.render()

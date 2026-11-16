@@ -52,7 +52,10 @@ class ConnectedWorkspaceWindow:
         self.activity_tab = ttk.Frame(self.tabs, padding=12)
         self.tabs.add(self.connections_tab, text="My connected folders")
         self.account_controller = AccountLinkController(self.controller.store)
-        self.account_panel = AccountPanel(self.tabs, self.account_controller)
+        self.account_panel = AccountPanel(
+            self.tabs, self.account_controller,
+            on_change=lambda: self.pairing_panel.refresh() if hasattr(self, "pairing_panel") else None,
+        )
         self.tabs.add(self.account_panel, text="Connect this computer")
         self.pairing_panel = PairingPanel(
             self.tabs, AccountBoundPairingController(self.account_controller),
@@ -217,6 +220,8 @@ class ConnectedWorkspaceWindow:
             if not name or not name.strip():
                 return
             writable = bool(self.allow_proposals.get())
+            if writable and self.account_controller.view().status != "not_connected":
+                self.account_controller.refresh()
             if writable and not self.account_controller.can_suggest_edits():
                 raise AccessDenied("Your linked account is Read only; suggestions are disabled.")
             if writable:
@@ -230,6 +235,11 @@ class ConnectedWorkspaceWindow:
                 if not yes:
                     self.status.set("Connection canceled. No permission was granted.")
                     return
+            # Reverify after the owner confirmation dialog, not only before it.
+            if writable and self.account_controller.view().status != "not_connected":
+                self.account_controller.refresh()
+            if writable and not self.account_controller.can_suggest_edits():
+                raise AccessDenied("Account permission changed; the folder was not connected for edits.")
             project = self.controller.connect(
                 name.strip(), folder, writable, confirmed_write=writable
             )
@@ -316,6 +326,8 @@ class ConnectedWorkspaceWindow:
                 )
                 return
             reviewed = self.reviewed
+            if self.account_controller.view().status != "not_connected":
+                self.account_controller.refresh()
             if not self.account_controller.can_suggest_edits():
                 raise AccessDenied("Your linked account does not currently permit suggested edits.")
             if not messagebox.askyesno(
@@ -327,6 +339,12 @@ class ConnectedWorkspaceWindow:
                 parent=self.root
             ):
                 return
+            # The owner may leave the confirmation dialog open while remote access
+            # is revoked. Check again immediately before changing a local file.
+            if self.account_controller.view().status != "not_connected":
+                self.account_controller.refresh()
+            if not self.account_controller.can_suggest_edits():
+                raise AccessDenied("Account permission changed; no file was modified.")
             self.controller.approve_change(
                 proposal_id, reviewed.review_token, confirmed=True
             )

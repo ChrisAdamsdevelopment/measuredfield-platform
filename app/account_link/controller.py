@@ -43,23 +43,50 @@ class AccountLinkController:
         self._state = self._load()
         self._check_number = ""
         self._notice = ""
+        # Never restore an active permission from cached JSON without a live server check.
+        if self._state["status"] == "active":
+            self._state["status"] = "unverified"
+        if self._state["status"] != "not_connected":
+            self._stop_local_connections()
+
+    def _credential_present(self) -> bool:
+        try:
+            return bool(self.secrets.load())
+        except (SecureStoreUnavailable, OSError):
+            # On a non-Windows test runner the DPAPI implementation is deliberately
+            # unavailable; an absent file still represents a pristine local pilot.
+            if isinstance(self.secrets, WindowsCredentialStore):
+                return self.secrets.file.exists()
+            return True  # Unknown secret store failure is never permission to write.
+
+    @staticmethod
+    def _empty_state(*, unverified: bool = False) -> dict:
+        return {"status": "unverified" if unverified else "not_connected",
+                "server_url": "", "device_id": "", "access": "",
+                "business": "", "name": ""}
 
     def _load(self) -> dict:
         if self.path.is_symlink():
-            raise AccessDenied("Account state cannot be a symbolic link.")
+            return self._empty_state(unverified=True)
         try:
             source = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError, OSError):
-            return {"status": "not_connected", "server_url": "", "device_id": "",
-                    "access": "", "business": "", "name": ""}
+        except FileNotFoundError:
+            return self._empty_state(unverified=self._credential_present())
+        except (ValueError, OSError):
+            return self._empty_state(unverified=True)
         if not isinstance(source, dict):
-            return {"status": "not_connected", "server_url": "", "device_id": "",
-                    "access": "", "business": "", "name": ""}
+            return self._empty_state(unverified=True)
         allowed = ("status", "server_url", "device_id", "access", "business", "name")
         values = {k: source.get(k, "") for k in allowed}
         values = {k: v if isinstance(v, str) and len(v) <= 250 else "" for k, v in values.items()}
         if values["status"] not in ("not_connected", "pending", "active", "revoked", "unverified"):
-            values["status"] = "not_connected"
+            values["status"] = "unverified"
+        if values["status"] == "not_connected" and self._credential_present():
+            values["status"] = "unverified"
+        if values["status"] in ("pending", "active") and (
+                not values["server_url"] or not values["device_id"] or
+                not self._credential_present()):
+            values["status"] = "unverified"
         return values
 
     def _save(self) -> None:
@@ -94,19 +121,28 @@ class AccountLinkController:
                 self.registry.revoke(row["pairing_id"])
 
     def _read_only_policy(self) -> None:
-        if not self.can_suggest_edits():
+        status = self._state["status"]
+        if status in ("pending", "unverified", "revoked"):
+            self._stop_local_connections()
+        elif status == "active" and self._state["access"] != "suggest":
             for row in self.registry.list():
                 if row["status"] == "active" and row["can_suggest_edits"]:
                     self.registry.revoke(row["pairing_id"])
 
     def _revoke(self, notice: str) -> AccountView:
-        # Local-first cleanup even if the server is unavailable or returned malformed JSON.
-        self._stop_local_connections()
-        self.secrets.clear()
+        # First revoke in-memory permissions. DPAPI deletion may fail on Windows
+        # (locked file), but must never preserve stale active / suggest permissions.
         self._state.update(status="revoked", access="", business="")
         self._check_number = ""
         self._notice = notice
-        self._save()
+        try:
+            self._stop_local_connections()
+        finally:
+            try:
+                self.secrets.clear()
+            except (SecureStoreUnavailable, OSError):
+                self._notice += " Protected credential cleanup requires attention."
+            self._save()
         return self.view()
 
     def connect(self, server_url: str, code: str, device_name: str) -> AccountView:
@@ -129,8 +165,23 @@ class AccountLinkController:
                            "business": "", "name": device_name[:80]}
             self._check_number = intro.check_number
             self._notice = "Enter this check number in your signed-in MeasuredField workspace."
-            self._save()
-            self._read_only_policy()
+            try:
+                self._read_only_policy()  # revoke old sessions before any fallible state write
+                self._save()
+            except (AccessDenied, OSError, SecureStoreUnavailable):
+                self._state["status"] = "unverified"
+                self._state["access"] = ""
+                self._check_number = ""
+                self._stop_local_connections()
+                try:
+                    self.secrets.clear()
+                except (SecureStoreUnavailable, OSError):
+                    pass
+                try:
+                    api.disconnect(intro.credential)
+                except DeviceClientError:
+                    pass
+                raise AccessDenied("Computer setup could not be completed safely.") from None
             return self.view()
         finally:
             api.close()
@@ -138,9 +189,12 @@ class AccountLinkController:
     def refresh(self) -> AccountView:
         if self._state["status"] not in ("pending", "active", "unverified"):
             return self.view()
-        credential = self.secrets.load()
+        try:
+            credential = self.secrets.load()
+        except (SecureStoreUnavailable, OSError):
+            credential = None
         if not credential:
-            return self._revoke("This computer has no saved credential and was disconnected locally.")
+            return self._revoke("This computer has no valid saved credential and was disconnected locally.")
         api = self.client_factory(self._state["server_url"])
         try:
             status = api.status(credential)
@@ -194,6 +248,13 @@ class AccountBoundPairingController(PairingOwnerController):
     def pair(self, name: str, project_ids: list[str], *, minutes: int = 15,
              allow_suggestions: bool = False, confirmed: bool = False,
              confirmed_suggestions: bool = False) -> dict:
+        state = self.account.view().status
+        if state != "not_connected":
+            # Re-check each account-linked pairing at the time of the consequential action.
+            self.account.refresh()
+            state = self.account.view().status
+        if state not in ("not_connected", "active"):
+            raise AccessDenied("This computer must be confirmed and connected before sharing folders.")
         if allow_suggestions and not self.account.can_suggest_edits():
             raise AccessDenied("Your account is Read only or pending confirmation; suggested edits are disabled.")
         return super().pair(name, project_ids, minutes=minutes, allow_suggestions=allow_suggestions,

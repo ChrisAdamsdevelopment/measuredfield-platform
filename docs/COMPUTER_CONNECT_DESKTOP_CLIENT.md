@@ -34,3 +34,18 @@ Focused tests: python -B -m pytest -q tests/test_account_link.py
 Full disposable real PostgreSQL: python -B scripts/run_disposable_pg_audit.py --full-suite
 
 Run the full suite and tracked-file secret scan under the shared integration gate, commit only these scoped files, and submit for independent review.
+
+
+## Independent Argon security-review remediation (November 16, 2026)
+
+Argon High's static review of MF-034 commit c40b052 requested changes. The follow-on fixes address:
+
+- A corrupted or unreadable Windows DPAPI credential now fails closed during status refresh, revokes active local sessions, and clears the active/suggest permissions instead of leaving the old state visible.
+- The in-memory state changes to revoked before fallible encrypted-file deletion. Cleanup errors are surfaced without restoring permissions.
+- Corrupted/missing account state with an existing device credential is classified as unverified, never as a fresh unlinked account. Cached active permissions are not trusted on app restart; pre-existing local sessions are revoked until a fresh server check.
+- Pending, unverified, and revoked account states prohibit creating even read-only local MCP pairings. Each account-linked pairing checks the server at creation time.
+- The Connected Workspace window triggers an early status refresh, updates the trusted-session panel when account state changes, and rechecks server permissions immediately before applying local file changes or granting suggested edits, including after owner confirmation dialogs.
+- A failure while saving a newly linked device's nonsecret local state triggers a safe rollback, credential cleanup and a best-effort server disconnect instead of reporting a connected state.
+- New synthetic tests exercise corrupted credentials and state, deletion failures, rejected local pairing, stale session startup, changes of device identity, redirect rejection, and state-save failure.
+
+Limits remain: a separately launched local MCP process is not continuously controlled by the account-status polling of a closed Tk owner window. A production-grade remote connector must bind real file operations to short-lived device/account authorization or an independent, enforced revocation check. No external tunnel is activated here.

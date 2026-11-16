@@ -227,3 +227,166 @@ def test_device_api_against_real_routes_and_disposable_postgresql(platform, tmp_
     owner.post(f"/app/computers/{pending.device_id}/disconnect", data={"csrf": csrf_of(owner)})
     revoked = controller.refresh()
     assert revoked.status == "revoked" and creds.load() is None
+
+
+
+# MF-034 independent Argon security-review regressions (2026-11-16).
+
+def test_undecryptable_device_credential_cannot_keep_active_suggestion_access(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.mode, api.access = "active", "suggest"
+    account.refresh()
+    registry.create("Old session", [grant["id"]], owner_confirmed=True, allow_proposals=True)
+    # Simulate CryptUnprotectData failure or a corrupted DPAPI file.
+    def corrupted_credential():
+        raise SecureStoreUnavailable("cannot decrypt")
+    creds.load = corrupted_credential
+    state = account.refresh()
+    assert state.status == "revoked" and state.access == ""
+    assert not account.can_suggest_edits()
+    assert all(row["status"] == "revoked" for row in registry.list())
+
+
+def test_failed_credential_deletion_cannot_preserve_active_state(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.mode, api.access = "active", "suggest"
+    account.refresh()
+    registry.create("Old session", [grant["id"]], owner_confirmed=True, allow_proposals=True)
+    def blocked_clear():
+        raise OSError("locked DPAPI file")
+    creds.clear = blocked_clear
+    api.mode = "revoked"
+    state = account.refresh()
+    assert state.status == "revoked" and state.access == ""
+    assert not account.can_suggest_edits()
+    assert all(row["status"] == "revoked" for row in registry.list())
+    assert "cleanup requires attention" in state.notice
+
+
+@pytest.mark.parametrize("invalid_state", ['{"status":', '{"status":"totally_unknown"}',
+                                          "null"])
+def test_corrupted_state_files_fail_closed_even_when_credential_exists(tmp_path, invalid_state):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.mode, api.access = "active", "suggest"
+    account.refresh()
+    registry.create("Old session", [grant["id"]], owner_confirmed=True, allow_proposals=True)
+    account.path.write_text(invalid_state, encoding="utf-8")
+    restarted = AccountLinkController(local, credential_store=creds,
+                                      client_factory=lambda _: api, registry=registry)
+    assert restarted.view().status == "unverified"
+    assert not restarted.can_suggest_edits()
+    assert all(row["status"] == "revoked" for row in registry.list())
+
+
+def test_missing_state_with_existing_credential_fails_closed(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    account.path.unlink()
+    restarted = AccountLinkController(local, credential_store=creds,
+                                      client_factory=lambda _: api, registry=registry)
+    assert restarted.view().status == "unverified"
+    assert not restarted.can_suggest_edits()
+
+
+def test_cached_active_suggest_permission_not_trusted_after_window_reopens(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.mode, api.access = "active", "suggest"
+    account.refresh()
+    registry.create("Old session", [grant["id"]], owner_confirmed=True, allow_proposals=True)
+    reopened = AccountLinkController(local, credential_store=creds,
+                                     client_factory=lambda _: api, registry=registry)
+    assert reopened.view().status == "unverified"
+    assert not reopened.can_suggest_edits()
+    assert registry.list()[0]["status"] == "revoked"
+    # Only an authenticated new status request may re-establish Suggest permission.
+    assert reopened.refresh().status == "active"
+    assert reopened.can_suggest_edits()
+
+
+@pytest.mark.parametrize("mode", ["pending", "unverified", "revoked"])
+def test_no_new_read_only_local_pairing_while_unconfirmed_or_revoked(tmp_path, mode):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    account._state["status"] = mode
+    pairing = AccountBoundPairingController(account)
+    with pytest.raises(AccessDenied, match="must be confirmed"):
+        pairing.pair("Forbidden", [grant["id"]], confirmed=True)
+    assert not any(row["status"] == "active" for row in registry.list())
+
+
+def test_pairing_refresh_checks_remote_revocation_at_action_time(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.mode, api.access = "active", "suggest"
+    account.refresh()
+    api.mode = "revoked"
+    with pytest.raises(AccessDenied, match="must be confirmed"):
+        AccountBoundPairingController(account).pair(
+            "Cannot reconnect", [grant["id"]], confirmed=True,
+            allow_suggestions=True, confirmed_suggestions=True)
+    assert account.view().status == "revoked"
+
+
+def test_partial_connect_state_save_failure_rolls_back_and_revokes(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    registry.create("Old pairing", [grant["id"]], owner_confirmed=True,
+                    allow_proposals=True)
+    def fail_save():
+        raise OSError("state file unavailable")
+    account._save = fail_save
+    with pytest.raises(AccessDenied, match="could not be completed"):
+        account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    assert api.disconnected is True
+    assert creds.load() is None
+    assert account.view().status == "unverified"
+    assert not account.can_suggest_edits()
+    assert all(row["status"] == "revoked" for row in registry.list())
+
+
+def test_device_identity_mismatch_revokes_all_trusted_local_sessions(tmp_path):
+    local, registry, api, creds, account = setup(tmp_path)
+    account.connect(api.origin, "ABCD-EFGH", "Office PC")
+    api.status = lambda token: DeviceStatus("unknown-device", "active", "suggest",
+                                            "Sample Business", "Office PC")
+    assert account.refresh().status == "revoked"
+    assert creds.load() is None
+
+
+def test_redirect_is_rejected_without_forwarding_bearer_token():
+    class RedirectingClient:
+        def get(self, path, **kwargs):
+            class Response:
+                status_code = 302
+                headers = {"Location": "https://unknown.example/collect"}
+                text = "private response body"
+            return Response()
+    client = DeviceApi("http://localhost", client=RedirectingClient())
+    with pytest.raises(DeviceClientError, match="redirected") as failure:
+        client.status("mfd1." + "X" * 40)
+    assert "private response" not in str(failure.value)
+    assert "unknown.example" not in str(failure.value)
