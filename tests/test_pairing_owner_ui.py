@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import gc
+import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -24,6 +26,60 @@ def owner(tmp_path):
     alpha = store.grant("Alpha website", project_a, "readwrite")["id"]
     beta = store.grant("Beta office", project_b, "read")["id"]
     return PairingOwnerController(store), alpha, beta, project_a, project_b
+
+
+
+@pytest.fixture(scope="module")
+def tk_root():
+    """Initialize Windows Tcl/Tk once, fail (never silently skip) on Windows."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        # Initialize ttk scripts now rather than during a late GUI test.
+        scrollbar = ttk.Scrollbar(root)
+        scrollbar.destroy()
+        root.update_idletasks()
+    except tk.TclError as error:
+        if root is not None:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+        if sys.platform == "win32" or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            pytest.fail(f"Native Tk initialization failed: {error}")
+        pytest.skip(f"No graphical Tcl/Tk display is available: {error}")
+    try:
+        yield root
+    finally:
+        # Collect Tk variable wrappers on this GUI thread while Tcl is live.
+        root.update_idletasks()
+        gc.collect()
+        root.destroy()
+
+
+@pytest.fixture
+def tk_host(tk_root):
+    """Each test gets fresh widgets while Tcl/Tk remains alive between tests."""
+    try:
+        yield tk_root
+    finally:
+        # Explicitly release StringVar / BooleanVar references on the main
+        # GUI thread before worker-thread garbage collection can finalize them.
+        children = list(tk_root.winfo_children())
+        for child in children:
+            child.destroy()
+            for name in ("name", "minutes", "suggestions"):
+                if hasattr(child, name):
+                    setattr(child, name, None)
+        # Release references even if a widget constructor failed before adding children.
+        child = None
+        children.clear()
+        tk_root.update_idletasks()
+        gc.collect()
 
 
 def test_owner_can_view_explicit_projects(owner):
@@ -143,17 +199,11 @@ def test_pairing_activity_contains_no_raw_credential(owner):
     assert any(row["operation"] == "pair" for row in ui.pairing_activity())
 
 
-def test_owner_panel_constructs_and_revoke_via_buttons(owner, monkeypatch):
-    import tkinter as tk
+def test_owner_panel_constructs_and_revoke_via_buttons(owner, tk_host, monkeypatch):
     from tkinter import messagebox
     from app.local_connect_ui.pairing_panel import PairingPanel
 
     ui, alpha, beta, *_ = owner
-    try:
-        root = tk.Tk()
-    except tk.TclError as err:
-        pytest.skip("Tk display unavailable: " + str(err))
-    root.withdraw()
     approved_prompts = []
     messages = []
     monkeypatch.setattr(messagebox, "askyesno",
@@ -162,26 +212,19 @@ def test_owner_panel_constructs_and_revoke_via_buttons(owner, monkeypatch):
                         lambda *args, **kwargs: messages.append(args))
     monkeypatch.setattr(messagebox, "showerror",
                         lambda *args, **kwargs: pytest.fail(str(args)))
-    try:
-        panel = PairingPanel(root, ui)
-        panel.pack()
-        assert set(panel.project_tree.get_children()) == {alpha, beta}
-        panel.project_tree.selection_set(alpha)
-        panel.name.set("Desk pilot")
-        panel.pair()
-        assert len(panel.connection_tree.get_children()) == 1
-        selected = panel.connection_tree.get_children()[0]
-        assert ui.connections()[0]["can_suggest_edits"] is False
-        panel.connection_tree.selection_set(selected)
-        panel.disconnect()
-        assert ui.connections()[0]["status"] == "revoked"
-        assert len(approved_prompts) == 2
-    finally:
-        panel.destroy()
-        root.destroy()
-        del panel
-        gc.collect()
-
+    panel = PairingPanel(tk_host, ui)
+    panel.pack()
+    assert set(panel.project_tree.get_children()) == {alpha, beta}
+    panel.project_tree.selection_set(alpha)
+    panel.name.set("Desk pilot")
+    panel.pair()
+    assert len(panel.connection_tree.get_children()) == 1
+    selected = panel.connection_tree.get_children()[0]
+    assert ui.connections()[0]["can_suggest_edits"] is False
+    panel.connection_tree.selection_set(selected)
+    panel.disconnect()
+    assert ui.connections()[0]["status"] == "revoked"
+    assert len(approved_prompts) == 2
 
 def test_owner_panel_is_not_network_transport():
     from app.local_connect_ui import pairing_panel
@@ -230,93 +273,55 @@ def test_owner_pair_refuses_blank_label_before_creation(owner):
     assert ui.connections() == []
 
 
-def test_panel_rejects_blank_name_before_confirmation(owner, monkeypatch):
-    import tkinter as tk
+def test_panel_rejects_blank_name_before_confirmation(owner, tk_host, monkeypatch):
     from tkinter import messagebox
     from app.local_connect_ui.pairing_panel import PairingPanel
     ui, alpha, *_ = owner
-    try:
-        root = tk.Tk()
-    except tk.TclError as e:
-        pytest.skip(str(e))
-    root.withdraw()
     dialogs = []
     monkeypatch.setattr(messagebox, "askyesno", lambda *a, **kw: dialogs.append("ask") or True)
     monkeypatch.setattr(messagebox, "showerror", lambda *a, **kw: dialogs.append("error"))
-    try:
-        panel = PairingPanel(root, ui)
-        panel.project_tree.selection_set(alpha)
-        panel.name.set(" ")
-        panel.pair()
-        assert dialogs == ["error"]
-        assert not ui.connections()
-    finally:
-        panel.destroy()
-        root.destroy()
-        del panel
-        gc.collect()
+    panel = PairingPanel(tk_host, ui)
+    panel.project_tree.selection_set(alpha)
+    panel.name.set(" ")
+    panel.pair()
+    assert dialogs == ["error"]
+    assert not ui.connections()
 
-
-def test_owner_can_inspect_exact_folder_details_and_activity(owner, monkeypatch):
+def test_owner_can_inspect_exact_folder_details_and_activity(owner, tk_host, monkeypatch):
     import tkinter as tk
     from tkinter import messagebox
     from app.local_connect_ui.pairing_panel import PairingPanel
     ui, alpha, beta, folder_a, folder_b = owner
     pair = ui.pair("Only this folder", [alpha], confirmed=True)
-    try:
-        root = tk.Tk()
-    except tk.TclError as e:
-        pytest.skip(str(e))
-    root.withdraw()
     dialogs = []
     monkeypatch.setattr(messagebox, "showinfo",
                         lambda *args, **kw: dialogs.append(args))
-    try:
-        panel = PairingPanel(root, ui)
-        rows = panel.connection_tree.get_children()
-        assert len(rows) == 1
-        values = panel.connection_tree.item(rows[0])["values"]
-        assert "Alpha website" in str(values)
-        assert "Beta office" not in str(values)
-        panel.connection_tree.selection_set(pair["pairing_id"])
-        panel.view_connection()
-        assert str(folder_a) in dialogs[0][1]
-        assert str(folder_b) not in dialogs[0][1]
-        panel.view_activity()
-        popups = [w for w in panel.winfo_children()
-                  if isinstance(w, tk.Toplevel)]
-        assert len(popups) == 1
-        popups[0].destroy()
-        popups.clear()
-    finally:
-        panel.destroy()
-        root.destroy()
-        del panel
-        gc.collect()
+    panel = PairingPanel(tk_host, ui)
+    rows = panel.connection_tree.get_children()
+    assert len(rows) == 1
+    values = panel.connection_tree.item(rows[0])["values"]
+    assert "Alpha website" in str(values)
+    assert "Beta office" not in str(values)
+    panel.connection_tree.selection_set(pair["pairing_id"])
+    panel.view_connection()
+    assert str(folder_a) in dialogs[0][1]
+    assert str(folder_b) not in dialogs[0][1]
+    panel.view_activity()
+    popups = [child for child in panel.winfo_children()
+              if isinstance(child, tk.Toplevel)]
+    assert len(popups) == 1
+    popups[0].destroy()
 
-
-def test_disconnecting_inactive_row_explains_status(owner, monkeypatch):
-    import tkinter as tk
+def test_disconnecting_inactive_row_explains_status(owner, tk_host, monkeypatch):
     from tkinter import messagebox
     from app.local_connect_ui.pairing_panel import PairingPanel
     ui, alpha, *_ = owner
-    p = ui.pair("Already gone", [alpha], confirmed=True)
-    ui.disconnect(p["pairing_id"], confirmed=True)
-    try:
-        root = tk.Tk()
-    except tk.TclError as e:
-        pytest.skip(str(e))
-    root.withdraw()
+    pair = ui.pair("Already gone", [alpha], confirmed=True)
+    ui.disconnect(pair["pairing_id"], confirmed=True)
     notices = []
     monkeypatch.setattr(messagebox, "showinfo", lambda *args, **kw: notices.append(args))
-    try:
-        panel = PairingPanel(root, ui)
-        panel.connection_tree.selection_set(p["pairing_id"])
-        panel.disconnect()
-        assert any("inactive" in str(n).lower() for n in notices)
-        assert ui.connections()[0]["status"] == "revoked"
-    finally:
-        panel.destroy()
-        root.destroy()
-        del panel
-        gc.collect()
+    panel = PairingPanel(tk_host, ui)
+    panel.connection_tree.selection_set(pair["pairing_id"])
+    panel.disconnect()
+    assert any("inactive" in str(note).lower() for note in notices)
+    assert ui.connections()[0]["status"] == "revoked"
