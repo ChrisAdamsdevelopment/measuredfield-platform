@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -17,6 +18,8 @@ from ..models import Assessment, Customer, Organization, Proposal, ServiceOrder,
 from ..security import digest, new_token, normalize_email, rate_limited, valid_email
 from ..services import orders, payments, sitegen
 from ..services.assessment import AssessmentInput, assess
+from ..vendor.hub_privacy_filter import validate_url_ssrf_safe
+from ..schemas.local_discovery import normalize_website_domain
 from ..services.audit import audit
 
 router = APIRouter()
@@ -35,6 +38,118 @@ def privacy(request: Request, principal: Principal | None = Depends(get_principa
 @router.get("/terms")
 def terms(request: Request, principal: Principal | None = Depends(get_principal)):
     return render(request, "public/terms.html")
+
+
+# -------------------------------------------------------------------- free sample preview
+
+_PREVIEW_PHRASES = {
+    "construction": ("kitchen remodeling", "bathroom remodeling"),
+    "cleaning": ("home cleaning services", "move-out cleaning"),
+    "landscaping": ("yard landscaping", "landscape maintenance"),
+    "food": ("local catering", "places to eat"),
+    "wellness": ("wellness services", "personal wellness"),
+    "professional": ("professional services", "local advisor"),
+    "retail": ("local shop", "specialty store"),
+    "other": ("local services", "trusted local business"),
+}
+
+
+def _preview_form(request: Request, *, values: dict | None = None,
+                  errors: dict | None = None, sample: dict | None = None,
+                  status_code: int = 200):
+    response = render(request, "public/visibility_teaser.html", {
+        "values": values or {}, "errors": errors or {},
+        "sample": sample, "industries": sitegen.INDUSTRIES,
+    }, status_code=status_code)
+    # The preview echoes user-entered business details and must not be cached.
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@router.get("/visibility-preview")
+def visibility_preview(request: Request,
+                       principal: Principal | None = Depends(get_principal)):
+    """Accessible no-account sample. Nothing is fetched or published."""
+    return _preview_form(request)
+
+
+@router.post("/visibility-preview")
+def visibility_preview_sample(
+    request: Request, db: TenantSession = Depends(get_db),
+    business_name: str = Form(""), city: str = Form(""),
+    industry: str = Form("other"), website: str = Form(""),
+    sample_acknowledged: str = Form(""), company_site: str = Form(""),
+):
+    """A transparent copy-preview sample, NOT a live website/AI visibility scan."""
+    limited = rate_limited(db, "visibility_preview:" + client_key(request),
+                           limit=8, window_seconds=3600)
+    # Persist both successful and rejected attempts: otherwise the counter rolls back.
+    db.commit()
+    if limited:
+        return _preview_form(
+            request, errors={"form": "Too many sample requests. Try again later."},
+            status_code=429,
+        )
+    if company_site:  # Bots count against limits but never receive a result.
+        return RedirectResponse("/visibility-preview", status_code=303)
+    values = {
+        "business_name": _clean_line(business_name, 90),
+        "city": _clean_line(city, 100),
+        "industry": industry if industry in sitegen.INDUSTRIES else "other",
+        "website": website.strip()[:250],
+    }
+    errors: dict[str, str] = {}
+    if len(business_name) > 90 or len(values["business_name"]) < 2:
+        errors["business_name"] = "Enter a business name (2 to 90 characters)."
+    if len(city) > 100 or len(values["city"]) < 2:
+        errors["city"] = "Enter a city or service area (2 to 100 characters)."
+    if industry not in sitegen.INDUSTRIES:
+        errors["industry"] = "Choose a supported type of business."
+    if sample_acknowledged != "yes":
+        errors["sample_acknowledged"] = "Confirm that you understand this is only an example."
+    host = ""
+    if len(website) > 250:
+        errors["website"] = "Enter a website address under 250 characters."
+    elif values["website"]:
+        submitted = values["website"]
+        entered_url = submitted if "://" in submitted else "https://" + submitted
+        try:
+            validation = validate_url_ssrf_safe(entered_url)
+            if not validation.get("allowed") or urlsplit(entered_url).scheme != "https":
+                errors["website"] = "Use a public HTTPS website address. No website is scanned."
+            else:
+                # Independent hostname parser rejects paths, ports, encoded IPs,
+                # private hosts and credentials. This route NEVER fetches the URL.
+                host = normalize_website_domain(entered_url) or ""
+        except (ValueError, AttributeError):
+            errors["website"] = "Use a valid public HTTPS website address."
+    if errors:
+        return _preview_form(request, values=values, errors=errors, status_code=422)
+
+    headline, intro = sitegen.DEFAULT_HEADLINES[values["industry"]]
+    service_type, alternate = _PREVIEW_PHRASES[values["industry"]]
+    sample = {
+        "business_name": values["business_name"],
+        "city": values["city"],
+        "submitted_host": host or None,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": "Owner-entered text and existing MeasuredField copy templates only",
+        "website_access": "Not accessed or scanned",
+        "search_position": "Not measured",
+        "ai_mentions": "Not measured",
+        "confidence": "Not applicable; illustrative example",
+        "generic_before_headline": "Quality work. Great service.",
+        "generic_before_intro": "We offer local services. Contact us for details.",
+        "illustrative_after_headline": headline,
+        "illustrative_after_intro": intro.format(city=values["city"]),
+        "example_phrases": (
+            service_type + " " + values["city"],
+            alternate + " " + values["city"],
+        ),
+    }
+    # There is no ownership claim, customer record, contact submission, provider
+    # lookup, website fetch, file write, or publish action in this route.
+    return _preview_form(request, values=values, sample=sample)
 
 
 # ------------------------------------------------------------------------ assessment
