@@ -7,6 +7,7 @@ No standalone default or static identity, no public unlinked mode.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Annotated
 from pydantic import Field
 
@@ -16,6 +17,16 @@ from app.mcp_connector.gateway import (
 from .config import McpPluginSettings
 from .links import linked_subject_user_id
 from .tokens import OAuthAccessDenied, OAuthJWTVerifier
+
+
+def oauth_tool_metadata(scope: str, *, profile: bool = False) -> dict:
+    """Advertise explicit tool-level OAuth security per current ChatGPT MCP contract."""
+    if not isinstance(scope, str) or not scope.strip():
+        raise ValueError("A nonblank OAuth tool scope is required")
+    metadata = {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]}
+    if profile:
+        metadata["openai/profile"] = True
+    return metadata
 
 
 def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=None):
@@ -57,7 +68,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         ),
     )
 
-    def identity() -> VerifiedOAuthIdentity:
+    def checked_bearer():
         verified = get_access_token()
         # A direct/in-memory/stdio tool invocation must never bypass HTTP auth.
         if (verified is None or not isinstance(verified.subject, str) or
@@ -76,11 +87,29 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         if (bearer.identity.subject != verified.subject or
                 bearer.client_id != verified.client_id):
             raise ConnectorAccessDenied("OAuth session identity changed")
-        return bearer.identity
+        return bearer
+
+    def identity() -> VerifiedOAuthIdentity:
+        return checked_bearer().identity
+
+    @mcp.tool(
+        title="Connected MeasuredField account",
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope, profile=True),
+    )
+    def get_connected_profile() -> dict:
+        """Return the stable opaque ID of the currently authorized MeasuredField owner."""
+        bearer = checked_bearer()
+        user_id = linked_subject_user_id(
+            bearer.identity.issuer, bearer.identity.subject, bearer.issued_at)
+        if not isinstance(user_id, uuid.UUID):
+            raise ConnectorAccessDenied("The owner account link is unavailable")
+        return {"id": str(user_id), "name": "MeasuredField account"}
 
     @mcp.tool(
         title="List my MeasuredField businesses",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
     )
     def list_my_businesses() -> dict:
         """List only businesses belonging to your connected MeasuredField account."""
@@ -90,6 +119,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     @mcp.tool(
         title="Measured business overview",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
     )
     def get_business_overview(business_id: str) -> dict:
         """Show first-party inquiry and website counts for an authorized business."""
@@ -98,6 +128,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     @mcp.tool(
         title="Recent customer inquiries",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
     )
     def list_inquiries(
         business_id: str, limit: Annotated[int, Field(ge=1, le=50)] = 20,
@@ -109,6 +140,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     @mcp.tool(
         title="One customer inquiry",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
     )
     def get_inquiry(business_id: str, inquiry_id: str) -> dict:
         """Get a single inquiry after current membership and tenant checks."""
@@ -117,6 +149,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     @mcp.tool(
         title="Prepare reply preview, never send",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
     )
     def preview_reply(
         business_id: str, inquiry_id: str,
