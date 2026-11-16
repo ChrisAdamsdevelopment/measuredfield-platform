@@ -267,3 +267,29 @@ def test_real_stdio_mcp_handshake_and_read(env):
                 assert returned.isError is not True
                 assert "Before" in str(returned.content)
     asyncio.run(exercise())
+
+
+def test_sqlite_connections_close_after_every_operation(tmp_path):
+    """Windows must be able to rename/delete the state DB without forced GC."""
+    import tempfile
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
+        base = Path(directory)
+        project = base / "example_business"
+        project.mkdir()
+        (project / "page.txt").write_text("Original", encoding="utf-8")
+        local = LocalConnect(base / "state")
+        grant_id = local.grant("Example", project, "readwrite")["id"]
+        local.browse(grant_id)
+        local.read(grant_id, "page.txt")
+        proposal_id = local.propose(grant_id, "page.txt", "Approved")["proposal_id"]
+        local.pending()
+        local.diff(proposal_id)
+        local.approve(proposal_id)
+        local.audit()
+        local.revoke(grant_id)
+        # On Windows an unclosed sqlite3 handle makes this rename fail with WinError 32.
+        database = local.db_path
+        alternate = database.with_name("moved-for-check.sqlite3")
+        database.rename(alternate)
+        alternate.rename(database)
+    assert not base.exists()

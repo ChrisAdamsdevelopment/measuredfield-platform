@@ -102,3 +102,7 @@ These tests only validate the local prototype, not a real ChatGPT OAuth connecti
 5. Signed Windows packaging, auto-update, installer, logs, and recovery for a business owner who knows no code.
 
 Product success criterion: a business owner can say, "Work on the website in this folder, show me what changed, and don't publish until I approve."
+
+## Windows file-handle lifecycle
+
+The owner-local SQLite connection is now closed deterministically after every transaction, including exceptions. The native Windows Connected Workspace window can open and close with a synthetic temporary state directory, and Windows immediately releases its database file handle. This behavior is enforced by the test named test_sqlite_connections_close_after_every_operation and the native GUI smoke test. The fix does not change MCP permissions, grants, approval requirements or network exposure.

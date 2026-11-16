@@ -14,9 +14,10 @@ import secrets
 import sqlite3
 import stat
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 MAX_FILE_BYTES = 256 * 1024
 MAX_LIST_ITEMS = 100
@@ -154,12 +155,18 @@ class LocalConnect:
             os.chmod(self.home, 0o700)
             os.chmod(self.db_path, 0o600)
 
-    def _db(self) -> sqlite3.Connection:
+    @contextmanager
+    def _db(self) -> Iterator[sqlite3.Connection]:
+        """Commit/rollback a transaction and always release the OS database handle."""
         db = sqlite3.connect(str(self.db_path), timeout=15)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=15000")
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA busy_timeout=15000")
+            db.execute("PRAGMA foreign_keys=ON")
+            with db:
+                yield db
+        finally:
+            db.close()
 
     @staticmethod
     def _audit(db: sqlite3.Connection, action: str, outcome: str,
