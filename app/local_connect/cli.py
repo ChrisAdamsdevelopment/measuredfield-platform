@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import unicodedata
 
 from .store import AccessDenied, ConflictError, LocalConnect
 
@@ -34,6 +35,15 @@ def parser() -> argparse.ArgumentParser:
 
 def _out(value: object) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def _safe_terminal_diff(value: str) -> str:
+    """Make control/bidi characters visible so a proposed diff cannot alter terminal display."""
+    return "".join(
+        ch if ch in "\n\t" or unicodedata.category(ch) not in {"Cc", "Cf"}
+        else "\\u%04x" % ord(ch)
+        for ch in value
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("Diff is too large for safe CLI review; approval refused.")
                 return 2
             print("--- REVIEW THIS CHANGE BEFORE APPROVAL ---")
-            print(change if change else "(no text difference)")
+            print(_safe_terminal_diff(change) if change else "(no text difference)")
             if input("Type APPROVE " + args.id + " to apply this edit: ").strip() != "APPROVE " + args.id:
                 print("No change applied.")
                 return 2
@@ -81,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "audit":
             _out(local.audit(args.limit))
         return 0
-    except (AccessDenied, ConflictError, OSError, ValueError) as exc:
+    except (EOFError, KeyboardInterrupt, AccessDenied, ConflictError, OSError, ValueError) as exc:
         print("Action denied: " + str(exc), file=sys.stderr)
         return 1
 

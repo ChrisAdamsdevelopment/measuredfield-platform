@@ -190,6 +190,37 @@ def test_persistence_and_audit_privacy(env):
     assert str(root) not in str(events)
 
 
+
+def test_cli_diff_escapes_terminal_control_and_bidi(env, monkeypatch, capsys):
+    from app.local_connect.cli import main, _safe_terminal_diff
+    local, root = env
+    gid = approved(env, "readwrite")
+    malicious = "Before\n\x1b[2K\rFAKE OK\n\u202eHIDDEN\n"
+    pid = local.propose(gid, "readme.md", malicious)["proposal_id"]
+    monkeypatch.setenv("MEASUREDFIELD_LOCAL_CONNECT_HOME", str(local.home))
+    monkeypatch.setattr("builtins.input", lambda _: "DECLINE")
+    assert main(["approve", "--id", pid]) == 2
+    printed = capsys.readouterr().out
+    assert "\x1b" not in printed
+    assert "\r" not in printed
+    assert "\u202e" not in printed
+    assert r"\u001b" in printed
+    assert r"\u202e" in printed
+    assert (root / "readme.md").read_text(encoding="utf-8") == "Before\n"
+    assert r"\u001b" in _safe_terminal_diff("\x1b")
+
+
+def test_cli_closed_stdin_is_denied_without_traceback(env, monkeypatch, capsys):
+    from app.local_connect.cli import main
+    local, root = env
+    monkeypatch.setenv("MEASUREDFIELD_LOCAL_CONNECT_HOME", str(local.home))
+    def no_input(_):
+        raise EOFError("closed stdin")
+    monkeypatch.setattr("builtins.input", no_input)
+    assert main(["grant", "--path", str(root), "--name", "Example", "--access", "readwrite"]) == 1
+    assert local.grants() == []
+    assert "Action denied" in capsys.readouterr().err
+
 def test_owner_cli_has_no_default_write_grant():
     args = parser().parse_args(["grant", "--name", "Business", "--path", "C:/demo"])
     assert args.access == "read"
