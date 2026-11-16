@@ -27,3 +27,11 @@ Completed the MF-018 local prototype UI enhancement within the strictly reserved
 - `app/static/module_lab.css`
 - `tests/test_visibility_ui.py`
 - `docs/MF018_UI_HANDOFF.md`
+
+## Integration review and handoff
+- Argon High authored initial UI work and committed it locally as `7224108` after its CLI response had timed out. The original UI contribution remains in Git history.
+- GPT-6 took over final MF-018 verification through the board. A restored JSON draft now has strict format and zero-provider-call validation; no imported snapshot totals, client approval flags, question provenance or plan results are promoted as trusted. Users must re-analyze and explicitly reapprove after restoring CSV and configuration controls.
+- Independent executable Node.js DOM-harness regression tests exercise the actual JS restore path with forged approval, GSC counts, and provider-call claims. The imported results remain hidden and plan export is disabled until recomputed.
+- Verification: `node --check app/static/module_lab.js` succeeded; `python -B -m pytest -q tests/test_visibility_ui.py tests/test_module_lab.py -p no:cacheprovider` produced 21 passed; `python -B scripts/run_checks.py` produced 208 passed, 91 DB-only skipped.
+- The UI remains a local research planner. MF-019 provides separate authenticated saved-state APIs, but they are NOT yet wired to these controls. Full browser visual inspection (including 390px viewport), production tenancy, live Gemini, GSC OAuth and public activation remain out of scope.
+- Final integration suite: `python -B scripts/run_disposable_pg_audit.py --full-suite` returned `CI_GATE_PASS`, **299 real PostgreSQL-backed tests passed, zero skipped/errors/failures**. Disposable database was used; no production database was touched.
