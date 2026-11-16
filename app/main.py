@@ -29,7 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import get_settings
 from .db import finish_request_session, get_engine, isolation_self_check
 from .deps import BASE_DIR, LoginRequired, render
-from .routers import auth, devices, lead_rescue, module_lab, operator, public, site_host, visibility_store, visibility_execution, workspace
+from .routers import auth, devices, lead_rescue, mcp_account_settings, module_lab, operator, public, site_host, visibility_store, visibility_execution, workspace
 from .services import jobs
 
 log = logging.getLogger("mf")
@@ -70,7 +70,7 @@ def create_main_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="MeasuredField", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-    for module in (public, auth, workspace, operator, module_lab, visibility_store, visibility_execution, lead_rescue, devices):
+    for module in (public, auth, workspace, operator, module_lab, visibility_store, visibility_execution, lead_rescue, devices, mcp_account_settings):
         app.include_router(module.router)
 
     @app.middleware("http")

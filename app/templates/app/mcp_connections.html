@@ -1,0 +1,39 @@
+{% extends "app/base.html" %}
+{% block title %}ChatGPT connections{% endblock %}
+{% block content %}
+<header><div><h1>ChatGPT connections</h1><p>See which ChatGPT identity connections belong to your MeasuredField login and disconnect them whenever you choose.</p></div></header>
+
+<section class="card" aria-labelledby="connections-heading">
+<h2 id="connections-heading">Your account connections</h2>
+<p class="small muted">These connections belong to your personal MeasuredField sign-in, not every team member at {{ org.name }}. A disconnected account loses access to your business through this connection.</p>
+{% if connections %}
+<div class="scroll"><table>
+<thead><tr><th scope="col">Identity provider</th><th scope="col">Status</th><th scope="col">Connected</th><th scope="col">Action</th></tr></thead>
+<tbody>
+{% for c in connections %}
+<tr>
+<td><strong>{{ c.provider }}</strong><div class="small muted">No account email or secret is displayed.</div></td>
+<td>{% if c.status == 'connected' %}<span class="badge live">Connected</span>{% else %}<span class="badge revoked">Disconnected</span>{% endif %}</td>
+<td>{{ c.linked_at[:10] }}</td>
+<td>
+{% if c.status == 'connected' %}
+<form method="post" action="/app/connections/{{ c.id }}/disconnect">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="confirm" value="DISCONNECT">
+<button class="btn danger small" type="submit">Disconnect this account</button>
+</form>
+{% else %}<span class="small muted">Disconnected {{ c.disconnected_at[:10] if c.disconnected_at else '' }}</span>{% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<p class="empty">No ChatGPT accounts have been linked to your MeasuredField sign-in yet.</p>
+{% endif %}
+</section>
+<section class="card" aria-labelledby="about-connections">
+<h2 id="about-connections">What a connection allows</h2>
+<p>For now, the MeasuredField ChatGPT connector is designed for <strong>read-only</strong> business and inquiry information. It does not send customer replies, approve changes, publish websites, access your entire computer or authorize paid AI searches.</p>
+<p class="small muted">Live ChatGPT sign-in and plugin installation are still being prepared. This page lets you disconnect any verified account links after that service becomes available. Computer permissions are managed separately under <a href="/app/computers">Computers</a>.</p>
+</section>
+{% endblock %}
