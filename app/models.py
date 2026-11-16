@@ -57,6 +57,40 @@ class User(Base):
     disabled_at: Mapped[datetime | None] = OPT_TS()
 
 
+class PlatformSecurityEvent(Base):
+    """PLATFORM-ONLY immutable operator audit. Contains no free-form metadata."""
+
+    __tablename__ = "platform_security_events"
+    id: Mapped[uuid.UUID] = PK()
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(12), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reason_code: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        CheckConstraint("action IN ('order.mark_paid', 'order.provision', 'jobs.run', "
+                        "'domain.verify', 'review.decide', 'skill.rollback')",
+                        name="ck_platform_security_action"),
+        CheckConstraint("outcome IN ('approved', 'denied')",
+                        name="ck_platform_security_outcome"),
+        CheckConstraint("(outcome = 'approved' AND reason_code = '') OR "
+                        "(outcome = 'denied' AND reason_code <> '')",
+                        name="ck_platform_security_outcome_reason"),
+        CheckConstraint("target_type IN ('order', 'job_queue', 'domain', "
+                        "'lesson_review', 'shared_skill')",
+                        name="ck_platform_security_target_type"),
+        CheckConstraint("reason_code IN ('', 'invalid_reference', 'not_found', "
+                        "'invalid_state', 'already_paid', 'not_provisionable', "
+                        "'invalid_decision', 'consent_withdrawn', "
+                        "'already_verified', 'no_active_version', 'operation_failed')",
+                        name="ck_platform_security_reason"),
+        Index("ix_platform_security_created", "created_at"),
+        Index("ix_platform_security_actor_created", "actor_user_id", "created_at"),
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
     id: Mapped[uuid.UUID] = PK()
