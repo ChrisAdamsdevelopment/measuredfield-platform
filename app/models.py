@@ -14,6 +14,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    CheckConstraint,
     BigInteger, Boolean, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, LargeBinary,
     String, Text, UniqueConstraint,
 )
@@ -583,15 +584,81 @@ class VisibilityObservation(Base):
         Index("ix_vo_org_provenance", "org_id", "provenance"),
     )
 
+class ConnectedDevice(Base):
+    """A computer an owner connected to their business (MF-032). Tenant table.
+
+    ``credential_hash`` is the SHA-256 of a random device credential that was returned to
+    the computer once. ``status``: pending (redeemed a code, not yet confirmed by the owner),
+    active, revoked, expired (never confirmed in time)."""
+    __tablename__ = "connected_devices"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(80), nullable=False)             # chosen by the owner
+    reported_name: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)  # claimed by the computer
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest
+    status: Mapped[str] = mapped_column(String(12), nullable=False)
+    credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    check_number: Mapped[str] = mapped_column(String(6), default="", server_default="", nullable=False)
+    confirm_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    created_at: Mapped[datetime] = TS()
+    confirmed_at: Mapped[datetime | None] = OPT_TS()
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    last_seen_at: Mapped[datetime | None] = OPT_TS()
+    credential_rotated_at: Mapped[datetime | None] = OPT_TS()
+    revoked_at: Mapped[datetime | None] = OPT_TS()
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    revoked_reason: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
+    __table_args__ = (
+        UniqueConstraint("credential_hash", name="uq_connected_devices_credential_hash"),
+        CheckConstraint("access IN ('read', 'suggest')", name="ck_connected_devices_access"),
+        CheckConstraint("status IN ('pending', 'active', 'revoked', 'expired')", name="ck_connected_devices_status"),
+    )
+
+
+class DeviceEvent(Base):
+    """Activity summary reported by a connected computer. Metadata only: an action, a result,
+    an owner-chosen project name and a count. Never file content or file paths."""
+    __tablename__ = "device_events"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("connected_devices.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    project_label: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)
+    count: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = TS()
+
+
+class DevicePairingCode(Base):
+    """PLATFORM table. A computer redeeming a code has no tenant yet, so this row is the one
+    thing consulted before a tenant context exists. It holds a hash and ids, nothing private."""
+    __tablename__ = "device_pairing_codes"
+    id: Mapped[uuid.UUID] = PK()
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (UniqueConstraint("code_hash", name="uq_device_pairing_codes_code_hash"),)
+
+
 # Every table that carries org_id and must be covered by row-level security.
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
+    "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
 TENANT_MODELS = {
+    "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
     "visibility_observations": VisibilityObservation,
     "visibility_experiments": VisibilityExperiment,
     "visibility_questions": VisibilityQuestion,
