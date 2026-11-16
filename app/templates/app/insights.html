@@ -21,15 +21,53 @@
 </section>
 <p class="small muted actions">Visit counts are daily totals with no cookies and no visitor identifiers. Small numbers are not a trend; treat anything under a few dozen as anecdote.</p>
 
-<div class="card actions"><h2>Suggested experiments</h2>
+<section class="card actions" id="suggestion-review" aria-labelledby="suggestions-heading">
+<h2 id="suggestions-heading">Suggested experiments &middot; owner review</h2>
+<p>These are <strong>inferred suggestions</strong> from a rule-based analysis of recorded counts. They are not proof of a cause, guaranteed growth, or a completed AI test.</p>
+<p class="small muted"><span class="badge measured">Observed</span> means the platform counted an event, not that a customer interaction or sale was independently confirmed. <span class="badge unknown">Inferred</span> means a possible experiment based on those counts. <span class="badge unknown">Unknown</span> means no reliable result is recorded.</p>
+<p class="small muted"><strong>Budget and AI usage:</strong> Implementation time, labor charges, provider pricing, token estimates and results are <strong>unknown</strong> until separately scoped. No paid AI model is invoked by this suggestion view. Saving a suggestion does not authorize a provider request or expenditure.</p>
 {% if report %}
-<p class="small muted">Rule-based review of the counts above. Every item is a proposal for you to decide on; nothing is changed automatically.</p>
-{% for a in report.analysis.actions %}<div class="note-item"><strong>{{ a.claim }}</strong><div>{{ a.experiment }}</div><div class="small muted">Would be measured by: {{ a.metric }} &middot; priority {{ a.priority }} &middot; needs your approval</div></div>
-{% else %}<p class="empty">No suggestions from the current counts.</p>{% endfor %}
-<h3 class="actions">Still unknown</h3><ul class="small">{% for u in report.unknowns %}<li>{{ u }}</li>{% endfor %}</ul>
-<p class="small muted">{{ report.analysis.methodology }}</p>
-{% else %}<div class="alert note">The review engine isn't available on this server right now, so no suggestions are shown. The counts above are unaffected.</div>{% endif %}
-</div>
+{% if report.analysis.actions %}
+{% for a in report.analysis.actions %}
+<article class="note-item" aria-labelledby="suggestion-{{ loop.index }}">
+<h3 id="suggestion-{{ loop.index }}">{{ a.claim }}</h3>
+<p><span class="badge unknown">Inferred &middot; experiment proposal</span> <span class="small muted">Priority: {{ a.priority or 'Not assessed' }}</span></p>
+<p><strong>Suggested test:</strong> {{ a.experiment }}</p>
+<p class="small muted"><strong>What to measure:</strong> {{ a.metric or 'Not defined' }}</p>
+{% if a.evidenceStatus is defined %}
+<p class="small muted"><strong>Basis:</strong>
+{% if a.evidenceStatus == 'measured_first_party' %}Recorded site and inquiry activity; external outcomes unverified.
+{% elif a.evidenceStatus == 'proposed_from_observed_counts' %}Pattern inferred from recorded site activity; cause unverified.
+{% elif a.evidenceStatus in ('unknown_no_observed_counters', 'insufficient_sample_for_diagnostic') %}Insufficient recorded evidence to establish an outcome.
+{% else %}Source classification not independently verified.{% endif %}</p>
+{% elif a.evidence is defined %}
+<p class="small muted"><strong>Basis:</strong> Rule-engine references to recorded activity; interpretation is not an independent causal finding.</p>
+{% else %}
+<p class="small muted"><strong>Basis:</strong> No supporting observation is supplied for this suggestion.</p>
+{% endif %}
+<p class="small muted">Current state: <strong>Proposed &middot; not approved</strong>. No email, publication, purchase, file access or automated task follows from this suggestion.</p>
+{% if can('improvements.write') %}
+<form method="post" action="/app/improvements" aria-label="Save suggested experiment for review">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="title" value="{{ (a.claim or '')[:200] }}">
+<input type="hidden" name="detail" value="{{ ('Suggested experiment for owner review; not yet verified or authorized: ' ~ (a.experiment or ''))[:2000] }}">
+<input type="hidden" name="metric" value="{{ (a.metric or '')[:200] }}">
+<button type="submit" class="btn ghost small">Save as proposed improvement</button>
+</form>
+{% else %}
+<p class="small muted">You can review this suggestion, but only an authorized workspace member can save it.</p>
+{% endif %}
+</article>
+{% endfor %}
+{% else %}<p class="empty">No actionable suggestions were generated from the currently recorded counts.</p>{% endif %}
+<h3 class="actions">What remains unknown</h3>
+{% if report.unknowns %}<ul class="small">{% for u in report.unknowns %}<li>{{ u }}</li>{% endfor %}</ul>{% else %}<p class="small muted">No additional unknowns were supplied; costs and actual outcomes still need independent evidence.</p>{% endif %}
+<p class="small muted"><strong>Method:</strong> {{ report.analysis.methodology }}</p>
+{% else %}
+<div class="alert note">The review engine is unavailable. No recommendation or outcome is inferred from missing data; recorded counters above are unaffected.</div>
+{% endif %}
+<p class="small muted"><a href="/app/improvements#improvement-review">Open the improvement review list</a> to make an explicit planning decision. Approving an improvement record never authorizes live execution.</p>
+</section>
 
 <div class="card actions"><h2>Connections</h2>
 <dl class="kv"><dt>Google Search Console</dt><dd><span class="badge unknown">Not connected</span> Search impressions and clicks are unknown until you authorize read-only access. This connector is not yet available.</dd>
