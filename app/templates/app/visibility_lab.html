@@ -1,0 +1,58 @@
+{% extends "app/base.html" %}
+{% block title %}AI Visibility Lab{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/module_lab.css">
+<div id="mf-lab" data-csrf="{{ csrf }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan">
+  <div class="ml-hero ml-hero-compact">
+    <div class="ml-eyebrow"><a href="/app/modules">MODULES</a> / AI VISIBILITY LAB</div>
+    <h1>Understand how customers find you.</h1>
+    <p>Start with real search queries, choose the homeowner questions to investigate, then preview a complete AI-search experiment. No request is sent to Gemini in this local foundation.</p>
+    <div class="ml-tags"><span>Prototype / development only</span><span>22 protected benchmark questions</span><span>0 AI calls made</span></div>
+  </div>
+  <div class="ml-steps" aria-label="Workflow steps"><span>01 · Import demand</span><span>02 · Review questions</span><span>03 · Plan research</span><span>04 · Inspect evidence</span></div>
+  <section class="ml-workflow-card" aria-labelledby="gsc-title">
+    <div class="ml-step-heading"><span>01</span><div><h2 id="gsc-title">Start with the searches people actually make</h2><p>Paste or choose a Google Search Console CSV. See exactly which entries were read and what question suggestions they produced.</p></div></div>
+    <div class="ml-row"><label class="ml-file">Choose GSC CSV <input id="ml-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"></label><span class="ml-muted">Or paste rows below. No Google account connection is used.</span></div>
+    <label for="ml-csv" class="ml-label">Google Search Console rows</label>
+    <textarea id="ml-csv" rows="5" spellcheck="false" placeholder="Query,Clicks,Impressions,Position&#10;prescott general contractors,0,25,7.1&#10;prescott valley kitchen contractor,0,8,28.8"></textarea>
+    <div class="ml-action-row"><button id="ml-analyze" class="ml-primary" type="button">Analyze GSC rows</button><span id="ml-gsc-message" role="status">No file analyzed. The example shown above is placeholder text, not loaded data.</span></div>
+    <div id="ml-gsc-results" class="ml-results" hidden></div>
+  </section>
+  <section class="ml-workflow-card" aria-labelledby="questions-title">
+    <div class="ml-step-heading"><span>02</span><div><h2 id="questions-title">Choose what the research should ask</h2><p>The original benchmark remains available independently of new GSC-derived suggestions.</p></div></div>
+    <div class="ml-action-row ml-actions-wrap">
+      <button class="ml-secondary" type="button" id="ml-all">Select all benchmark (22)</button>
+      <button class="ml-secondary" type="button" id="ml-none">Clear benchmark</button>
+      <button class="ml-secondary" type="button" id="ml-approved-only">Use approved GSC questions</button>
+      <strong id="ml-selected" aria-live="polite">22 benchmark selected</strong>
+    </div>
+    <details class="ml-question-details">
+      <summary>View and change the 22 benchmark questions</summary>
+      <div class="ml-questions">{% for q in questions %}
+        <label class="ml-question"><input class="ml-benchmark" type="checkbox" value="{{ q.id }}" data-text="{{ q.text }}" checked><span class="ml-q-num">{{ '%02d'|format(loop.index) }}</span><span>{{ q.text }}</span></label>
+      {% endfor %}</div>
+    </details>
+    <div id="ml-suggestions" class="ml-suggestions" aria-live="polite"><p class="ml-muted">GSC question proposals will appear here after step 1. Review and approve each one before including it in a research plan.</p></div>
+  </section>
+  <section class="ml-workflow-card" aria-labelledby="plan-title">
+    <div class="ml-step-heading"><span>03</span><div><h2 id="plan-title">Plan the complete research run</h2><p>A batch of five is just a processing chunk, never a hidden limit on the number of questions.</p></div></div>
+    <div class="ml-config">
+      <fieldset><legend>Search methods</legend>
+        <label><input type="checkbox" name="ml-mode" value="as_written" checked> As written</label>
+        <label><input type="checkbox" name="ml-mode" value="controlled_substitution"> Controlled city substitution</label>
+        <label><input type="checkbox" name="ml-mode" value="persona_context"> Homeowner location context</label>
+      </fieldset>
+      <div><label for="ml-market" class="ml-label">Target market</label>
+        <select id="ml-market">{% for m in markets %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+        <p class="ml-muted">Location controls change prompt wording; they do not spoof a physical location.</p></div>
+      <div><label for="ml-repeats" class="ml-label">Repeat each combination</label><input id="ml-repeats" type="number" min="1" max="10" value="1"></div>
+      <div><label for="ml-chunk" class="ml-label">Processing chunk size</label><input id="ml-chunk" type="number" min="1" max="10" value="5"></div>
+      <div><label for="ml-budget" class="ml-label">Maximum total AI requests (future live run)</label><input id="ml-budget" type="number" min="1" max="500" value="100"></div>
+    </div>
+    <div class="ml-action-row ml-actions-wrap"><button id="ml-plan" class="ml-primary" type="button">Build complete research plan</button><button id="ml-export" class="ml-secondary" type="button" disabled>Export plan as JSON</button><span id="ml-plan-message" role="status">No plan created yet.</span></div>
+    <div id="ml-plan-results" class="ml-results" hidden></div>
+  </section>
+  <div class="ml-next"><div><h3>What happens next?</h3><p>The full version will use a secure, metered server-side Gemini adapter, a persisted queue and tenant-isolated results. Those are release-gated work—not connected or enabled in this prototype.</p></div><span>Evidence first. Automations later.</span></div>
+</div>
+<script defer src="/static/module_lab.js"></script>
+{% endblock %}

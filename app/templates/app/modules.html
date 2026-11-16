@@ -1,0 +1,32 @@
+{% extends "app/base.html" %}
+{% block title %}Modules{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/module_lab.css">
+<div class="ml-hero">
+  <div class="ml-eyebrow">MEASUREDFIELD / OWNER WORKSPACE</div>
+  <h1>Your business tools, working together.</h1>
+  <p>Choose the capability that solves today's business problem. Each module has its own purpose; all will eventually share the same secure workspace.</p>
+  <div class="ml-tags"><span>Local architecture preview</span><span>No new subscription charges</span><span>No live service actions</span></div>
+</div>
+<section aria-label="Available and planned tools">
+  <div class="ml-section-heading"><div><h2>Module collection</h2><p>One platform. Independent business value.</p></div><span>{{ modules|length }} module concepts</span></div>
+  <div class="ml-module-grid">
+  {% for m in modules %}
+    <article class="ml-module-card">
+      <div class="ml-module-top"><span class="ml-module-mark">{{ '%02d'|format(loop.index) }}</span>
+        <span class="ml-stage">{{ 'Local prototype' if m.stage == 'local_preview' else 'Platform foundation' if m.stage == 'existing_platform' else 'Design only' }}</span></div>
+      <p class="ml-category">{{ m.subtitle }}</p><h3>{{ m.name }}</h3>
+      <p>{{ m.description }}</p>
+      <strong>{{ m.outcome }}</strong>
+      <div class="ml-feature-list">{% for c in m.capabilities[:3] %}<span>{{ c }}</span>{% endfor %}</div>
+      {% if m.path %}<a class="ml-primary ml-link" href="{{ m.path }}">Open local preview <span aria-hidden="true">↗</span></a>
+      {% else %}<span class="ml-disabled">Not implemented yet</span>{% endif %}
+    </article>
+  {% endfor %}
+  </div>
+</section>
+<section class="ml-roadmap">
+  <div><div class="ml-eyebrow">SECURITY MODEL</div><h2>Computer Connect is permission-first.</h2><p>Connecting a user's computer will require an explicitly installed companion, narrowly scoped grants, per-action approvals, an audit trail and immediate revocation. It cannot execute commands or access devices in this preview.</p></div>
+  <div class="ml-security"><span class="ml-led"></span> {{ connection.status|replace('_',' ')|title }}<div>Remote access enabled: <strong>No</strong></div><div>Default permissions: <strong>Deny</strong></div></div>
+</section>
+{% endblock %}
