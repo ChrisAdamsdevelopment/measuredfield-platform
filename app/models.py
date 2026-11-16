@@ -57,6 +57,30 @@ class User(Base):
     disabled_at: Mapped[datetime | None] = OPT_TS()
 
 
+class McpIdentityLink(Base):
+    """Explicitly verified external OAuth subject linked to a local account.
+
+    Platform-level identity row, not tenant content. Enrollment MUST require a
+    separate verified OIDC-code/PKCE owner session; no endpoint accepts sub/user_id
+    supplied by a model or client as proof of ownership.
+    """
+    __tablename__ = "mcp_identity_links"
+    id: Mapped[uuid.UUID] = PK()
+    issuer: Mapped[str] = mapped_column(String(250), nullable=False)
+    subject: Mapped[str] = mapped_column(String(250), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    verified_method: Mapped[str] = mapped_column(String(24), nullable=False)
+    linked_at: Mapped[datetime] = TS()
+    revoked_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_mcp_identity_issuer_subject"),
+        CheckConstraint("verified_method = 'oidc_pkce_owner'",
+                        name="ck_mcp_identity_verified_method"),
+    )
+
+
 class PlatformSecurityEvent(Base):
     """PLATFORM-ONLY immutable operator audit. Contains no free-form metadata."""
 
