@@ -36,6 +36,30 @@
   let suggestions = [];
   let parsedSnapshot = null;
   let latestPlan = null;
+  let syntheticSample = false;
+  let analyzedCsv = null;
+  const visibilityChanged = () => {
+    if (typeof Event !== "undefined" && typeof app.dispatchEvent === "function") app.dispatchEvent(new Event("mf:visibility-changed"));
+  };
+  // Narrow in-page bridge. The server revalidates all IDs, CSRF, roles and plan wording.
+  app.addEventListener?.("mf:request-visibility-state", (event) => {
+    if (!event.detail || typeof event.detail.resolve !== "function") return;
+    event.detail.resolve({
+      csv_text: $("ml-csv")?.value || "",
+      has_analysis: parsedSnapshot !== null && analyzedCsv === ($("ml-csv")?.value || ""),
+      synthetic_sample: syntheticSample,
+      selected: chosen(),
+      approved: suggestions.filter((s) => s.approved === true)
+        .map((s) => ({ text: s.question })),
+      has_plan: latestPlan !== null,
+      config: {
+        markets: checkedMarkets(), modes: checkedModes(),
+        repetitions: clampInt($("ml-repeats")?.value, 1, 10, 1),
+        chunk_size: clampInt($("ml-chunk")?.value, 1, 10, 5),
+        max_total: clampInt($("ml-budget")?.value, 1, 500, 250),
+      },
+    });
+  });
 
   const selectedBenchmark = () => allBenchmarks.filter((box) => box.checked).map((box) => ({
     id: box.value, text: box.dataset.text, source: "benchmark",
@@ -102,6 +126,7 @@
     if ($("ml-live-math")) {
       $("ml-live-math").classList.toggle("ml-formula-warn", totalRequests > budget || totalRequests === 0);
     }
+    visibilityChanged();
   }
 
   async function jsonPost(url, data) {
@@ -359,6 +384,8 @@
     // generated results from an arbitrary JSON file. Re-analyze the restored
     // CSV and approve proposed questions again in the current session.
     parsedSnapshot = null;
+    analyzedCsv = null;
+    syntheticSample = true; // A JSON draft does not attest to a genuine GSC source.
     suggestions = [];
     latestPlan = null;
     if ($("ml-gsc-results")) {
@@ -414,11 +441,17 @@
       return;
     }
     $("ml-csv").value = await file.text();
+    syntheticSample = false;
+    analyzedCsv = null;
+    visibilityChanged();
     issue("ml-gsc-message", `Loaded ${file.name}. Click Analyze GSC rows to inspect rows and generate draft questions.`);
   });
 
   $("ml-sample-csv")?.addEventListener("click", () => {
     $("ml-csv").value = SAMPLE_GSC_CSV;
+    syntheticSample = true;
+    analyzedCsv = null;
+    visibilityChanged();
     issue("ml-gsc-message", "Loaded synthetic sample GSC rows into the editor. Click Analyze GSC rows to parse.");
   });
 
@@ -426,6 +459,8 @@
     $("ml-csv").value = "";
     if ($("ml-file")) $("ml-file").value = "";
     parsedSnapshot = null;
+    analyzedCsv = null;
+    syntheticSample = false;
     suggestions = [];
     if ($("ml-gsc-results")) {
       clear($("ml-gsc-results"));
@@ -442,6 +477,7 @@
     try {
       const result = await jsonPost(app.dataset.gscApi, { csv_text: $("ml-csv").value });
       parsedSnapshot = result.snapshot;
+      analyzedCsv = $("ml-csv").value;
       // Never auto-approve imported suggestions; owner must explicitly check each proposal.
       suggestions = (result.suggestions || []).map((item) => ({ ...item, approved: false }));
       renderGscSnapshot(parsedSnapshot, suggestions.length);

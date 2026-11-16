@@ -2,7 +2,7 @@
 {% block title %}AI Visibility Lab{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/module_lab.css">
-<div id="mf-lab" data-csrf="{{ csrf }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan" data-evidence-api="/api/v1/modules/visibility/evidence/classify">
+<div id="mf-lab" data-csrf="{{ csrf }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan" data-evidence-api="/api/v1/modules/visibility/evidence/classify" data-storage-api="/api/v1/modules/visibility/storage" data-write-enabled="{{ 'true' if role in ('owner', 'admin', 'staff') else 'false' }}">
   <div class="ml-hero ml-hero-compact">
     <div class="ml-eyebrow"><a href="/app/modules">MODULES</a> / AI VISIBILITY LAB</div>
     <h1>Understand how customers find you.</h1>
@@ -15,6 +15,29 @@
     </div>
   </div>
 
+  <section class="ml-workflow-card" id="mf-saved-workspace" aria-labelledby="mf-saved-title">
+    <div class="ml-step-heading"><span>●</span><div>
+      <h2 id="mf-saved-title">Your saved visibility workspace</h2>
+      <p>Store research and review previous work securely for this business. Saved does not mean published, searched, or independently verified.</p>
+    </div></div>
+    <div id="mf-save-stats" class="ml-metrics" role="status" aria-live="polite">Loading saved workspace records…</div>
+    <p id="mf-save-status" role="status" aria-live="polite">No provider searches have been executed by this module.</p>
+    <div class="ml-action-row ml-actions-wrap">
+      <button id="mf-refresh-saved" class="ml-secondary" type="button">Refresh saved work</button>
+      <button id="mf-save-gsc" class="ml-secondary" type="button" disabled>Save analyzed GSC source</button>
+      <button id="mf-save-questions" class="ml-secondary" type="button" disabled>Save explicitly approved questions</button>
+      <button id="mf-save-plan" class="ml-secondary" type="button" disabled>Save research plan (no execution)</button>
+    </div>
+    <div class="ml-plan-numbers">
+      <div><label class="ml-label" for="mf-source-start">GSC reporting period start (optional)</label><input id="mf-source-start" type="date"></div>
+      <div><label class="ml-label" for="mf-source-end">GSC reporting period end (optional)</label><input id="mf-source-end" type="date"></div>
+      <div><label class="ml-label" for="mf-plan-title">Saved research plan name</label><input id="mf-plan-title" type="text" maxlength="160" value="Local visibility baseline"></div>
+    </div>
+    <p class="ml-muted">Use both reporting dates only when you know them. Leaving both blank preserves an unknown window. Saving or approving requires write access; read-only members can inspect saved records.</p>
+    <details><summary>Browse saved sources, approvals, and research plans</summary>
+      <div id="mf-saved-list" class="ml-results" aria-live="polite">Select Refresh saved work to inspect this business's saved records.</div>
+    </details>
+  </section>
   <div class="ml-steps" aria-label="Workflow steps">
     <span id="ml-step-1" class="ml-step-active">01 · Import demand</span>
     <span id="ml-step-2">02 · Review &amp; approve questions</span>
@@ -187,4 +210,5 @@
   </div>
 </div>
 <script defer src="/static/module_lab.js"></script>
+<script defer src="/static/module_persist.js"></script>
 {% endblock %}
