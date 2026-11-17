@@ -168,6 +168,33 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             "owner_action_needed": "Review and approve separately in MeasuredField",
         }
 
+    from .census_market_tools import available_markets, market_snapshot
+
+    @mcp.tool(
+        title="Available Census service-area markets",
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
+    )
+    def list_supported_census_markets(business_id: str) -> dict:
+        """Return approved market choices only for a business you can access."""
+        return available_markets(
+            identity=identity(), business_id=business_id, gateway=actual_gateway,
+        )
+
+    @mcp.tool(
+        title="Official Census market snapshot",
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
+    )
+    def get_census_market_snapshot(
+        business_id: str, market_id: Annotated[str, Field(min_length=1, max_length=40)],
+    ) -> dict:
+        """Read source-labelled Census aggregates; never named competitors."""
+        return market_snapshot(
+            identity=identity(), business_id=business_id, area_slug=market_id,
+            gateway=actual_gateway,
+        )
+
     return mcp
 
 

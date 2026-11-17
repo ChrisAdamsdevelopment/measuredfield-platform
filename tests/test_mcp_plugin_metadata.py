@@ -59,7 +59,8 @@ def test_all_private_tools_have_explicit_oauth_metadata():
     tools = dict(_tools_in_server_source())
     assert set(tools) == {
         "get_connected_profile", "list_my_businesses",
-        "get_business_overview", "list_inquiries", "get_inquiry", "preview_reply"
+        "get_business_overview", "list_inquiries", "get_inquiry", "preview_reply",
+        "list_supported_census_markets", "get_census_market_snapshot",
     }
     for name, decorator in tools.items():
         kwargs = {item.arg: item.value for item in decorator.keywords}
