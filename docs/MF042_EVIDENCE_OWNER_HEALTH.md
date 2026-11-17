@@ -36,3 +36,25 @@ No live identity provider, secrets, paid calls, Search Console submissions or PB
 ## Release constraints
 
 This is an evidence *integrity* view, not a substitute for authentic provider receipt verification. Real provider ingestion must set trusted verification fields only after validating the provider response. Independent review remains required before production. Argon High was invoked in read-only mode for MF-041 on November 16 but returned HTTP 429 quota exhausted (reset reported around 116 hours); no Argon work or approval occurred.
+
+## Review round 2 corrections (Claude, 2026-11-16)
+
+Independent review of ac3f979 found two latent defects; both are fixed with tests.
+
+- **Research rounds are never pooled.** Verified results are grouped by research plan
+  (`experiment_id`). A single headline percentage appears only when exactly one plan has
+  yes/no results; with two or more, each round is shown separately with its own count,
+  dates and a note if it used more than one AI tool or model. A 27.3% round and a 47.1%
+  round are no longer merged into one 35.9% figure, and the page says a difference
+  between rounds is not proof of improvement.
+- **Answers not tied to a research plan get no percentage**, because nothing guarantees
+  they share questions, places, tools or dates.
+- **The verified check uses JSON types.** `verified_by_server` must be the JSON boolean
+  `true` (the string `"true"` no longer passes) and `provider_receipt_id` must be a JSON
+  string matching `^[A-Za-z0-9_.:-]{8,200}$` (numbers, lists, objects and blank text no
+  longer pass).
+- **Checked answers with no yes/no outcome** now say exactly that instead of
+  "not independently verified".
+
+Still true: no code path in the product can create a verified record today; the import
+path always stores evidence as unverified. These rules govern the future ingestion path.

@@ -11,8 +11,14 @@
 <section class="card" aria-labelledby="current-evidence-title">
   <h2 id="current-evidence-title">{{ summary.headline }}</h2>
   {% if summary.verified_mention_percent is not none %}
-    <p><strong>{{ summary.verified_mentioned }} out of {{ summary.verified_answered }} checked AI answers</strong> mentioned your business ({{ '%.1f'|format(summary.verified_mention_percent) }}%).</p>
-    <p class="small muted">This percentage includes only responses with server-checked provider receipts and a yes/no result, not imported practice questions.</p>
+    <p><strong>{{ summary.single_round_mentioned }} out of {{ summary.single_round_answered }} checked AI answers</strong> mentioned your business ({{ '%.1f'|format(summary.verified_mention_percent) }}%).</p>
+    <p class="small muted">This percentage includes only responses with server-checked provider receipts and a yes/no result, from one research round, not imported practice questions.</p>
+  {% elif summary.status == 'multiple_rounds' %}
+    <p><strong>Each research round is shown on its own below.</strong> Rounds can use different questions, places, AI tools and dates, so their results are not added together, and a difference between them is not proof that something improved.</p>
+  {% elif summary.status == 'verified_without_plan' %}
+    <p><strong>No percentage yet.</strong> These checked answers were not collected as part of one research plan, so they may mix different questions, places or AI tools. A percentage from them could mislead.</p>
+  {% elif summary.status == 'verified_without_outcomes' %}
+    <p><strong>No percentage yet.</strong> The checked answers we have do not say clearly whether your business was mentioned.</p>
   {% else %}
     <p><strong>No trustworthy recommendation percentage to show yet.</strong> We have not authenticated any eligible AI-answer results. This does not mean AI tools never mention your company.</p>
   {% endif %}
@@ -22,6 +28,29 @@
     <p class="small muted">{{ summary.verified_unknown }} checked responses were missing a clear yes/no outcome and were left out of the percentage.</p>
   {% endif %}
 </section>
+{% if summary.cohorts and (summary.cohorts|length > 1 or not summary.cohorts[0].linked_to_plan) %}
+<section class="card" aria-labelledby="rounds-title">
+  <h2 id="rounds-title">Results by research round</h2>
+  <div class="scroll">
+    <table>
+      <caption class="sr-only">Checked AI answers for each research round, kept separate</caption>
+      <thead><tr><th scope="col">Round</th><th scope="col">Dates</th><th scope="col">Checked answers with a yes/no result</th><th scope="col">Mentioned your business</th><th scope="col">Notes</th></tr></thead>
+      <tbody>
+      {% for c in summary.cohorts %}
+      <tr>
+        <td>{{ c.label }}</td>
+        <td>{% if c.first_observed %}{{ c.first_observed[:10] }}{% if c.last_observed and c.last_observed[:10] != c.first_observed[:10] %} to {{ c.last_observed[:10] }}{% endif %}{% else %}Unknown{% endif %}</td>
+        <td>{{ c.answered }}{% if c.unknown %} <span class="small muted">({{ c.unknown }} without a clear result)</span>{% endif %}</td>
+        <td>{% if c.mention_percent is not none %}{{ c.mentioned }} of {{ c.answered }} ({{ '%.1f'|format(c.mention_percent) }}%){% else %}No result yet{% endif %}</td>
+        <td class="small">{% if not c.linked_to_plan %}Not tied to one research plan, so it may mix different questions.{% elif c.mixed_settings %}This round used more than one AI tool or model.{% else %}One plan, one AI setup.{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted">Comparing two rounds only means something when the same questions, places, AI tool and testing rules were repeated. Even then, a change does not by itself show what caused it.</p>
+</section>
+{% endif %}
 <section class="card" aria-labelledby="evidence-breakdown-title">
   <h2 id="evidence-breakdown-title">What kind of evidence do we have?</h2>
   <div class="scroll">

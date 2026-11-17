@@ -86,3 +86,49 @@ def test_summary_has_no_revenue_or_google_ranking_claims():
     assert "not Google rankings" in result["method_note"]
     assert "telephone calls" in result["method_note"]
     assert "chart screenshots" in result["import_note"]
+
+
+# ------------------------------------------- review round 2 (Claude): cohorts are never pooled
+
+def test_two_rounds_are_never_combined_into_one_percentage():
+    from app.services.visibility_owner_snapshot import summarize_cohorts
+    rows = [("round-old", True, 6, "2026-06-01T00:00:00+00:00", "2026-06-01T00:00:00+00:00", 1),
+            ("round-old", False, 16, "2026-06-01T00:00:00+00:00", "2026-06-02T00:00:00+00:00", 1),
+            ("round-new", True, 8, "2026-11-15T00:00:00+00:00", "2026-11-15T00:00:00+00:00", 1),
+            ("round-new", False, 9, "2026-11-15T00:00:00+00:00", "2026-11-15T00:00:00+00:00", 1)]
+    cohorts = summarize_cohorts(rows)
+    by_id = {c["experiment_id"]: c for c in cohorts}
+    assert by_id["round-old"]["mention_percent"] == 27.3 and by_id["round-new"]["mention_percent"] == 47.1
+    assert [c["experiment_id"] for c in cohorts] == ["round-old", "round-new"]      # oldest first
+    result = summarize_groups([("verified_provider", True, 14), ("verified_provider", False, 25)], cohorts=cohorts)
+    assert result["verified_mention_percent"] is None                                # no pooled 35.9%
+    assert result["status"] == "multiple_rounds" and "2 separate research rounds" in result["headline"]
+    assert "not a proven" in result["comparison_note"]
+
+
+def test_answers_without_a_research_plan_get_no_percentage():
+    from app.services.visibility_owner_snapshot import summarize_cohorts
+    cohorts = summarize_cohorts([(None, True, 3, None, None, 2), (None, False, 1, None, None, 2)])
+    assert cohorts[0]["mention_percent"] is None and not cohorts[0]["linked_to_plan"]
+    result = summarize_groups([("verified_provider", True, 3), ("verified_provider", False, 1)], cohorts=cohorts)
+    assert result["verified_mention_percent"] is None and result["status"] == "verified_without_plan"
+
+
+def test_one_round_with_mixed_models_is_flagged_and_unknowns_are_excluded():
+    from app.services.visibility_owner_snapshot import summarize_cohorts
+    cohorts = summarize_cohorts([("r1", True, 2, None, None, 2), ("r1", None, 3, None, None, 2)])
+    assert cohorts[0]["mixed_settings"] is True
+    assert (cohorts[0]["answered"], cohorts[0]["unknown"], cohorts[0]["mention_percent"]) == (2, 3, 100.0)
+
+
+def test_checked_answers_without_any_outcome_say_so():
+    result = summarize_groups([("verified_provider", None, 4)])
+    assert result["verified_mention_percent"] is None and result["status"] == "verified_without_outcomes"
+    assert "none has a clear yes or no" in result["headline"]
+
+
+def test_cohort_counts_must_be_whole_numbers():
+    from app.services.visibility_owner_snapshot import summarize_cohorts
+    for bad in (-1, 1.5, "3", True):
+        with pytest.raises(ValueError):
+            summarize_cohorts([("r", True, bad, None, None, 1)])
