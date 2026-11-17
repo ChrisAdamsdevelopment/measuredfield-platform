@@ -7,7 +7,10 @@ the owner linked or disconnected their computer. No public listener exists.
 """
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.mcpserver import MCPServer as FastMCP  # Official MCP SDK v2
+except ImportError:  # Existing owner-local installations on MCP SDK v1
+    from mcp.server.fastmcp import FastMCP
 
 from app.account_link.runtime_guard import AccountRuntimeGuard
 from .store import LocalConnect, _home
