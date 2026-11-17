@@ -31,6 +31,19 @@
 <p class="empty">No ChatGPT accounts have been linked to your MeasuredField sign-in yet.</p>
 {% endif %}
 </section>
+<section class="card" aria-labelledby="connect-owner-heading">
+<h2 id="connect-owner-heading">Connect a verified account</h2>
+{% if oidc_link_available %}
+<p>Authorize a read-only ChatGPT connection using our identity provider. You will sign in with the identity provider, and the verified account will be linked only to your current MeasuredField sign-in. You can disconnect it here later.</p>
+<form method="post" action="/app/connections/start">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="confirm" value="CONNECT READ ONLY">
+<button class="btn primary" type="submit">Verify and connect my account (read only)</button>
+</form>
+{% else %}
+<p class="small muted">Verified identity linking is not yet enabled on this installation. An approved identity provider and secure HTTPS callback must be configured before this option becomes available. No account has been connected automatically.</p>
+{% endif %}
+</section>
 <section class="card" aria-labelledby="about-connections">
 <h2 id="about-connections">What a connection allows</h2>
 <p>For now, the MeasuredField ChatGPT connector is designed for <strong>read-only</strong> business and inquiry information. It does not send customer replies, approve changes, publish websites, access your entire computer or authorize paid AI searches.</p>

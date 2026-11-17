@@ -9,13 +9,15 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from ..db import TenantSession, get_db
-from ..deps import Principal, back, get_principal, member, member_post, parse_uuid
+from ..deps import Principal, back, get_principal, member, member_post, parse_uuid, require_user
 from ..models import McpIdentityLink, now
-from ..security import csrf_ok
+from ..security import csrf_ok, rate_limited
+from ..services import mcp_oidc_enrollment as oidc
 from .workspace import _page
 
 router = APIRouter()
@@ -66,7 +68,46 @@ def connections_page(request: Request, db: TenantSession = Depends(get_db),
     """Ordinary accessible owner page, scoped to the signed-in PERSON."""
     return _page(request, db, p, "app/mcp_connections.html", {
         "connections": [_public_link(row) for row in _own_links(db, p)],
+        "oidc_link_available": oidc.config_available(),
     })
+
+
+@router.post("/app/connections/start")
+def start_owner_oidc_link(confirm: str = Form(default=""),
+                          db: TenantSession = Depends(get_db),
+                          p: Principal = Depends(member_post("read"))):
+    if confirm != "CONNECT READ ONLY":
+        return back("/app/connections", err="Read-only account permission must be approved.")
+    try:
+        settings = oidc.OIDCOwnerSettings.from_env()
+        if rate_limited(db, "owner-oidc-start:" + str(p.user.id), limit=8, window_seconds=900):
+            db.commit()
+            return back("/app/connections", err="Too many connection requests. Try later.")
+        begin = oidc.start_owner_link(db, user_id=p.user.id, session_id=p.session.id,
+                                     settings=settings)
+        response = RedirectResponse(begin.authorize_url, status_code=303)
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except oidc.OwnerEnrollmentUnavailable:
+        raise HTTPException(503, "Owner account linking is not configured.") from None
+
+
+@router.get("/app/connections/callback")
+def owner_oidc_callback(state: str = "", code: str = "", error: str = "",
+                        db: TenantSession = Depends(get_db),
+                        p: Principal = Depends(require_user)):
+    try:
+        settings = oidc.OIDCOwnerSettings.from_env()
+        verifier, nonce_hash = oidc.consume_owner_link(
+            db, user_id=p.user.id, session_id=p.session.id, state=state, settings=settings)
+        if error or not code:
+            raise oidc.OwnerEnrollmentDenied("Provider authorization was cancelled.")
+        subject = oidc.exchange_and_verify(code, verifier, nonce_hash, settings)
+        oidc.finish_owner_link(db, user_id=p.user.id, subject=subject, settings=settings)
+    except (oidc.OwnerEnrollmentDenied, oidc.OwnerEnrollmentUnavailable):
+        return back("/app/connections", err="Connection was not completed. Please try again.")
+    return back("/app/connections", ok="Read-only identity link verified. You can disconnect it here.")
 
 
 @router.post("/app/connections/{link_id}/disconnect")

@@ -81,6 +81,34 @@ class McpIdentityLink(Base):
     )
 
 
+class McpOwnerOIDCChallenge(Base):
+    """Ephemeral first-party OAuth account-link transaction.
+
+    Never stores a raw state or nonce, a provider token, or a plaintext PKCE
+    verifier. The pending verifier is encrypted under the app secret until the
+    one-time callback consumes it.
+    """
+    __tablename__ = "mcp_owner_oidc_challenges"
+    id: Mapped[uuid.UUID] = PK()
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    issuer: Mapped[str] = mapped_column(String(250), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    nonce_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    pkce_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        CheckConstraint("length(state_hash) = 64", name="ck_oidc_link_state_hash_length"),
+        CheckConstraint("length(nonce_hash) = 64", name="ck_oidc_link_nonce_hash_length"),
+        Index("ix_oidc_link_expiry", "expires_at"),
+    )
+
+
 class PlatformSecurityEvent(Base):
     """PLATFORM-ONLY immutable operator audit. Contains no free-form metadata."""
 
