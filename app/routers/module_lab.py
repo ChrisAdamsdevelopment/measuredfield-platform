@@ -8,6 +8,7 @@ from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, member, member_api, render
 from ..module_catalog import catalog, connection_policy
+from ..services.local_rank_insights import analyze_local_rank_csv, LocalRankInputError
 from ..services.visibility_lab import (
     BENCHMARK_22, LabInputError, MARKETS, MODES, import_gsc_csv,
     plan_experiment, propose_questions, provenance_counts,
@@ -48,8 +49,25 @@ def visibility_home(request: Request, db: TenantSession = Depends(get_db),
                       markets=MARKETS, modes=MODES))
 
 
+@router.get("/app/modules/local-search")
+def local_rank_home(request: Request, db: TenantSession = Depends(get_db),
+                    principal: Principal = Depends(member())):
+    _require_dev_preview()
+    return render(request, "app/local_visibility.html", _context(db, principal))
+
+
 class CsvPreview(BaseModel):
     csv_text: str = Field(min_length=1, max_length=320_000)
+
+
+@router.post("/api/v1/modules/local-search/analyze")
+def local_rank_preview(payload: CsvPreview,
+                       principal: Principal = Depends(member_api("read"))):
+    _require_dev_preview()
+    try:
+        return analyze_local_rank_csv(payload.csv_text)
+    except LocalRankInputError as exc:
+        raise HTTPException(422, detail=str(exc)) from None
 
 
 class QuestionPreview(BaseModel):

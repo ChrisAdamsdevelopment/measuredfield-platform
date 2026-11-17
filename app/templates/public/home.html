@@ -1,18 +1,45 @@
 {% extends "public/base.html" %}
+{% block title %}MeasuredField | Find what works. Build what comes next.{% endblock %}
+{% block description %}MeasuredField brings local visibility evidence, AI visibility research, customer inquiries, websites and permissioned business workflows into one small-business workspace.{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/product_home.css">{% endblock %}
 {% block content %}
-<section class="hero"><div class="wrap hero-grid">
-<div><div class="eyebrow"><span class="eyebrow-line"></span> For owners building or improving a small business</div>
-<h1>More time running your business. <em>Less time chasing it.</em></h1>
-<p class="lead">You know your work. We help with the business around it: a website that brings in the right inquiries, one place to follow up on every one, and simpler systems behind the scenes. Start from almost nothing, or improve what you already have.</p>
-<div class="actions"><a class="btn primary" href="/assessment">Answer two questions <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="#how">See how it works</a></div>
-<div class="hero-foot">About five minutes. No sales call required. We tell you plainly what we can and can't help with.</div>
+<section class="hero mh-hero"><div class="wrap mh-hero-grid">
+<div>
+  <div class="eyebrow"><span class="eyebrow-line"></span> THE CONNECTED SMALL-BUSINESS WORKSPACE</div>
+  <h1>Find what's working. <em>Know what to do next.</em></h1>
+  <p class="lead">Your website, visibility research, incoming leads, and business workflows belong in one understandable place. MeasuredField organizes the evidence, shows where opportunities are, and helps you turn the next step into actual work.</p>
+  <div class="actions"><a class="btn primary" href="/assessment">Find your next opportunity <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="/visibility-preview">Explore a free example</a></div>
+  <div class="hero-foot">Start with two questions. No technical setup required to get your assessment. Product features are available at different development stages.</div>
+  <div class="mh-points"><span>One place for your business</span><span>Evidence, not invented rankings</span><span>You approve important actions</span></div>
 </div>
-<div class="hero-questions" aria-label="The two questions we start with">
-<p>Every engagement starts with the same two questions.</p>
-<div class="q"><span>Question one</span><strong>What are you doing in your business right now that you're most excited about?</strong></div>
-<div class="q"><span>Question two</span><strong>What's keeping you from taking that to the next level?</strong></div>
-<a class="btn primary block" href="/assessment">Tell us your answers</a>
+<div class="mh-console" aria-label="Illustration of MeasuredField tools and availability, not live results">
+  <div class="mh-console-head"><span class="mh-console-logo">M<span>.</span></span><div><strong>Your business control center</strong><small>Illustrative module overview · no live rankings</small></div><span class="mh-console-dot" aria-hidden="true"></span></div>
+  <div class="mh-console-body">
+    <div class="mh-console-row"><div class="mh-console-icon">01</div><div><strong>Local search visibility</strong><small>Compare city and coordinate reports</small></div><span class="mh-console-status preview">Import preview</span></div>
+    <div class="mh-console-row"><div class="mh-console-icon">02</div><div><strong>Inquiries &amp; follow-up</strong><small>Know what needs a reply today</small></div><span class="mh-console-status ready">Platform tools</span></div>
+    <div class="mh-console-row"><div class="mh-console-icon">03</div><div><strong>AI answer visibility</strong><small>Track questions and source evidence</small></div><span class="mh-console-status preview">Research pilot</span></div>
+    <div class="mh-console-row"><div class="mh-console-icon">04</div><div><strong>ChatGPT &amp; computer connection</strong><small>Approve access, edits and disconnects</small></div><span class="mh-console-status pending">Private pilot</span></div>
+  </div>
+  <div class="mh-console-foot"><span aria-hidden="true" class="mh-console-pulse"></span> What should I work on next? <strong>Start with the evidence.</strong></div>
 </div>
+</div></section>
+
+<section id="tools" class="section mh-products"><div class="wrap">
+<div class="section-head"><div class="eyebrow">Six ways to move your business forward</div><h2>Useful tools by themselves.<br><span class="muted">More powerful together.</span></h2><p>Start with the one problem you need solved. As you connect more of your business, the same records can inform better decisions without making you set up six disconnected systems.</p></div>
+<div class="mh-tool-grid">
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">01 / DISCOVERY</span><span class="mh-tag pilot">Local preview</span></div><h3>Local Search Map</h3><p>Compare supplied ranking reports across Prescott, Prescott Valley or any service areas, down to the sampled coordinates. See phrases, observed competitors and city gaps.</p><div class="mh-tool-outcome">Understand where to investigate first</div></article>
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">02 / AI DISCOVERY</span><span class="mh-tag pilot">Research pilot</span></div><h3>AI Visibility Lab</h3><p>Prepare repeatable ChatGPT and other AI discovery questions, analyze imported Search Console data, and distinguish authentic evidence from historical and sample records.</p><div class="mh-tool-outcome">Know what is measured and what remains unknown</div></article>
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">03 / OPPORTUNITIES</span><span class="mh-tag ready">Workspace foundation</span></div><h3>Lead Rescue</h3><p>Bring inquiries into an organized desk, track follow-ups and see where potential customers may be waiting for an answer. An intelligence preview helps identify missed opportunities.</p><div class="mh-tool-outcome">Protect the opportunities you already earned</div></article>
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">04 / BUILD &amp; IMPROVE</span><span class="mh-tag ready">Workspace foundation</span></div><h3>Website Studio</h3><p>Prepare and preview business websites, review versions, publish with approval and keep customer proposals and records connected to the work.</p><div class="mh-tool-outcome">Make improvements you can review and own</div></article>
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">05 / CONNECTIONS</span><span class="mh-tag pending">Private pilot</span></div><h3>Connected Computer</h3><p>Choose a project folder, grant narrow permissions and review proposed file changes. A ChatGPT account connection and remote computer workflow are in controlled testing—not a released one-click integration.</p><div class="mh-tool-outcome">Stay in control of what an assistant may change</div></article>
+  <article class="mh-tool"><div class="mh-tool-top"><span class="mh-tool-index">06 / STRATEGY</span><span class="mh-tag pilot">Evidence-based preview</span></div><h3>Next-Step Intelligence</h3><p>Translate local search and inquiry observations into prioritized, explainable actions. Future connected sources will let the same strategy layer use more of your real business context.</p><div class="mh-tool-outcome">Don't just see numbers—know what to do</div></article>
+</div>
+<div class="mh-products-foot"><span>No invented search positions. No automatic account access. No publishing without approval.</span><a href="/assessment">Talk through your business goals <span aria-hidden="true">&rarr;</span></a></div>
+</div></section>
+
+<section class="mh-decision section" id="strategy"><div class="wrap mh-decision-grid">
+  <div><div class="eyebrow">Why not simply ask ChatGPT?</div><h2>Better context makes better decisions.</h2><p>ChatGPT can explain almost anything. But it doesn't automatically have your search reports, missed inquiries, site versions, project history and approvals in one organized business record.</p><p>MeasuredField is designed to collect that context with your permission, keep measured facts separate from estimates, and suggest the next practical action—with a reason you can inspect.</p><a class="text-link" href="#how">See our approach <span aria-hidden="true">&rarr;</span></a></div>
+  <div class="mh-decision-rail" aria-label="How evidence becomes an approved next step"><div><span>01</span><strong>Connect or import</strong><small>Owner-selected business information</small></div><div><span>02</span><strong>Compare and verify</strong><small>Source, date, geography and uncertainty</small></div><div><span>03</span><strong>Decide what matters</strong><small>Priority, explanation and proposed next move</small></div><div><span>04</span><strong>Review and act</strong><small>You approve changes and track the outcome</small></div></div>
 </div></section>
 
 <section id="what" class="section"><div class="wrap"><div class="section-head"><div class="eyebrow">What we improve</div><h2>Not just a better website.<br><span class="muted">A better way to run the work behind it.</span></h2><p>Every business has different bottlenecks. We start with yours and build only what earns its keep.</p></div>
@@ -24,7 +51,7 @@
 
 <section id="how" class="section process"><div class="wrap process-grid"><div><div class="eyebrow">How it works</div><h2>We start with what you care about, not with technology.</h2><p class="process-intro">The two questions tell us what matters to you and what's in the way. Everything after that is tied back to your answers.</p><a class="text-link" href="/assessment">Start your assessment <span aria-hidden="true">&rarr;</span></a></div>
 <div class="steps">
-<div class="step"><span>01</span><div><h3>You answer two questions</h3><p>In your own words. No technical questionnaire.</p></div></div>
+<div class="step"><span>01</span><div><h3>You answer two questions</h3><p>Tell us what you're most excited about and what's keeping you from reaching the next level. In your own words, with no technical questionnaire.</p></div></div>
 <div class="step"><span>02</span><div><h3>You get a plain-language assessment</h3><p>What we heard, what we can help with, what we can't, and what we'd need to measure before promising anything.</p></div></div>
 <div class="step"><span>03</span><div><h3>You choose a next step</h3><p>A free working session or a defined service with a fixed price. You approve the scope before anything is built.</p></div></div>
 <div class="step"><span>04</span><div><h3>You get a private workspace</h3><p>Build and publish your site, handle inquiries, and see which improvements are done and what the numbers actually show.</p></div></div>

@@ -8,6 +8,7 @@
 <title>{% block title %}{{ brand }} | Make your business easier to run{% endblock %}</title>
 <link rel="stylesheet" href="/static/site.css">
 <link rel="stylesheet" href="/static/mf.css">
+{% block extra_head %}{% endblock %}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -15,7 +16,7 @@
 <header class="site-header"><div class="wrap nav">
 <a class="brand" href="/" aria-label="{{ brand }} home"><span class="brand-mark" aria-hidden="true">M<span>.</span></span><span>{{ brand }}</span></a>
 <nav aria-label="Main navigation">
-<a href="/#what">What we improve</a><a href="/#examples">Examples</a><a href="/#pricing">Pricing</a>
+<a href="/#tools">The tools</a><a href="/#what">What we improve</a><a href="/#pricing">Pricing</a>
 {% if principal %}<a class="nav-signin" href="{{ '/app' if principal.org else '/operator' if principal.user.is_platform_admin else '/app' }}">Open workspace</a>
 {% else %}<a class="nav-signin" href="/login">Sign in</a>{% endif %}
 <a class="nav-cta" href="/assessment">Start your assessment</a>

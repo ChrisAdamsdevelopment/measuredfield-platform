@@ -30,6 +30,13 @@ class ModuleSpec:
 
 MODULES = (
     ModuleSpec(
+        id="local-search", name="Local Search Map", subtitle="Geographic rank comparison",
+        description="Compare owner-imported SERP positions by search phrase, coordinate and city; see competitors and next-step suggestions without invented results.",
+        outcome="Spot where your local visibility differs and what to investigate first.",
+        stage="local_preview", icon="map-pin", path="/app/modules/local-search",
+        capabilities=("Coordinate samples", "City comparisons", "Competitor gaps",
+                      "Evidence-aware advice", "CSV import")),
+    ModuleSpec(
         id="visibility", name="AI Visibility Lab", subtitle="Research & discovery",
         description="Measure appearances in AI answers and compare them with organic search demand.",
         outcome="Know where customers discover your business and where they do not.",
@@ -38,18 +45,24 @@ MODULES = (
                       "Full experiment plan", "Evidence provenance", "Tracked opportunities")),
     ModuleSpec(
         id="computer-connect", name="Computer Connect", subtitle="Permissioned companion",
-        description="A future opt-in desktop companion for approved files and business tools.",
-        outcome="Work across your own applications without handing over unrestricted control.",
-        stage="design_only", icon="monitor",
+        description="Owner-approved Windows companion pilot for selected folders and reviewed edits; general ChatGPT remote computer access is not yet released.",
+        outcome="Work with your own approved project files without handing over unrestricted control.",
+        stage="private_pilot", icon="monitor", path="/app/computers",
         capabilities=("Device pairing", "Scoped read-only grants", "Per-action approval",
                       "Auditable sessions", "Revocation and emergency stop")),
     ModuleSpec(
-        id="growth", name="Growth Intelligence", subtitle="Business performance",
-        description="Bring evidence-based site diagnostics, discovery and measured improvements together.",
-        outcome="Know which growth actions were completed and what changed afterward.",
-        stage="planned", icon="trending-up",
-        capabilities=("Verified site audit", "Opportunity tracking",
-                      "Before/after evidence", "Outcome journal")),
+        id="growth", name="Next-Step Intelligence", subtitle="Evidence to action",
+        description="Turn imported geographic rank comparisons into prioritized, explainable owner-reviewed next steps.",
+        outcome="Know what to investigate first, and why the evidence supports that priority.",
+        stage="local_preview", icon="trending-up", path="/app/modules/local-search",
+        capabilities=("Evidence-backed priorities", "Competitor gap review",
+                      "Data gaps", "Owner-reviewed next steps")),
+    ModuleSpec(
+        id="lead-rescue", name="Lead Rescue", subtitle="Opportunity recovery",
+        description="Local owner preview for identifying neglected inquiries and follow-ups from the workspace records.",
+        outcome="Focus attention on customers who are already waiting to hear back.",
+        stage="local_preview", icon="phone-forwarded", path="/app/lead-rescue",
+        capabilities=("Lead review", "Follow-up gaps", "Priority suggestions", "Human-approved action")),
     ModuleSpec(
         id="operations", name="Customer Operations", subtitle="Inquiries to projects",
         description="Extend the platform's existing inquiry, project and estimate workflows.",

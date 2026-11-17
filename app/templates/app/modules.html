@@ -15,6 +15,11 @@
     </div>
   </div>
 
+  <section class="ml-workflow-banner" aria-label="MeasuredField evidence to action workflow">
+    <div class="ml-workflow-banner-head"><div><div class="ml-eyebrow">START HERE · LOCAL SEARCH &amp; STRATEGY</div><h2>Compare your towns, understand competitors, decide what to improve.</h2></div><a class="ml-primary ml-link" href="/app/modules/local-search">Open Local Search Map <span aria-hidden="true">↗</span></a></div>
+    <ol class="ml-workflow-pillars"><li><strong>01 · Import observations</strong><span>Bring a geographic rank report with real query, source, time and coordinate fields.</span></li><li><strong>02 · See the differences</strong><span>Compare city-level search observations without inventing rankings or treating missing data as failure.</span></li><li><strong>03 · Review competitors</strong><span>See where a reported competitor is ahead at exactly comparable samples.</span></li><li><strong>04 · Choose an action</strong><span>Readable priorities explain the source observations and what you should check next.</span></li></ol>
+  </section>
+
   <section class="ml-workflow-banner" aria-label="AI Visibility Lab workflow">
     <div class="ml-workflow-banner-head">
       <div>
@@ -44,7 +49,7 @@
       <article class="ml-module-card" data-module-id="{{ m.id }}">
         <div class="ml-module-top">
           <span class="ml-module-mark">{{ '%02d'|format(loop.index) }}</span>
-          <span class="ml-stage">{{ 'Local prototype' if m.stage == 'local_preview' else 'Platform foundation' if m.stage == 'existing_platform' else 'Design only' }}</span>
+          <span class="ml-stage">{{ 'Local preview' if m.stage == 'local_preview' else 'Workspace foundation' if m.stage == 'existing_platform' else 'Owner private pilot' if m.stage == 'private_pilot' else 'Design only' }}</span>
         </div>
         <p class="ml-category">{{ m.subtitle }}</p>
         <h3>{{ m.name }}</h3>
@@ -54,7 +59,7 @@
           {% for c in m.capabilities %}<span>{{ c }}</span>{% endfor %}
         </div>
         {% if m.path %}
-          <a class="ml-primary ml-link" href="{{ m.path }}">Open local preview <span aria-hidden="true">↗</span></a>
+          <a class="ml-primary ml-link" href="{{ m.path }}">{{ "Open owner controls" if m.stage == "private_pilot" else "Explore tool" }} <span aria-hidden="true">↗</span></a>
         {% else %}
           <span class="ml-disabled">Not implemented yet · local design contract only</span>
         {% endif %}
