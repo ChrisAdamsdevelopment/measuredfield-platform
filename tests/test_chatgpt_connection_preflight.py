@@ -113,3 +113,102 @@ def test_cli_configured_only_exits_not_connected(monkeypatch, capsys):
     assert report["configured"] is True
     assert report["ready_for_chatgpt"] is False
     assert report["checks"]["chatgpt_real_read_tool_verified"] is False
+
+
+def _synthetic_connections_page(*, available=False, connections=None):
+    """Render the actual page template with synthetic users, never a live OAuth."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    repo = Path(__file__).resolve().parents[1]
+    engine = Environment(
+        loader=FileSystemLoader(str(repo / "app" / "templates")),
+        autoescape=select_autoescape(["html"]),
+    )
+    principal = SimpleNamespace(user=SimpleNamespace(
+        is_platform_admin=False, name="Synthetic Owner", email="owner.invalid@example"
+    ))
+    return engine.get_template("app/mcp_connections.html").render(
+        org=SimpleNamespace(name="Synthetic Local Business", status="active"),
+        orgs=[],
+        brand="MeasuredField",
+        role="owner",
+        principal=principal,
+        csrf="SYNTHETIC-CSRF-ONLY",
+        settings=SimpleNamespace(is_production=False),
+        path="/app/connections",
+        connections=connections or [],
+        oidc_link_available=available,
+        flash=None,
+        flash_error=None,
+    )
+
+
+def test_owner_connection_journey_does_not_claim_live_chatgpt_without_link():
+    page = _synthetic_connections_page()
+    assert "Four steps to get connected" in page
+    assert "Signed in" in page
+    assert "Needs setup" in page
+    assert "Not verified" in page
+    assert "Not tested" in page
+    assert "/static/mcp_connections.css" in page
+    assert "No verified identity-provider accounts have been linked" in page
+    assert 'action="/app/connections/start"' not in page
+    assert "Open ChatGPT Plugins" in page
+    assert "https://chatgpt.com/plugins" in page
+    assert "It does not send customer replies" in page
+
+
+def test_config_only_may_show_owner_oidc_button_but_not_plugin_install_success():
+    page = _synthetic_connections_page(available=True)
+    assert "Setup available" in page
+    assert 'action="/app/connections/start"' in page
+    assert "Verify and connect my account (read only)" in page
+    assert 'value="CONNECT READ ONLY"' in page
+    assert "Not verified" in page
+    assert "Not tested" in page
+    assert "Your verified identity" in page
+    assert "Identity linked" not in page
+
+
+def test_real_link_display_still_does_not_claim_chatgpt_plugin_installed():
+    link = {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "provider": "idp.synthetic.example",
+        "status": "connected",
+        "linked_at": "2026-11-17T01:02:03Z",
+        "disconnected_at": None,
+    }
+    page = _synthetic_connections_page(connections=[link])
+    assert "Identity linked" in page
+    assert "idp.synthetic.example" in page
+    assert "Disconnect this account" in page
+    assert 'value="DISCONNECT"' in page
+    assert "Not verified" in page
+    assert "Not tested" in page
+    assert "Computer files are different" in page
+
+
+def test_connection_provider_name_is_html_escaped_not_raw_injected():
+    link = {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "provider": "<script>synthetic-injected</script>",
+        "status": "connected",
+        "linked_at": "2026-11-17T01:02:03Z",
+        "disconnected_at": None,
+    }
+    page = _synthetic_connections_page(connections=[link])
+    assert "<script>synthetic-injected</script>" not in page
+    assert "&lt;script&gt;synthetic-injected&lt;/script&gt;" in page
+
+
+def test_connection_design_has_mobile_and_accessible_states():
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[1]
+    css = (repo / "app" / "static" / "mcp_connections.css").read_text(encoding="utf-8")
+    assert ".mfcp-hero" in css
+    assert ".mfcp-timeline" in css
+    assert ".mfcp-table" in css
+    assert "@media(max-width:620px)" in css
+    assert "prefers-reduced-motion:reduce" in css
