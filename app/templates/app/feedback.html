@@ -1,0 +1,39 @@
+{% extends "app/base.html" %}
+{% block title %}Beta feedback{% endblock %}
+{% block content %}
+<header><div><h1>Help us improve MeasuredField</h1>
+<p>Found a problem? Have an idea? Tell the team while you're using the app.</p></div></header>
+<div class="grid g2">
+<section class="card" aria-labelledby="feedback-form-title">
+<h2 id="feedback-form-title">Send feedback</h2>
+<p class="small muted">Your message and the name of this workspace go to MeasuredField's support team, not to other business customers. Please do not include passwords, API keys, private customer details or financial information.</p>
+{% if form_error %}<div class="alert err" role="alert">{{ form_error }}</div>{% endif %}
+<form action="/app/feedback" method="post">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="kind">Feedback type</label>
+<select id="kind" name="kind" required>
+{% for code, title in kinds.items() %}
+<option value="{{ code }}" {% if draft_kind == code %}selected{% endif %}>{{ title }}</option>
+{% endfor %}
+</select>
+<label for="message">What happened or what would make the app better?</label>
+<textarea id="message" name="message" rows="7" minlength="15" maxlength="1800" required placeholder="What were you trying to do? What happened? What would you expect instead?">{{ draft_message }}</textarea>
+<label class="small" for="acknowledge"><input id="acknowledge" type="checkbox" name="acknowledge" value="yes" required> I understand this feedback is sent to the MeasuredField team for review.</label>
+<div class="actions"><button class="btn" type="submit">Send feedback</button></div>
+</form>
+</section>
+<section class="card" aria-labelledby="feedback-history-title">
+<h2 id="feedback-history-title">Your submissions for {{ org.name }}</h2>
+{% if recent_feedback %}
+<ul>
+{% for f in recent_feedback %}
+<li><strong>{{ kinds.get(f.kind, 'Feedback') }}</strong> — {{ f.status|capitalize }}<p class="small">{{ f.message[:240] }}{% if f.message|length > 240 %}…{% endif %}</p><p class="small muted">Submitted {{ f.created_at.strftime('%b %d, %Y') }}</p></li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="muted">No feedback submitted for this workspace yet.</p>
+{% endif %}
+<p class="small muted">Your submission status changes here after the MeasuredField team reviews it. It does not automatically change your account, pricing, or business data.</p>
+</section>
+</div>
+{% endblock %}

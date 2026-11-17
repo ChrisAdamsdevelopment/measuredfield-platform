@@ -30,7 +30,7 @@
 </nav></div></header>
 <main id="main">{% block content %}{% endblock %}</main>
 <footer><div class="wrap footer-row"><div><div class="footer-brand"><img src="/static/media/measuredfield-logo-light-transparent.webp" alt="MeasuredField — Build smarter. Grow clearer." width="236" height="79" loading="lazy" decoding="async"></div><p>Practical systems for the people doing the work.</p></div>
-<div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login">Sign in</a>{% if settings.support_email %}<a href="mailto:{{ settings.support_email }}">Contact</a>{% endif %}<span>&copy; 2026 {{ brand }}</span></div></div></footer>
+<div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login?next=/app/feedback">Beta feedback</a><a href="/login">Sign in</a>{% if settings.support_email %}<a href="mailto:{{ settings.support_email }}">Contact</a>{% endif %}<span>&copy; 2026 {{ brand }}</span></div></div></footer>
 {% block scripts %}{% endblock %}
 </body>
 </html>

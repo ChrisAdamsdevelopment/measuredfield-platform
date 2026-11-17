@@ -109,6 +109,34 @@ class McpOwnerOIDCChallenge(Base):
     )
 
 
+class BetaFeedback(Base):
+    """PLATFORM support message intentionally submitted to MeasuredField.
+
+    No org_id or customer data is copied automatically. The submitter sees
+    that platform operators, not other business tenants, receive this message.
+    """
+    __tablename__ = "beta_feedback"
+    id: Mapped[uuid.UUID] = PK()
+    submitter_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new")
+    created_at: Mapped[datetime] = TS()
+    updated_at: Mapped[datetime] = TS()
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    __table_args__ = (
+        CheckConstraint("kind IN ('bug', 'idea', 'other')", name="ck_beta_feedback_kind"),
+        CheckConstraint("status IN ('new', 'reviewing', 'resolved')",
+                        name="ck_beta_feedback_status"),
+        CheckConstraint("char_length(message) BETWEEN 15 AND 1800",
+                        name="ck_beta_feedback_message_length"),
+        Index("ix_beta_feedback_status_created", "status", "created_at"),
+    )
+
+
 class PlatformSecurityEvent(Base):
     """PLATFORM-ONLY immutable operator audit. Contains no free-form metadata."""
 
