@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from typing import Annotated
+from urllib.parse import urlsplit
 from pydantic import Field
 
 from app.mcp_connector.gateway import (
@@ -176,6 +177,24 @@ def create_app():
     OAuth discovery endpoints and HTTP auth middleware are owned by the SDK.
     Production deployment, DNS and ChatGPT registration are deliberately separate.
     """
+    from mcp.server.transport_security import TransportSecuritySettings
+
     settings = McpPluginSettings.from_env()
+    # The SDK defaults to a localhost-only Host allowlist, even when deployed
+    # behind a public HTTPS proxy. Derive the *exact* public origin from our
+    # already-validated resource URL; never disable DNS-rebinding protection.
+    resource_host = urlsplit(settings.resource_url).hostname
+    if not resource_host:  # defensive check even if URL validation changes
+        raise ValueError("MCP resource must have a validated public hostname")
+    origin = f"https://{resource_host}"
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[resource_host, f"{resource_host}:443"],
+        allowed_origins=[origin, f"{origin}:443"],
+    )
     server = create_server(settings)
-    return server.streamable_http_app(json_response=True)
+    return server.streamable_http_app(
+        json_response=True,
+        host=resource_host,
+        transport_security=transport_security,
+    )
