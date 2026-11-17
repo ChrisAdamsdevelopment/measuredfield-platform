@@ -259,7 +259,13 @@ class BoundSession:
         self.registry.authorize(pairing_id, token)
 
     def _verify(self, grant_id: str | None = None, action: str = "list") -> dict:
-        return self.registry.authorize(self.pairing_id, self._token, grant_id, action)
+        # Recheck BOTH capabilities for each tool, even when the Windows UI has
+        # exited. A local pairing still proves which folder was approved; it is
+        # NOT evidence that the owner's cloud account still permits access.
+        local = self.registry.authorize(self.pairing_id, self._token, grant_id, action)
+        from app.account_link.runtime_guard import AccountRuntimeGuard
+        AccountRuntimeGuard(self.registry.home, registry=self.registry).check(action=action)
+        return local
 
     def projects(self) -> list[dict]:
         session = self._verify()
