@@ -6,6 +6,10 @@ device, credentials, production account, provider or network calls are used.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -222,3 +226,74 @@ def test_linked_account_missing_protected_bearer_is_denied(site, monkeypatch):
     with pytest.raises(AccessDenied):
         server.read(site["grant"], "note.txt")
     _assert_all_revoked(site)
+
+
+def test_running_paired_process_refuses_after_owner_disconnect(site):
+    """Real separate Python process loses its paired file grant after link state changes.
+
+    The process starts with a never-linked local-only pilot, loads its pairing
+    token from local protected storage (never argv/env), then keeps its BoundSession
+    alive while the parent writes a synthetic revoked account record. No network
+    service or actual customer file is involved.
+    """
+    child = """
+import os
+import sys
+
+from app.paired_connect.registry import BoundSession, PairingRegistry
+
+registry = PairingRegistry(os.environ["MF_TEST_HOME"])
+pair_id = os.environ["MF_TEST_PAIR"]
+token = registry.token_for_local_launcher(pair_id)
+session = BoundSession(pair_id, token, registry.home)
+for command in sys.stdin:
+    if command.strip() == "stop":
+        break
+    try:
+        data = session.read(os.environ["MF_TEST_GRANT"], "note.txt")
+        print("OK:" + data["content"], flush=True)
+    except Exception as exc:
+        print("DENIED:" + type(exc).__name__, flush=True)
+"""
+    env = {
+        **os.environ,
+        "MF_TEST_HOME": str(site["registry"].home),
+        "MF_TEST_PAIR": site["pair_a"],
+        "MF_TEST_GRANT": site["grant"],
+        "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-B", "-u", "-c", child],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdin is not None
+        assert process.stdout is not None
+        process.stdin.write("read\n")
+        process.stdin.flush()
+        assert process.stdout.readline().strip() == "OK:safe local demo"
+
+        _state(site, status="revoked")
+        process.stdin.write("read\n")
+        process.stdin.flush()
+        assert process.stdout.readline().strip() == "DENIED:AccessDenied"
+        _assert_all_revoked(site)
+
+        process.stdin.write("stop\n")
+        process.stdin.flush()
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()

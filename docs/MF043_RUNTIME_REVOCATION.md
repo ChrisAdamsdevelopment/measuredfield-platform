@@ -31,4 +31,12 @@ MF-043 applies account authorization per MCP file tool invocation, not only in t
 - tests/test_account_runtime_guard.py: synthetic account and file fixture, offline/revocation/read-only downgrade, mismatched device, corrupt JSON, forged origin, lost pin, TOCTOU local disconnect and legacy pilot.
 - All tests are synthetic, no paid API, no production credentials or customer data touched.
 
+## Independent review correction and follow-up — November 17, 2026
+
+Claude's first independent MF-043 review validated the paired server's live device check, but found a **separate old unpaired MCP entrypoint** (`app.local_connect.mcp_server`) that could still read previously granted files after account disconnect. That issue was **implemented as a separate MF-046 repair in commit `fd85ff1`**, which blocks legacy unpaired startup and pre/post file operations whenever account state or a DPAPI credential is present. Its dedicated `tests/test_legacy_mcp_guard.py` includes a real separate stdio process losing access when linked. **MF-046 remains pending independent approval.** Do not mark MF-043 fully release-ready while that dependent bypass review remains outstanding.
+
+MF-043 now includes `test_running_paired_process_refuses_after_owner_disconnect`, a real isolated child Python process with a stored pairing token. The parent simulates an account transition from never-linked to revoked while that process keeps its `BoundSession`; the next read must be denied, and the parent must verify that all local pairings were revoked. No real account, provider, HTTPS request or production file is involved. This adds executable cross-process evidence beyond new instances of the same Python class.
+
+The local-only pilot continues to have an explicit threat-model limitation: a same-user attacker who can delete both the account metadata and DPAPI credential can restore never-linked legacy behavior. Before any remote tunnel or third-party installation, require a signed installer/immutable device trust anchor and removal or hardening of that fallback. A clean local test alone cannot certify a publicly distributed computer connector.
+
 Independent security review remains mandatory before public release.
