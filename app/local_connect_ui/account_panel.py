@@ -6,7 +6,9 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from app.account_link.client import DeviceClientError
+from app.account_link.client import (
+    DeviceClientError, configured_workspace, developer_mode_enabled,
+)
 from app.account_link.secret_store import SecureStoreUnavailable
 from app.account_link.controller import AccountLinkController, AccountView
 from app.local_connect import AccessDenied
@@ -20,7 +22,24 @@ class AccountPanel(ttk.Frame):
         super().__init__(parent, padding=14)
         self.controller = controller
         self.on_change = on_change
-        self.url = tk.StringVar(value=self.controller.view().server_url or "")
+        # Installation configuration is authoritative. Cached JSON and typed
+        # addresses never replace a pinned HTTPS workspace.
+        self._configuration_invalid = False
+        try:
+            self._installed_url = configured_workspace()
+        except DeviceClientError:
+            # A damaged installer configuration disables pairing with a clear
+            # owner-facing explanation instead of aborting the Tk window.
+            self._installed_url = None
+            self._configuration_invalid = True
+        self._dev_mode = (
+            developer_mode_enabled() and self._installed_url is None
+            and not self._configuration_invalid
+        )
+        self.url = tk.StringVar(
+            value=self._installed_url or (
+                self.controller.view().server_url if self._dev_mode else "")
+        )
         self.device_name = tk.StringVar(value=socket.gethostname()[:80] or "My computer")
         self.code = tk.StringVar()
         self.state = tk.StringVar()
@@ -30,9 +49,13 @@ class AccountPanel(ttk.Frame):
         ttk.Label(self, text="1. In your signed-in MeasuredField workspace, open Computers and create a one-time code.").pack(anchor="w", pady=(0, 9))
         form = ttk.Frame(self)
         form.pack(fill="x")
-        ttk.Label(form, text="Workspace address (HTTPS)").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Trusted MeasuredField workspace").grid(row=0, column=0, sticky="w", pady=4)
         self.url_input = ttk.Entry(form, textvariable=self.url, width=64)
         self.url_input.grid(row=0, column=1, sticky="ew", padx=(12, 0), pady=4)
+        self.url_input.configure(
+            state="readonly" if self._installed_url else (
+                "normal" if self._dev_mode else "disabled")
+        )
         ttk.Label(form, text="Name for this computer").grid(row=1, column=0, sticky="w", pady=4)
         self.name_input = ttk.Entry(form, textvariable=self.device_name, width=40)
         self.name_input.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=4)
@@ -76,9 +99,21 @@ class AccountPanel(ttk.Frame):
             status += " — " + ("Read only" if view.access == "read" else "May suggest changes with approval")
         self.state.set(status)
         self.number.set(("Check number: " + view.check_number) if view.status == "pending" and view.check_number else "")
-        self.instructions.set(view.notice)
+        if self._configuration_invalid:
+            self.instructions.set(
+                "The installed workspace address is invalid. Pairing is disabled. "
+                "Contact the MeasuredField installer or administrator.")
+        elif not self._installed_url and not self._dev_mode:
+            self.instructions.set(
+                "Computer linking is unavailable until MeasuredField installs a "
+                "trusted workspace address. An address typed by a person is not enough.")
+        else:
+            self.instructions.set(view.notice)
+        if self._installed_url:
+            self.url.set(self._installed_url)
         inactive = view.status in ("not_connected", "revoked")
-        self.connect_button.configure(state="normal" if inactive else "disabled")
+        can_connect = bool(self._installed_url or self._dev_mode)
+        self.connect_button.configure(state="normal" if inactive and can_connect else "disabled")
         self.check_button.configure(state="normal" if view.status in ("pending", "active", "unverified") else "disabled")
         self.disconnect_button.configure(state="disabled" if inactive else "normal")
 

@@ -5,7 +5,7 @@ Status: local first-party pilot implementation. No public tunnel, ChatGPT connec
 ## Owner journey
 
 1. Sign in to the private MeasuredField workspace and open Computers (/app/computers). Create a 10-minute one-time pairing code, choose a name and either Read only or Suggest changes.
-2. On the Windows computer, open Connected Workspace and choose Connect this computer. Enter the exact HTTPS workspace origin, computer name and one-time code. HTTP is allowed only for loopback development hosts.
+2. On the Windows computer, open Connected Workspace and choose Connect this computer. The workspace address is **pre-installed and read-only**; enter the computer name and one-time code. There is no free-form HTTPS address to type. A signed MeasuredField installation must pin the real HTTPS workspace with MEASUREDFIELD_WORKSPACE_URL before pairing can be enabled. Without it, the Connect action stays disabled. Only explicitly enabled local developer mode accepts a loopback URL (localhost/127.0.0.1/::1) on the same computer.
 3. The computer displays a six-digit number. Type that number into the authenticated MeasuredField Computers page. The number is never stored to disk.
 4. Choose Check confirmation, or leave the window open to poll. Connected and the business name appear only after the server confirms the device status.
 5. Connect local folders separately. A Read-only account cannot grant suggestion permission through the window, approve a local proposed edit, or create a suggested-edit pairing. Previously created suggested-edit sessions are revoked when account status becomes pending or read only.
@@ -13,7 +13,7 @@ Status: local first-party pilot implementation. No public tunnel, ChatGPT connec
 
 ## Files and behavior
 
-- app/account_link/client.py: typed HTTP client for the MF-032 pair/status/heartbeat/rotate/disconnect/activity routes. Rejects credentials embedded in URLs and insecure non-loopback HTTP. Never displays raw HTTP errors.
+- app/account_link/client.py: typed HTTP client for the MF-032 pair/status/heartbeat/rotate/disconnect/activity routes. Pins the exact HTTPS origin from trusted installation configuration before any network exchange, rejecting look-alikes and changed saved state; no free-form remote host selection. Loopback hosts only under an explicit MEASUREDFIELD_DEVELOPER_MODE=1 opt-in with no pinned remote origin. Rejects credentials embedded in URLs and insecure non-loopback HTTP. Never displays raw HTTP errors or device credentials in dataclass representations.
 - app/account_link/secret_store.py: Windows CryptProtectData/CryptUnprotectData via DPAPI, with UI forbidden. The device credential lives only in a user-scoped encrypted file. No plaintext fallback. Non-Windows callers fail closed.
 - app/account_link/controller.py: owner-only state machine and non-secret state file, local pairing revocation, and Read only enforcement.
 - app/local_connect_ui/account_panel.py and window.py: Tk owner account tab, confirmation number, status, explicit disconnect. Credential never appears in Tk state.

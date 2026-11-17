@@ -10,12 +10,21 @@ import sys
 
 import pytest
 
-from app.account_link.client import (DeviceApi, DeviceClientError, DeviceRevoked,
-                                     DeviceStatus, PairingIntro, validate_origin)
+from app.account_link.client import (
+    DeviceApi, DeviceClientError, DeviceRevoked,
+    DeviceStatus, PairingIntro, validate_origin, resolve_trusted_origin,
+)
 from app.account_link.controller import AccountLinkController, AccountBoundPairingController
 from app.account_link.secret_store import SecureStoreUnavailable, WindowsCredentialStore
 from app.local_connect import AccessDenied, LocalConnect
 from app.paired_connect.registry import PairingRegistry
+
+
+@pytest.fixture(autouse=True)
+def trusted_workspace_for_tests(monkeypatch):
+    # A first-party installation pins its origin. Tests never use a real service.
+    monkeypatch.setenv("MEASUREDFIELD_WORKSPACE_URL", "https://workspace.example")
+    monkeypatch.delenv("MEASUREDFIELD_DEVELOPER_MODE", raising=False)
 
 
 class MemoryCredentialStore:
@@ -196,7 +205,9 @@ class FailingClient:
         return FailingResponse()
 
 
-def test_error_does_not_expose_remote_text_or_credential():
+def test_error_does_not_expose_remote_text_or_credential(monkeypatch):
+    monkeypatch.delenv("MEASUREDFIELD_WORKSPACE_URL")
+    monkeypatch.setenv("MEASUREDFIELD_DEVELOPER_MODE", "1")
     api = DeviceApi("http://localhost", client=FailingClient())
     secret = "mfd1." + "X" * 40
     with pytest.raises(DeviceClientError) as failure:
@@ -204,7 +215,9 @@ def test_error_does_not_expose_remote_text_or_credential():
     assert secret not in str(failure.value) and "LEAKSECRET" not in str(failure.value)
 
 
-def test_device_api_against_real_routes_and_disposable_postgresql(platform, tmp_path):
+def test_device_api_against_real_routes_and_disposable_postgresql(platform, tmp_path, monkeypatch):
+    monkeypatch.delenv("MEASUREDFIELD_WORKSPACE_URL")
+    monkeypatch.setenv("MEASUREDFIELD_DEVELOPER_MODE", "1")
     from .conftest import client_for, csrf_of, onboard_business
     from .test_pg_devices import get_code
     owner, org, _ = onboard_business(platform, business="Example Link Studio",
@@ -285,7 +298,7 @@ def test_corrupted_state_files_fail_closed_even_when_credential_exists(tmp_path,
     account.path.write_text(invalid_state, encoding="utf-8")
     restarted = AccountLinkController(local, credential_store=creds,
                                       client_factory=lambda _: api, registry=registry)
-    assert restarted.view().status == "unverified"
+    assert restarted.view().status == "revoked"
     assert not restarted.can_suggest_edits()
     assert all(row["status"] == "revoked" for row in registry.list())
 
@@ -296,7 +309,7 @@ def test_missing_state_with_existing_credential_fails_closed(tmp_path):
     account.path.unlink()
     restarted = AccountLinkController(local, credential_store=creds,
                                       client_factory=lambda _: api, registry=registry)
-    assert restarted.view().status == "unverified"
+    assert restarted.view().status == "revoked"
     assert not restarted.can_suggest_edits()
 
 
@@ -377,7 +390,9 @@ def test_device_identity_mismatch_revokes_all_trusted_local_sessions(tmp_path):
     assert creds.load() is None
 
 
-def test_redirect_is_rejected_without_forwarding_bearer_token():
+def test_redirect_is_rejected_without_forwarding_bearer_token(monkeypatch):
+    monkeypatch.delenv("MEASUREDFIELD_WORKSPACE_URL")
+    monkeypatch.setenv("MEASUREDFIELD_DEVELOPER_MODE", "1")
     class RedirectingClient:
         def get(self, path, **kwargs):
             class Response:
@@ -390,3 +405,109 @@ def test_redirect_is_rejected_without_forwarding_bearer_token():
         client.status("mfd1." + "X" * 40)
     assert "private response" not in str(failure.value)
     assert "unknown.example" not in str(failure.value)
+
+
+# MF-034 second independent Claude review: pin real identity before sharing a pairing code.
+def test_pairing_intro_never_renders_device_secret_in_debugging():
+    secret = "mfd1." + "Q" * 50
+    intro = PairingIntro("test-device", secret, "314159", "later")
+    assert secret not in repr(intro)
+    assert secret not in str(intro)
+
+
+def test_pinned_workspace_rejects_lookalike_before_network(tmp_path):
+    local, registry, fake, creds, _ = setup(tmp_path)
+    opened = []
+    account = AccountLinkController(
+        local, credential_store=creds, registry=registry,
+        client_factory=lambda url: (opened.append(url), fake)[1],
+    )
+    for lookalike in ("https://measuredfie1d-login.example",
+                      "https://workspace.example.evil.test",
+                      "https://workspace.example:443",
+                      "http://localhost:8000",
+                      "https://user@workspace.example"):
+        with pytest.raises(DeviceClientError):
+            account.connect(lookalike, "ABCD-EFGH", "Desktop")
+    assert opened == []
+    assert creds.load() is None
+    assert account.view().status == "not_connected"
+    assert resolve_trusted_origin("") == "https://workspace.example"
+    # Even an injected HTTP client cannot skip the exact origin check.
+    with pytest.raises(DeviceClientError):
+        DeviceApi("https://workspace.example.evil.test", client=object())
+
+
+def test_unconfigured_owner_installation_refuses_any_network(monkeypatch, tmp_path):
+    monkeypatch.delenv("MEASUREDFIELD_WORKSPACE_URL")
+    monkeypatch.delenv("MEASUREDFIELD_DEVELOPER_MODE", raising=False)
+    with pytest.raises(DeviceClientError, match="has not been installed"):
+        resolve_trusted_origin("https://workspace.example")
+    local, registry, fake, creds, _ = setup(tmp_path)
+    calls = []
+    account = AccountLinkController(local, credential_store=creds, registry=registry,
+                                    client_factory=lambda url: (calls.append(url), fake)[1])
+    with pytest.raises(DeviceClientError, match="has not been installed"):
+        account.connect("https://workspace.example", "ABCD-EFGH", "Desktop")
+    assert calls == []
+
+
+def test_developer_mode_allows_only_same_computer(monkeypatch):
+    monkeypatch.delenv("MEASUREDFIELD_WORKSPACE_URL")
+    monkeypatch.setenv("MEASUREDFIELD_DEVELOPER_MODE", "1")
+    assert resolve_trusted_origin("http://127.0.0.1:7000") == "http://127.0.0.1:7000"
+    assert resolve_trusted_origin("http://[::1]:7000") == "http://[::1]:7000"
+    assert resolve_trusted_origin("http://localhost:7000") == "http://localhost:7000"
+    for hostile in ("https://measuredfie1d-login.example", "https://workspace.example",
+                    "http://192.168.0.11:7000", "https://10.0.0.1"):
+        with pytest.raises(DeviceClientError):
+            resolve_trusted_origin(hostile)
+
+
+def test_tampered_persisted_workspace_is_revoked_before_client_network(tmp_path):
+    local, registry, fake, creds, account = setup(tmp_path)
+    folder = tmp_path / "project"
+    folder.mkdir()
+    grant = local.grant("Project", str(folder), "readwrite")
+    account.connect(fake.origin, "ABCD-EFGH", "Desktop")
+    fake.mode, fake.access = "active", "suggest"
+    account.refresh()
+    registry.create("Prior session", [grant["id"]], owner_confirmed=True,
+                    allow_proposals=True)
+    cached = json.loads(account.path.read_text(encoding="utf-8"))
+    cached["server_url"] = "https://measuredfie1d-login.example"
+    account.path.write_text(json.dumps(cached), encoding="utf-8")
+    opened = []
+    restarted = AccountLinkController(
+        local, registry=registry, credential_store=creds,
+        client_factory=lambda url: (opened.append(url), fake)[1],
+    )
+    assert restarted.view().status == "revoked"
+    assert restarted.view().access == ""
+    assert "not trusted" in restarted.view().notice
+    assert all(r["status"] == "revoked" for r in registry.list())
+    assert creds.load() is None
+    assert opened == []
+
+
+def test_damaged_missing_saved_origin_never_causes_uncaught_refresh(tmp_path):
+    local, registry, fake, creds, account = setup(tmp_path)
+    account.connect(fake.origin, "ABCD-EFGH", "Desktop")
+    account._state["server_url"] = ""
+    # Explicitly succeeds with a safe return instead of exposing a RuntimeError
+    # to the Tk callback or sending the code/bearer to a guessable server.
+    view = account.refresh()
+    assert view.status == "revoked"
+    assert view.access == ""
+    assert account.can_suggest_edits() is False
+    assert creds.load() is None
+
+
+def test_wrong_pinned_workspace_configuration_fails_closed(monkeypatch):
+    for invalid in ("http://real-workspace.example",
+                    "http://localhost:5000",
+                    "https://localhost:5000",
+                    "https://user:password@real-workspace.example"):
+        monkeypatch.setenv("MEASUREDFIELD_WORKSPACE_URL", invalid)
+        with pytest.raises(DeviceClientError):
+            resolve_trusted_origin("https://workspace.example")

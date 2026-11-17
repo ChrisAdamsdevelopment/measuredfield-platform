@@ -1,7 +1,8 @@
 """Typed HTTP client for the first-party MF-032 device API; no public tunnelling."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import os
 from typing import Any
 from urllib.parse import urlsplit
 import ipaddress
@@ -29,7 +30,7 @@ class DeviceStatus:
 @dataclass(frozen=True)
 class PairingIntro:
     device_id: str
-    credential: str  # Callers MUST immediately store this using Windows DPAPI.
+    credential: str = field(repr=False)  # Never print a device bearer in dataclass debugging.
     check_number: str
     confirm_by: str
 
@@ -57,9 +58,58 @@ def validate_origin(origin: str) -> str:
     return origin.rstrip("/")
 
 
+def _is_loopback_url(origin: str) -> bool:
+    host = (urlsplit(origin).hostname or "").lower()
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
+def configured_workspace() -> str | None:
+    """Trust comes from managed install configuration, NOT owner-typed URL or cached JSON.
+
+    No production/default hostname can be guessed safely; an installation must
+    explicitly pin its real origin before device codes may be exchanged.
+    """
+    configured = os.environ.get("MEASUREDFIELD_WORKSPACE_URL", "").strip()
+    if not configured:
+        return None
+    origin = validate_origin(configured)
+    if not origin.startswith("https://") or _is_loopback_url(origin):
+        raise DeviceClientError("The installed MeasuredField workspace configuration is invalid.")
+    return origin
+
+
+def developer_mode_enabled() -> bool:
+    return os.environ.get("MEASUREDFIELD_DEVELOPER_MODE", "").strip() == "1"
+
+
+def resolve_trusted_origin(requested: str) -> str:
+    """Before ANY network call: pin HTTPS, or explicit local-only development mode."""
+    configured = configured_workspace()
+    if configured is not None:
+        if requested:
+            supplied = validate_origin(requested)
+            if supplied != configured:
+                raise DeviceClientError(
+                    "This address is not the trusted MeasuredField workspace. Connection refused.")
+        return configured
+
+    if developer_mode_enabled():
+        origin = validate_origin(requested)
+        if not _is_loopback_url(origin):
+            raise DeviceClientError(
+                "Developer mode accepts only a service running on this same computer.")
+        return origin
+
+    raise DeviceClientError(
+        "A trusted MeasuredField workspace address has not been installed on this computer.")
+
+
 class DeviceApi:
     def __init__(self, origin: str, *, client: Any = None):
-        self.origin = validate_origin(origin)
+        self.origin = resolve_trusted_origin(origin)
         self._client = client if client is not None else httpx.Client(
             base_url=self.origin, timeout=httpx.Timeout(6.0), follow_redirects=False,
             trust_env=False)

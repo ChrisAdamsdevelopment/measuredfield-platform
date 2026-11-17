@@ -11,7 +11,7 @@ from app.local_connect import AccessDenied, LocalConnect
 from app.local_connect_ui.pairing_controller import PairingOwnerController
 from app.paired_connect.registry import PairingRegistry
 
-from .client import DeviceApi, DeviceClientError, DeviceRevoked
+from .client import DeviceApi, DeviceClientError, DeviceRevoked, resolve_trusted_origin
 from .secret_store import WindowsCredentialStore, SecureStoreUnavailable
 
 
@@ -43,6 +43,19 @@ class AccountLinkController:
         self._state = self._load()
         self._check_number = ""
         self._notice = ""
+        # The saved origin is untrusted state, just like a caller-typed URL. If
+        # it differs from the pinned installation origin (or is missing), do
+        # not contact that server and never display its check number.
+        if self._state["status"] in ("pending", "active", "unverified"):
+            try:
+                saved = self._state["server_url"]
+                if not saved:
+                    raise DeviceClientError("Saved workspace address is unavailable.")
+                resolve_trusted_origin(saved)
+            except DeviceClientError:
+                self._revoke(
+                    "The saved workspace address is not trusted. "
+                    "Local connections were disconnected safely.")
         # Never restore an active permission from cached JSON without a live server check.
         if self._state["status"] == "active":
             self._state["status"] = "unverified"
@@ -148,7 +161,8 @@ class AccountLinkController:
     def connect(self, server_url: str, code: str, device_name: str) -> AccountView:
         if self._state["status"] in ("active", "pending", "unverified"):
             raise AccessDenied("Disconnect the existing computer before pairing again.")
-        api = self.client_factory(server_url)
+        trusted_url = resolve_trusted_origin(server_url)
+        api = self.client_factory(trusted_url)
         try:
             intro = api.pair(code, device_name)
             try:
@@ -195,7 +209,17 @@ class AccountLinkController:
             credential = None
         if not credential:
             return self._revoke("This computer has no valid saved credential and was disconnected locally.")
-        api = self.client_factory(self._state["server_url"])
+        # Never send the bearer to an address loaded from tampered/corrupt JSON.
+        try:
+            saved = self._state["server_url"]
+            if not saved:
+                raise DeviceClientError("Saved workspace address is unavailable.")
+            trusted_url = resolve_trusted_origin(saved)
+            api = self.client_factory(trusted_url)
+        except DeviceClientError:
+            return self._revoke(
+                "The saved workspace address could not be trusted. "
+                "Local trusted connections stopped.")
         try:
             status = api.status(credential)
         except DeviceRevoked:
@@ -229,7 +253,8 @@ class AccountLinkController:
             pass
         if credential and self._state.get("server_url"):
             try:
-                api = self.client_factory(self._state["server_url"])
+                trusted_url = resolve_trusted_origin(self._state["server_url"])
+                api = self.client_factory(trusted_url)
                 try:
                     api.disconnect(credential)
                 finally:
