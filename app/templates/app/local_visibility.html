@@ -1,0 +1,59 @@
+{% extends "app/base.html" %}
+{% block title %}Local Visibility Map{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/local_visibility.css">
+<div class="lv" id="lv-app" data-csrf="{{ csrf }}">
+  <header class="lv-header">
+    <div class="lv-kicker"><span class="lv-beacon" aria-hidden="true"></span> LOCAL INTELLIGENCE / PRIVATE PREVIEW</div>
+    <h1>Know where you show up. <em>Know what to do next.</em></h1>
+    <p>Compare local search positions across cities and exact locations, see which competitors lead, and get a prioritized action plan grounded in the evidence you import.</p>
+    <div class="lv-header-actions">
+      <a href="/app/modules" class="lv-btn lv-btn-outline">All tools</a>
+      <a href="/app/modules/visibility" class="lv-btn lv-btn-outline">AI Visibility Lab</a>
+      <span class="lv-mode" role="status">Owner-imported data · no live Google requests</span>
+    </div>
+    <div class="lv-orbit" aria-hidden="true"><div></div><div></div><div></div></div>
+  </header>
+
+  <div class="lv-grid">
+    <section class="lv-panel lv-import" aria-labelledby="lv-import-title">
+      <div class="lv-panel-heading"><span class="lv-step">01</span><div><h2 id="lv-import-title">Bring in a location report</h2><p>Use a CSV export from a ranking data provider. The import stays in this preview; it is not saved.</p></div></div>
+      <label class="lv-label" for="lv-file">Choose a CSV file</label>
+      <input id="lv-file" type="file" accept=".csv,text/csv" aria-describedby="lv-format">
+      <label class="lv-label" for="lv-csv">Or paste the CSV here</label>
+      <textarea id="lv-csv" spellcheck="false" rows="7" placeholder="city,keyword,surface,latitude,longitude,position,competitor,competitor_position,checked_at,provider"></textarea>
+      <div id="lv-format" class="lv-format">
+        <details><summary>Required columns and import rules</summary>
+          <p><code>city,keyword,surface,latitude,longitude,position,competitor,competitor_position,checked_at,provider</code></p>
+          <p>Example surface values: <code>local_pack</code> or <code>organic</code>. Use an ISO 8601 time with timezone, and real coordinates from the source export. Leave unknown rankings blank; blank never means outside the top 100. Each row may name one competitor at the same point. Repeated rows for additional competitors are okay.</p>
+          <p>Maximum 500 rows and 8 cities. No credentials or secret files should be pasted.</p>
+        </details>
+      </div>
+      <div class="lv-import-actions"><button id="lv-analyze" class="lv-btn lv-btn-main" type="button">Compare locations</button><button id="lv-clear" class="lv-btn lv-btn-light" type="button">Clear</button></div>
+      <p id="lv-status" class="lv-status" role="status" aria-live="polite">No report loaded yet. Start with a real provider export.</p>
+    </section>
+
+    <aside class="lv-panel lv-guide" aria-labelledby="lv-guide-title">
+      <div class="lv-panel-heading"><span class="lv-step">02</span><div><h2 id="lv-guide-title">What your results will tell you</h2><p>Three different questions, one clear view.</p></div></div>
+      <div class="lv-signal"><span class="lv-signal-num">01</span><div><strong>Where do customers find you?</strong><p>See imported positions for each phrase and sampled location, grouped by city and search surface.</p></div></div>
+      <div class="lv-signal"><span class="lv-signal-num">02</span><div><strong>Who keeps showing up ahead?</strong><p>Review competitor observations at the same coordinates, without confusing discovery order with rank.</p></div></div>
+      <div class="lv-signal"><span class="lv-signal-num">03</span><div><strong>What should you improve?</strong><p>Get prioritized next steps with an explanation of exactly which observations support each suggestion.</p></div></div>
+      <div class="lv-method">
+        <strong>Important evidence distinction</strong>
+        <p>Imported ranks are owner-provided observations, not independently authenticated Google rankings. Search Console country-level averages and Google Places search order are different measurements. Live collection awaits an approved provider and cost controls.</p>
+      </div>
+    </aside>
+  </div>
+
+  <section class="lv-results" id="lv-results" hidden aria-labelledby="lv-results-title">
+    <div class="lv-results-heading"><div><div class="lv-kicker">GEOGRAPHIC COMPARISON / OWNER-IMPORTED</div><h2 id="lv-results-title">Your location snapshot</h2><p>These figures describe the rows in the supplied file, not your entire Google search presence.</p></div><span class="lv-not-verified">Not independently verified</span></div>
+    <div id="lv-stats" class="lv-stats" aria-label="Imported report statistics"></div>
+    <div id="lv-markets" class="lv-market-grid" aria-label="City comparisons"></div>
+    <div class="lv-next-heading"><span class="lv-step">03</span><div><h2>Recommended next moves</h2><p>Evidence first, then owner-reviewed action. Recommendations never make edits or place orders.</p></div></div>
+    <ol id="lv-actions" class="lv-actions"></ol>
+    <details class="lv-disclosure"><summary>Evidence limitations and collection details</summary><ul id="lv-limitations"></ul></details>
+  </section>
+  <div class="lv-footer"><strong>Next:</strong> Connect a licensed geographic SERP provider, repeat the same location matrix over time, and link changes to actual inquiries and conversions. Provider authentication and charged execution are not yet enabled.</div>
+</div>
+<script defer src="/static/local_visibility.js"></script>
+{% endblock %}

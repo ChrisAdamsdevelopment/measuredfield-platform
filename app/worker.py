@@ -1,6 +1,8 @@
 """Dedicated PostgreSQL job worker. No live providers unless explicitly configured."""
 from __future__ import annotations
 
+import argparse
+import json
 import logging
 import os
 import signal
@@ -9,7 +11,7 @@ import time
 
 from .config import get_settings
 from .db import isolation_self_check
-from .services.jobs import run_due
+from .services.jobs import job_status_snapshot, run_due
 
 logger = logging.getLogger("mf.worker")
 _STOP = threading.Event()
@@ -34,9 +36,18 @@ def startup_checks() -> None:
         logger.warning("worker startup check: %s", problem)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="MeasuredField PostgreSQL worker")
+    parser.add_argument("--queue-status", action="store_true",
+                        help="Show privacy-minimal job status without processing work")
+    args = parser.parse_args(argv)
     logging.basicConfig(level=get_settings().log_level)
     startup_checks()
+    if args.queue_status:
+        print(json.dumps(job_status_snapshot(), sort_keys=True))
+        return 0
+    # Tests and embedded worker restarts must not inherit an earlier stop signal.
+    _STOP.clear()
     poll_seconds = min(60.0, max(1.0, float(os.getenv("MF_WORKER_POLL_SECONDS", "3"))))
     batch = min(50, max(1, int(os.getenv("MF_WORKER_BATCH_SIZE", "15"))))
     for name in ("SIGTERM", "SIGINT"):

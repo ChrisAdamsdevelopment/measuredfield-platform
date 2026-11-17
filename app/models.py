@@ -14,6 +14,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    CheckConstraint,
     BigInteger, Boolean, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, LargeBinary,
     String, Text, UniqueConstraint,
 )
@@ -54,6 +55,92 @@ class User(Base):
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = TS()
     disabled_at: Mapped[datetime | None] = OPT_TS()
+
+
+class McpIdentityLink(Base):
+    """Explicitly verified external OAuth subject linked to a local account.
+
+    Platform-level identity row, not tenant content. Enrollment MUST require a
+    separate verified OIDC-code/PKCE owner session; no endpoint accepts sub/user_id
+    supplied by a model or client as proof of ownership.
+    """
+    __tablename__ = "mcp_identity_links"
+    id: Mapped[uuid.UUID] = PK()
+    issuer: Mapped[str] = mapped_column(String(250), nullable=False)
+    subject: Mapped[str] = mapped_column(String(250), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    verified_method: Mapped[str] = mapped_column(String(24), nullable=False)
+    linked_at: Mapped[datetime] = TS()
+    revoked_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_mcp_identity_issuer_subject"),
+        CheckConstraint("verified_method = 'oidc_pkce_owner'",
+                        name="ck_mcp_identity_verified_method"),
+    )
+
+
+class McpOwnerOIDCChallenge(Base):
+    """Ephemeral first-party OAuth account-link transaction.
+
+    Never stores a raw state or nonce, a provider token, or a plaintext PKCE
+    verifier. The pending verifier is encrypted under the app secret until the
+    one-time callback consumes it.
+    """
+    __tablename__ = "mcp_owner_oidc_challenges"
+    id: Mapped[uuid.UUID] = PK()
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    issuer: Mapped[str] = mapped_column(String(250), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    nonce_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    pkce_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        CheckConstraint("length(state_hash) = 64", name="ck_oidc_link_state_hash_length"),
+        CheckConstraint("length(nonce_hash) = 64", name="ck_oidc_link_nonce_hash_length"),
+        Index("ix_oidc_link_expiry", "expires_at"),
+    )
+
+
+class PlatformSecurityEvent(Base):
+    """PLATFORM-ONLY immutable operator audit. Contains no free-form metadata."""
+
+    __tablename__ = "platform_security_events"
+    id: Mapped[uuid.UUID] = PK()
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(12), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reason_code: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        CheckConstraint("action IN ('order.mark_paid', 'order.provision', 'jobs.run', "
+                        "'domain.verify', 'review.decide', 'skill.rollback')",
+                        name="ck_platform_security_action"),
+        CheckConstraint("outcome IN ('approved', 'denied')",
+                        name="ck_platform_security_outcome"),
+        CheckConstraint("(outcome = 'approved' AND reason_code = '') OR "
+                        "(outcome = 'denied' AND reason_code <> '')",
+                        name="ck_platform_security_outcome_reason"),
+        CheckConstraint("target_type IN ('order', 'job_queue', 'domain', "
+                        "'lesson_review', 'shared_skill')",
+                        name="ck_platform_security_target_type"),
+        CheckConstraint("reason_code IN ('', 'invalid_reference', 'not_found', "
+                        "'invalid_state', 'already_paid', 'not_provisionable', "
+                        "'invalid_decision', 'consent_withdrawn', "
+                        "'already_verified', 'no_active_version', 'operation_failed')",
+                        name="ck_platform_security_reason"),
+        Index("ix_platform_security_created", "created_at"),
+        Index("ix_platform_security_actor_created", "actor_user_id", "created_at"),
+    )
 
 
 class Session(Base):
@@ -487,14 +574,244 @@ class DeletionReceipt(Base):
     created_at: Mapped[datetime] = TS()
 
 
+# ------------------------------------------------------------------ AI visibility lab
+# Tenant-scoped, conservative provenance. No import can grant itself verified_live.
+
+class VisibilityGscSnapshot(Base):
+    __tablename__ = "visibility_gsc_snapshots"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), default="owner_csv", nullable=False)
+    date_start: Mapped[date | None] = mapped_column(Date())
+    date_end: Mapped[date | None] = mapped_column(Date())
+    row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    invalid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    impressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    clicks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rows: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "digest", name="uq_vgs_org_digest"),
+        UniqueConstraint("org_id", "id", name="uq_vgs_org_id"),
+        Index("ix_vgs_org_created", "org_id", "created_at"),
+    )
+
+
+class VisibilityQuestion(Base):
+    __tablename__ = "visibility_questions"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    source_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    question_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(80), default="Residential remodeling", nullable=False)
+    market: Mapped[str] = mapped_column(String(90), default="Prescott, Arizona", nullable=False)
+    origin: Mapped[str] = mapped_column(String(30), default="gsc_suggestion", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)
+    source_queries: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "question_hash", name="uq_vq_org_hash"),
+        UniqueConstraint("org_id", "id", name="uq_vq_org_id"),
+        ForeignKeyConstraint(
+            ["org_id", "source_snapshot_id"],
+            ["visibility_gsc_snapshots.org_id", "visibility_gsc_snapshots.id"],
+            name="fk_vq_snapshot_same_tenant"),
+        Index("ix_vq_org_status", "org_id", "status"),
+    )
+
+
+class VisibilityExperiment(Base):
+    __tablename__ = "visibility_experiments"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    configuration: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(22), default="planned", nullable=False)
+    provider_requests_executed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_ve_org_id"),
+        Index("ix_ve_org_created", "org_id", "created_at"),
+    )
+
+
+class VisibilityObservation(Base):
+    __tablename__ = "visibility_observations"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    source_run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
+    question: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actual_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    provider: Mapped[str] = mapped_column(String(90), default="", nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    grounding: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    source_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    reported_mentioned: Mapped[bool | None] = mapped_column(Boolean)
+    observed_at: Mapped[datetime | None] = OPT_TS()
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "source_run_id", name="uq_vo_org_external"),
+        ForeignKeyConstraint(
+            ["org_id", "experiment_id"],
+            ["visibility_experiments.org_id", "visibility_experiments.id"],
+            name="fk_vo_experiment_same_tenant"),
+        Index("ix_vo_org_experiment", "org_id", "experiment_id"),
+        Index("ix_vo_org_provenance", "org_id", "provenance"),
+    )
+
+class VisibilityResearchBudget(Base):
+    """Owner-approved tenant-local monthly reservation ceiling, in USD micro-units.
+
+    A reservation is NOT a bill. Unknown outcomes remain reserved until reconciled.
+    """
+    __tablename__ = "visibility_research_budgets"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    period_month: Mapped[date] = mapped_column(Date(), nullable=False)
+    ceiling_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    held_micros: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    reconciled_micros: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    authorized_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    authorized_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "period_month", name="uq_vrb_org_month"),
+        UniqueConstraint("org_id", "id", name="uq_vrb_org_id"),
+        CheckConstraint("ceiling_micros >= 0 AND ceiling_micros <= 500000000",
+                        name="ck_vrb_ceiling"),
+        CheckConstraint("held_micros >= 0 AND reconciled_micros >= 0",
+                        name="ck_vrb_positive"),
+        CheckConstraint("held_micros + reconciled_micros <= ceiling_micros",
+                        name="ck_vrb_within_ceiling"),
+    )
+
+
+class VisibilityResearchReservation(Base):
+    """Durable idempotent signed run reservation. No provider call in MF-036."""
+    __tablename__ = "visibility_research_reservations"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    budget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    planned_run_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    plan_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    ceiling_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    approved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    approved_at: Mapped[datetime] = TS()
+    cancelled_at: Mapped[datetime | None] = OPT_TS()
+    dispatch_started_at: Mapped[datetime | None] = OPT_TS()
+    provider_response_id: Mapped[str | None] = mapped_column(String(200))
+    __table_args__ = (
+        UniqueConstraint("org_id", "idempotency_key", name="uq_vrr_org_idempotency"),
+        ForeignKeyConstraint(
+            ["org_id", "budget_id"],
+            ["visibility_research_budgets.org_id", "visibility_research_budgets.id"],
+            ondelete="RESTRICT", name="fk_vrr_budget_same_tenant"),
+        CheckConstraint("ceiling_micros > 0 AND ceiling_micros <= 100000000",
+                        name="ck_vrr_ceiling"),
+        CheckConstraint("status IN ('reserved','cancelled','dispatch_unknown','reconciled')",
+                        name="ck_vrr_status"),
+        Index("ix_vrr_org_status", "org_id", "status"),
+        Index("ix_vrr_org_budget", "org_id", "budget_id"),
+    )
+
+
+class ConnectedDevice(Base):
+    """A computer an owner connected to their business (MF-032). Tenant table.
+
+    ``credential_hash`` is the SHA-256 of a random device credential that was returned to
+    the computer once. ``status``: pending (redeemed a code, not yet confirmed by the owner),
+    active, revoked, expired (never confirmed in time)."""
+    __tablename__ = "connected_devices"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(80), nullable=False)             # chosen by the owner
+    reported_name: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)  # claimed by the computer
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest
+    status: Mapped[str] = mapped_column(String(12), nullable=False)
+    credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    check_number: Mapped[str] = mapped_column(String(6), default="", server_default="", nullable=False)
+    confirm_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    created_at: Mapped[datetime] = TS()
+    confirmed_at: Mapped[datetime | None] = OPT_TS()
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    last_seen_at: Mapped[datetime | None] = OPT_TS()
+    credential_rotated_at: Mapped[datetime | None] = OPT_TS()
+    revoked_at: Mapped[datetime | None] = OPT_TS()
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    revoked_reason: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
+    __table_args__ = (
+        UniqueConstraint("credential_hash", name="uq_connected_devices_credential_hash"),
+        CheckConstraint("access IN ('read', 'suggest')", name="ck_connected_devices_access"),
+        CheckConstraint("status IN ('pending', 'active', 'revoked', 'expired')", name="ck_connected_devices_status"),
+    )
+
+
+class DeviceEvent(Base):
+    """Activity summary reported by a connected computer. Metadata only: an action, a result,
+    an owner-chosen project name and a count. Never file content or file paths."""
+    __tablename__ = "device_events"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("connected_devices.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    project_label: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)
+    count: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = TS()
+
+
+class DevicePairingCode(Base):
+    """PLATFORM table. A computer redeeming a code has no tenant yet, so this row is the one
+    thing consulted before a tenant context exists. It holds a hash and ids, nothing private."""
+    __tablename__ = "device_pairing_codes"
+    id: Mapped[uuid.UUID] = PK()
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (UniqueConstraint("code_hash", name="uq_device_pairing_codes_code_hash"),)
+
+
 # Every table that carries org_id and must be covered by row-level security.
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
+    "visibility_research_reservations", "visibility_research_budgets",
+    "device_events", "connected_devices",
+    "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
 TENANT_MODELS = {
+    "visibility_research_reservations": VisibilityResearchReservation,
+    "visibility_research_budgets": VisibilityResearchBudget,
+    "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
+    "visibility_observations": VisibilityObservation,
+    "visibility_experiments": VisibilityExperiment,
+    "visibility_questions": VisibilityQuestion,
+    "visibility_gsc_snapshots": VisibilityGscSnapshot,
     "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
     "customers": Customer, "memory_items": MemoryItem, "documents": Document,
     "lesson_candidates": LessonCandidate, "assessment_reports": AssessmentReport,

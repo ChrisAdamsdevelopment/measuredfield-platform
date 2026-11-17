@@ -1,0 +1,77 @@
+{% extends "app/base.html" %}
+{% block title %}Lead Rescue{% endblock %}
+{% block content %}
+<header>
+  <div>
+    <p class="muted">MeasuredField · Customer Operations</p>
+    <h1>Lead Rescue &amp; Opportunity Intelligence</h1>
+    <p>See which real customer inquiries need attention. No guessed sales value, unsolicited messages or AI provider calls.</p>
+  </div>
+</header>
+
+<section class="card" aria-labelledby="lr-status">
+  <h2 id="lr-status">First-party inquiry rescue queue</h2>
+  <p class="muted">Snapshot {{ report.as_of }} · Business reporting timezone: {{ timezone_name }} · Owner workflow records only</p>
+  <p role="status">
+    Reviewing <strong>{{ report.sampled_open }}</strong> of <strong>{{ report.total_open }}</strong>
+    open inquiries{% if not report.coverage_complete %} (first {{ report.maximum_reviewed }} records prioritized by urgency; counts below cover only these records){% else %} (all open inquiries in this workspace){% endif %}.
+  </p>
+  <div class="triage-summary" aria-label="Counts in current reviewed set">
+    <span class="triage-pill overdue"><strong>{{ report.counts.overdue }}</strong> overdue scheduled follow-ups</span>
+    <span class="triage-pill"><strong>{{ report.counts.due_today }}</strong> due today</span>
+    <span class="triage-pill"><strong>{{ report.counts.unanswered_24h }}</strong> unanswered 24+ hours</span>
+    <span class="triage-pill"><strong>{{ report.counts.needs_schedule }}</strong> missing follow-up date</span>
+    <span class="triage-pill"><strong>{{ report.counts.watching }}</strong> scheduled later</span>
+  </div>
+  <p class="small muted">Priority buckets are mutually exclusive and based on status, recorded dates, and a 24-hour internal follow-up checkpoint. An inquiry may have more than one underlying issue, but appears in one primary bucket.</p>
+  <p class="small muted">{{ report.note }}</p>
+  <div class="filter-controls">
+    <a class="btn" href="/app/inquiries">Open inquiry desk to record an action</a>
+    <a class="btn ghost" href="/app/insights">View historical response metrics</a>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="lr-queue">
+  <h2 id="lr-queue">Your prioritized next actions</h2>
+  {% if report['items'] %}
+  <div class="scroll">
+    <table>
+      <caption class="sr-only">Open inquiries, ordered by required follow-up urgency; no messages are sent by this screen</caption>
+      <thead><tr>
+        <th scope="col">Customer inquiry</th>
+        <th scope="col">Attention needed</th>
+        <th scope="col">Follow-up</th>
+        <th scope="col">Recorded response</th>
+        <th scope="col">Next action</th>
+      </tr></thead>
+      <tbody>
+      {% for item in report['items'] %}
+      <tr>
+        <td data-label="Customer inquiry">
+          <a href="/app/inquiries/{{ item.id }}">{{ item.name }}</a>
+          <div class="small muted">{{ item.service or 'Service not specified' }} · {{ item.status }}</div>
+          {% if item.age_hours is not none %}<div class="small muted">Received {{ item.age_hours }} hours ago</div>{% endif %}
+        </td>
+        <td data-label="Attention needed"><strong>{{ item.priority_label }}</strong>
+          {% if not item.assigned %}<div class="small muted">No assigned team member</div>{% endif %}
+        </td>
+        <td data-label="Follow-up">{% if item.follow_up_on %}<time datetime="{{ item.follow_up_on }}">{{ item.follow_up_on }}</time>{% else %}<span class="muted">Not set</span>{% endif %}</td>
+        <td data-label="Recorded response">{% if item.response_recorded %}Workflow timestamp present{% else %}No workflow response recorded{% endif %}</td>
+        <td data-label="Next action">{{ item.next_action }}
+          <div><a href="/app/inquiries/{{ item.id }}">Review inquiry</a></div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p role="status">There are no open inquiries in this workspace. No fictional leads were generated.</p>
+  {% endif %}
+</section>
+<section class="card">
+  <h2>Why this module has standalone value</h2>
+  <p>It makes overlooked customer inquiries and unplanned follow-ups actionable from existing records. Owner-verified replies, scheduling, and booked jobs can be added later; this screen cannot claim a call or email was delivered merely because the status changed.</p>
+  <p class="small muted">Local preview only. Paid multi-tenant entitlements, outbound connectors and public release require separate approval.</p>
+</section>
+{% endblock %}

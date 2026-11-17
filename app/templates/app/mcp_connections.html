@@ -1,0 +1,140 @@
+{% extends "app/base.html" %}
+{% block title %}ChatGPT connections{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/mcp_connections.css">
+{% set account_state = namespace(active=false) %}
+{% for c in connections %}
+  {% if c.status == 'connected' %}{% set account_state.active = true %}{% endif %}
+{% endfor %}
+
+<div class="mfcp">
+  <header class="mfcp-hero">
+    <div class="mfcp-hero-main">
+      <p class="mfcp-eyebrow">Connections / ChatGPT</p>
+      <h1>Bring your business into the conversation.</h1>
+      <p class="mfcp-lead">Connect your own MeasuredField account so ChatGPT can help you understand your business. You decide what is shared, and you can disconnect your identity at any time.</p>
+      <div class="mfcp-permission-line" aria-label="Connection permissions">
+        <span>Read-only first</span><span>Owner controlled</span><span>No automatic changes</span>
+      </div>
+    </div>
+    <div class="mfcp-hero-figure" aria-hidden="true">
+      <span class="mfcp-figure-circle">M</span>
+      <span class="mfcp-figure-line"></span>
+      <span class="mfcp-figure-circle mfcp-figure-circle-right">◎</span>
+      <p>One secure connection. Your business stays yours.</p>
+    </div>
+  </header>
+
+  <section class="mfcp-steps" aria-labelledby="mfcp-steps-title">
+    <div class="mfcp-section-heading">
+      <div>
+        <p class="mfcp-eyebrow">Connection progress</p>
+        <h2 id="mfcp-steps-title">Four steps to get connected</h2>
+      </div>
+      <p>These are separate checks. A verified identity does not mean a ChatGPT plugin is already installed.</p>
+    </div>
+    <ol class="mfcp-timeline">
+      <li class="mfcp-step mfcp-step-done">
+        <span class="mfcp-number">1</span>
+        <div><h3>Sign in to MeasuredField</h3><p>Your current workspace session is active.</p></div>
+        <span class="mfcp-step-state">Signed in</span>
+      </li>
+      <li class="mfcp-step">
+        <span class="mfcp-number">2</span>
+        <div><h3>Verify your identity</h3>
+          <p>{% if account_state.active %}An identity-provider account has been linked to this MeasuredField sign-in.{% elif oidc_link_available %}The identity-link settings are present. Use the secure sign-in below to verify your account.{% else %}This installation still needs an approved identity provider and secure HTTPS callback.{% endif %}</p>
+        </div>
+        <span class="mfcp-step-state">{% if account_state.active %}Identity linked{% elif oidc_link_available %}Setup available{% else %}Needs setup{% endif %}</span>
+      </li>
+      <li class="mfcp-step">
+        <span class="mfcp-number">3</span>
+        <div><h3>Add MeasuredField inside ChatGPT</h3><p>A public HTTPS MCP connection or owner-approved secure tunnel must be tested before installation.</p></div>
+        <span class="mfcp-step-state mfcp-step-pending">Not verified</span>
+      </li>
+      <li class="mfcp-step">
+        <span class="mfcp-number">4</span>
+        <div><h3>Test a real read-only request</h3><p>Confirm that ChatGPT can read your permitted sample business, cannot read another owner's data, and stops after Disconnect.</p></div>
+        <span class="mfcp-step-state mfcp-step-pending">Not tested</span>
+      </li>
+    </ol>
+  </section>
+
+  <div class="mfcp-panels">
+    <section class="mfcp-panel" aria-labelledby="connect-owner-heading">
+      <p class="mfcp-eyebrow">Your permission</p>
+      <h2 id="connect-owner-heading">Verify and connect your account</h2>
+      {% if oidc_link_available %}
+      <p>The identity provider is configured for sign-in. Your verified identity will be linked only to your personal MeasuredField account—not automatically to every team member.</p>
+      <form method="post" action="/app/connections/start">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="confirm" value="CONNECT READ ONLY">
+        <button class="btn primary mfcp-primary-action" type="submit">Verify and connect my account (read only)</button>
+      </form>
+      <p class="mfcp-footnote">This verifies your identity. It does not install a plugin or grant computer-file access.</p>
+      {% else %}
+      <div class="mfcp-callout" role="status">
+        <strong>Identity connection is not yet available.</strong>
+        <p>MeasuredField needs its approved OAuth identity provider and HTTPS callback configured. No account will be connected automatically.</p>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="mfcp-panel mfcp-panel-next" aria-labelledby="mfcp-next-title">
+      <p class="mfcp-eyebrow">What happens next</p>
+      <h2 id="mfcp-next-title">Use it in ChatGPT</h2>
+      <p>After the secure connector is deployed and privately tested, you can add MeasuredField from ChatGPT Plugins, approve the requested access, and use the available read-only tools.</p>
+      <a class="mfcp-subtle-link" href="https://chatgpt.com/plugins" target="_blank" rel="noopener noreferrer">Open ChatGPT Plugins <span aria-hidden="true">↗</span></a>
+      <p class="mfcp-footnote">Opening ChatGPT does not confirm that MeasuredField is listed, installed, or usable yet. Public directory submission is a later approval step.</p>
+    </section>
+  </div>
+
+  <section class="mfcp-panel mfcp-connections" aria-labelledby="connections-heading">
+    <div class="mfcp-section-heading">
+      <div><p class="mfcp-eyebrow">Account security</p><h2 id="connections-heading">Your account connections</h2></div>
+      <p>Only links belonging to your MeasuredField sign-in are shown here.</p>
+    </div>
+    {% if connections %}
+      <div class="scroll mfcp-table-scroll">
+        <table class="mfcp-table">
+          <thead><tr><th scope="col">Identity provider</th><th scope="col">Status</th><th scope="col">Connected</th><th scope="col">Control</th></tr></thead>
+          <tbody>
+          {% for c in connections %}
+          <tr>
+            <td data-label="Provider"><strong>{{ c.provider }}</strong><p class="mfcp-footnote">No account email or secret is displayed.</p></td>
+            <td data-label="Status">{% if c.status == 'connected' %}<span class="badge live">Connected</span>{% else %}<span class="badge revoked">Disconnected</span>{% endif %}</td>
+            <td data-label="Connected">{{ c.linked_at[:10] }}</td>
+            <td data-label="Control">
+              {% if c.status == 'connected' %}
+              <form method="post" action="/app/connections/{{ c.id }}/disconnect">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="confirm" value="DISCONNECT">
+                <button class="btn danger small" type="submit">Disconnect this account</button>
+              </form>
+              {% else %}
+              <span class="small muted">Disconnected {{ c.disconnected_at[:10] if c.disconnected_at else '' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+    <p class="mfcp-empty">No verified identity-provider accounts have been linked to your MeasuredField sign-in yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="mfcp-trust" aria-labelledby="mfcp-trust-title">
+    <div>
+      <p class="mfcp-eyebrow">Always in your control</p>
+      <h2 id="mfcp-trust-title">Your business information stays under your permission.</h2>
+      <p>For now, the connector is designed to read only authorized business and inquiry information. It does not send customer replies, approve changes, publish websites, run paid AI searches, or automatically access your computer.</p>
+    </div>
+    <div class="mfcp-trust-side">
+      <h3>Computer files are different</h3>
+      <p>Folder access requires a separate approved device pairing and individual folder grants. Disconnect your computer independently in the device workspace.</p>
+      <a href="/app/computers">Manage computer permissions <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+</div>
+{% endblock %}

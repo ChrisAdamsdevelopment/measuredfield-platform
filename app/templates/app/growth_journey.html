@@ -1,0 +1,79 @@
+{% extends "app/base.html" %}
+{% block title %}Growth Launch{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/growth_journey.css">
+<div id="gj" class="gj" data-csrf="{{ csrf }}">
+  <header class="gj-hero">
+    <div class="gj-eyebrow"><span class="gj-live-dot" aria-hidden="true"></span> YOUR GROWTH CONTROL CENTER · PRIVATE PREVIEW</div>
+    <h1>You run the business.<br><em>We organize the next move.</em></h1>
+    <p>From first website to new customers: tell us what matters, choose how you'd like to use AI, and see a practical plan with the right tools and approvals. No coding or SEO expertise required.</p>
+    <div class="gj-hero-pills"><span>Website &amp; local search</span><span>Inquiries &amp; follow-up</span><span>Better decisions</span></div>
+    <div class="gj-abstract" aria-hidden="true"><i></i><i></i><i></i></div>
+  </header>
+
+  <div class="gj-layout">
+  <section class="gj-card" aria-labelledby="gj-setup-title">
+    <div class="gj-section-head"><span class="gj-number">1</span><div><h2 id="gj-setup-title">Tell us where you're starting</h2><p>Just the basics. You can improve this plan whenever your goals change.</p></div></div>
+    <form id="gj-form">
+      <div class="gj-fields-two">
+        <div><label for="gj-name">Business name</label><input id="gj-name" name="business_name" type="text" required maxlength="90" placeholder="Example: My Home Services"></div>
+        <div><label for="gj-area">Where you serve customers</label><input id="gj-area" name="service_area" type="text" required maxlength="100" placeholder="Prescott &amp; Prescott Valley"></div>
+      </div>
+      <div class="gj-fields-two">
+        <div><label for="gj-industry">Your type of business</label><select id="gj-industry" name="industry"><option value="home_services">Home &amp; local services</option><option value="professional">Professional services</option><option value="retail">Retail &amp; products</option><option value="hospitality">Hospitality &amp; experiences</option><option value="other">Other business</option></select></div>
+        <div><label for="gj-website">Your website today</label><select id="gj-website" name="website_state"><option value="website_exists">I have a website</option><option value="needs_improvement">I have one, but it needs work</option><option value="no_website">I'm starting without a website</option></select></div>
+      </div>
+      <fieldset><legend>What would you most like to improve?</legend><div class="gj-choices">
+        <label><input type="checkbox" name="goals" value="website" checked><span>Build or improve my website</span></label>
+        <label><input type="checkbox" name="goals" value="findability" checked><span>Get discovered on Google &amp; AI</span></label>
+        <label><input type="checkbox" name="goals" value="leads" checked><span>Get more customers and reply faster</span></label>
+        <label><input type="checkbox" name="goals" value="revenue"><span>Find new services or revenue</span></label>
+        <label><input type="checkbox" name="goals" value="automate"><span>Spend less time on repetitive work</span></label>
+      </div></fieldset>
+      <fieldset><legend>Which accounts do you already have?</legend><p class="gj-helper">Having an account doesn't mean it has been connected. We won't access anything just because you check a box.</p><div class="gj-choices gj-small-choices">
+        <label><input type="checkbox" name="owner_has_accounts" value="google_profile"><span>Google Business Profile</span></label>
+        <label><input type="checkbox" name="owner_has_accounts" value="search_console"><span>Google Search Console</span></label>
+        <label><input type="checkbox" name="owner_has_accounts" value="website_forms"><span>Website contact forms</span></label>
+        <label><input type="checkbox" name="owner_has_accounts" value="customer_system"><span>Customer or lead system</span></label>
+      </div></fieldset>
+      <div class="gj-ai">
+        <div class="gj-ai-top"><div class="gj-number">2</div><div><h2>Choose how you'd like AI to help</h2><p>You're in control. The growth plan works even without an AI account.</p></div></div>
+        <fieldset><legend class="gj-sr">AI preference</legend><div class="gj-ai-options">
+          <label><input type="radio" name="ai_mode" value="gemini_free" checked><span><strong>Gemini starter</strong><small>Free tier when eligible; limited models and capacity</small></span></label>
+          <label><input type="radio" name="ai_mode" value="bring_your_own_key"><span><strong>My own AI API key</strong><small>Choose your provider; encrypted key connection is not enabled yet</small></span></label>
+          <label><input type="radio" name="ai_mode" value="chatgpt"><span><strong>Connect ChatGPT</strong><small>Use approved tools with a compatible ChatGPT account; live setup is in testing</small></span></label>
+          <label><input type="radio" name="ai_mode" value="manual"><span><strong>Start without AI</strong><small>Plan and manage the basics now</small></span></label>
+        </div></fieldset>
+      </div>
+      <div class="gj-submit"><button id="gj-generate" type="submit">Build my growth plan <span aria-hidden="true">→</span></button><p>Preview only. No account links, emails, website changes or paid searches are triggered.</p></div>
+    </form>
+  </section>
+
+  <aside class="gj-aside" aria-label="How MeasuredField works">
+    <div class="gj-aside-top"><span class="gj-eyebrow">THE MEASUREDFIELD METHOD</span><h2>One simple process.<br><em>Everything connected.</em></h2><p>Your tools, information and approvals come together as we help you improve your business.</p></div>
+    <ol class="gj-method">
+      <li><span>01</span><div><strong>Understand the business</strong><p>Identify services, customers, service areas and what's missing.</p></div></li>
+      <li><span>02</span><div><strong>Collect real evidence</strong><p>Connect approved sources or import reports. Never invent numbers.</p></div></li>
+      <li><span>03</span><div><strong>Build the improvement</strong><p>Prepare a site, campaign, response or workflow for review.</p></div></li>
+      <li><span>04</span><div><strong>Approve and measure</strong><p>You decide what goes live; we look at what happened afterward.</p></div></li>
+    </ol>
+    <div class="gj-privacy"><strong>Made for real business decisions</strong><p>Free Gemini isn't guaranteed or appropriate for every private-data task. Your ChatGPT subscription doesn't automatically pay for unrelated APIs or geographic rank data. We'll show the limits before you connect anything.</p></div>
+  </aside>
+  </div>
+
+  <section id="gj-results" class="gj-results" aria-labelledby="gj-result-title" hidden>
+    <div class="gj-result-heading"><span class="gj-eyebrow">YOUR RECOMMENDED NEXT MOVES</span><h2 id="gj-result-title">A clearer path forward</h2><p id="gj-result-context">A practical plan, not a promise of results.</p></div>
+    <div class="gj-result-stats" id="gj-result-stats"></div>
+    <section class="gj-provider-card"><div><span class="gj-eyebrow">AI CONNECTION PREFERENCE</span><h3 id="gj-provider-title"></h3><p id="gj-provider-detail"></p><p id="gj-provider-privacy"></p></div><span id="gj-provider-state" class="gj-provider-state"></span></section>
+    <div class="gj-result-grid"><div>
+      <h3 class="gj-result-subtitle">Your prioritized action plan</h3>
+      <ol id="gj-steps" class="gj-steps"></ol>
+    </div><div>
+      <article class="gj-industry-card"><span class="gj-eyebrow">SERVICE OPPORTUNITY TO EXPLORE</span><h3>One idea worth validating</h3><p id="gj-opportunity"></p><p id="gj-opportunity-measure"></p><small>Industry example, not a measured opportunity for your business yet.</small></article>
+      <div class="gj-notes"><strong>Before making a change</strong><ul id="gj-limits"></ul></div>
+    </div></div>
+  </section>
+  <p id="gj-status" class="gj-status" role="status" aria-live="polite">Complete the short setup to get your personalized growth plan.</p>
+</div>
+<script defer src="/static/growth_journey.js"></script>
+{% endblock %}
