@@ -45,3 +45,22 @@ MF-036 builds on the approved MF-035 OpenAI Responses `web_search` offline reque
 - `python -B scripts/secret_scan.py --staged` and `--tracked`.
 
 No real customer data was read or sent and no actual company spending limit was changed.
+
+## Independent-review remediation — November 16, 2026 Arizona evening
+
+Claude's independent review of commit `c466f9c` **requested changes** after reproducing a concurrency defect and untrusted owner-declared charge ceilings. The following local revision is a security remediation, **not independent acceptance or production approval**.
+
+1. **No double release under simultaneous cancels.** Cancellation acquires the budget lock, then re-selects the reservation with `FOR UPDATE` and `populate_existing=True`, overwriting the earlier SQLAlchemy identity-map version. Status is checked only after that refresh. A stressed real-PostgreSQL regression reserves three independent holds, races six cancellations on one, and requires exactly one winner and `held_micros == SUM(remaining reserved ceiling_micros)`, never an undercount.
+2. **No client-created price floor.** Because there is not yet an authenticated provider tariff and charge reconciliation, this development pilot only accepts the explicitly server-approved offline **synthetic** OpenAI model profile `synthetic-openai-model`, with a conservative local test minimum `250000` micro-USD/run and at most two planned web searches. This is a *testing floor*, **not an assertion of real OpenAI API rates or a provider-enforced maximum**. Client-provided forecasts below the floor and unapproved models fail closed; higher owner ceilings still must match the signed experiment and held record. A different forecast on the same planned request conflicts instead of silently reusing an old hold. No real paid provider dispatch is permitted until a separately approved model-price catalogue and independent usage-metering are implemented.
+3. **Honest replay status.** After an owner cancels a reservation, an attempt to replay the same planned search returns `409 already cancelled`, not a misleading successful unreserved search.
+4. **More precise refusal and decimal grammar.** Research authorization failures return HTTP 403; validly formed but unsafe budget/plan payloads return 422. Money strings are restricted to ordinary ASCII decimal digits with at most six fractional digits (no underscores, exponent notation, floats, booleans, or misleading alternate literal forms).
+
+These changes are limited to the existing service/router, its real PostgreSQL regression tests and this internal design document. No billing, live provider token, external search, financial reconciliation, customer records, deployment or live account changes were performed. Independent reviewer must validate concurrency behavior and the server policy before this is considered approved.
+
+### Verified local security regression result
+
+- Real disposable PostgreSQL **full application suite** after concurrency and server price-floor fixes: `CI_GATE_PASS` — **807 passed**, **zero skips/errors/failures** (251.51 seconds); disposable PG container stopped and removed.
+- New regression: eight repeated batches of six simultaneous cancellation calls on one of three $0.25 holds; exactly one cancellation succeeds per batch, all others become idempotent no-ops, and held micro-USD remains equal to the two remaining reserved rows.
+- New rejection coverage: owner-supplied per-run price $0.0001 cannot reserve, unapproved model cannot reserve, changed forecast ceiling on an identical planned call conflicts instead of reusing a hold, and money strings like `5_0` / exponent notation are rejected.
+- The only authorized model profile in this LOCAL test remains `synthetic-openai-model`. A real provider cannot be reserved or dispatched via this slice. Before restoring real provider work, obtain an independent price schedule and enforce charge accounting in the dispatcher.
+- MF-036 is still pending independent re-review; no production deployment occurred.

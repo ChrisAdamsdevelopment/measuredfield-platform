@@ -28,9 +28,12 @@ def _dev_only():
 def _failed(fn):
     try:
         return fn()
-    except (execution.ResearchNotAuthorized, execution.ResearchConflict,
-            execution.ResearchBudgetExceeded) as exc:
-        # The error messages contain no provider credentials or PII.
+    except execution.ResearchNotAuthorized as exc:
+        raise HTTPException(403, str(exc)) from None
+    except execution.ResearchAlreadyCancelled as exc:
+        raise HTTPException(409, str(exc)) from None
+    except (execution.ResearchConflict, execution.ResearchBudgetExceeded) as exc:
+        # Error details contain no provider credentials or customer PII.
         raise HTTPException(422, str(exc)) from None
 
 

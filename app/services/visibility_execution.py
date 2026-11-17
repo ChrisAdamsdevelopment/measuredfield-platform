@@ -6,6 +6,7 @@ Every operation requires an authenticated tenant-scoped SQLAlchemy session.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -35,6 +36,18 @@ class ResearchConflict(ValueError):
     """The requested transition or signed plan is not safe."""
 
 
+class ResearchAlreadyCancelled(ResearchConflict):
+    """An old cancellation cannot be mistaken for a fresh reservation."""
+
+
+# An approved *offline* synthetic contract, NOT a quoted OpenAI tariff.
+# Reject all other provider/model profiles until finance reviews a real
+# model-specific tariff, maximum tool use, and independently metered ceiling.
+APPROVED_OFFLINE_MODEL_CEILINGS = {
+    ("openai_web_search", "synthetic-openai-model"): (250_000, 2),
+}
+
+
 def _month() -> date:
     now = datetime.now(timezone.utc)
     return date(now.year, now.month, 1)
@@ -42,8 +55,10 @@ def _month() -> date:
 
 def _micros(amount: Any, *, allow_zero: bool = False) -> int:
     """Convert literal decimal USD into integer micro-dollars without binary floats."""
-    if isinstance(amount, (float, bool)):
-        raise ResearchConflict("Research budgets require an exact decimal USD amount.")
+    if (isinstance(amount, (float, bool)) or
+            not isinstance(amount, (str, int, Decimal)) or
+            not re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{1,6})?", str(amount))):
+        raise ResearchConflict("Research budgets require an exact plain decimal USD amount.")
     try:
         amount_dec = Decimal(str(amount))
     except (InvalidOperation, ValueError, TypeError):
@@ -171,7 +186,17 @@ def reserve_planned_search(db, org_id: uuid.UUID, user_id: uuid.UUID, *,
     if run is None:
         raise ResearchConflict("That run does not belong to the approved experiment.")
     request = build_openai_web_search_request(spec, plan, run)
+    # The caller can choose a *higher* forecast ceiling, never set a lower
+    # charge floor or enable a provider model without a server-approved policy.
+    # This pilot policy is synthetic and authorizes NO actual API request.
+    policy = APPROVED_OFFLINE_MODEL_CEILINGS.get((
+        run.provider_family.value, request.body["model"]
+    ))
+    if policy is None or run.search_uses_ceiling > policy[1]:
+        raise ResearchConflict("Provider/model pricing has not been approved for research reservations.")
     expected = _micros(run.estimated_cost_ceiling_usd)
+    if expected < policy[0]:
+        raise ResearchConflict("The proposed per-run ceiling is below the server-approved safety floor.")
     budget = db.scalar(select(VisibilityResearchBudget).where(
         VisibilityResearchBudget.org_id == org_id,
         VisibilityResearchBudget.period_month == _month()).with_for_update())
@@ -181,6 +206,8 @@ def reserve_planned_search(db, org_id: uuid.UUID, user_id: uuid.UUID, *,
         VisibilityResearchReservation.org_id == org_id,
         VisibilityResearchReservation.idempotency_key == request.idempotency_key))
     if existing:
+        if existing.status == "cancelled":
+            raise ResearchAlreadyCancelled("This search reservation was cancelled; create a new approved plan.")
         if (existing.planned_run_id != request.run_id or
                 existing.plan_signature != request.experiment_signature or
                 existing.request_signature != request.request_signature or
@@ -224,7 +251,13 @@ def cancel_reserved_search(db, org_id: uuid.UUID, user_id: uuid.UUID,
         raise ResearchConflict("Research budget is unavailable.")
     row = db.scalar(select(VisibilityResearchReservation).where(
         VisibilityResearchReservation.id == reservation_id,
-        VisibilityResearchReservation.org_id == org_id).with_for_update())
+        VisibilityResearchReservation.org_id == org_id).with_for_update(
+        ).execution_options(populate_existing=True))
+    # A reservation was already loaded to obtain budget_id; always refresh
+    # AFTER acquiring the budget lock, or SQLAlchemy's identity map may replay
+    # a pre-lock 'reserved' value and release its hold twice.
+    if row is None:
+        raise ResearchConflict("Research reservation is unavailable.")
     if row.status == "cancelled":
         return row, False
     if row.status != "reserved":

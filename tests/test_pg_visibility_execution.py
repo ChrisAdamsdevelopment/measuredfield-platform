@@ -77,7 +77,8 @@ def test_exact_micro_dollars_never_binary_float():
     assert _micros("0.0001") == 100
     assert _micros(Decimal("0.2500")) == 250000
     assert _micros("0", allow_zero=True) == 0
-    for bad in (float(0.1), "NaN", "Infinity", "0.0000001", "-0.01", "501", None, True):
+    for bad in (float(0.1), "NaN", "Infinity", "0.0000001", "-0.01", "501",
+                "5_0", "1e2", "+.25", "0x10", " 0.25 ", None, True):
         with pytest.raises(ResearchConflict):
             _micros(bad)
 
@@ -91,10 +92,10 @@ def test_budget_and_reservation_routes_require_active_paid_owner_and_csrf(platfo
     budget_url = "/api/v1/modules/visibility/execution/budget"
     consent = {"monthly_ceiling_usd": "0.50",
                "confirm": "AUTHORIZE RESEARCH RESERVATIONS"}
-    assert owner.get(budget_url).status_code == 422  # Existing consult != paid subscription.
+    assert owner.get(budget_url).status_code == 403  # Existing consult != paid subscription.
     assert owner.put(budget_url, json=consent).status_code == 403  # CSRF first
     assert owner.put(budget_url, json=consent,
-                     headers={"X-CSRF-Token": csrf_of(owner)}).status_code == 422
+                     headers={"X-CSRF-Token": csrf_of(owner)}).status_code == 403
     _paid_owner(org_id)
     assert owner.put(budget_url, json={**consent, "confirm": "maybe"},
                      headers={"X-CSRF-Token": csrf_of(owner)}).status_code == 422
@@ -109,7 +110,7 @@ def test_budget_and_reservation_routes_require_active_paid_owner_and_csrf(platfo
     assert owner.get(budget_url).json()["status"] == "owner_authorized_reservations_only"
     with session_scope(org_id=org_id) as db:
         db.get(Organization, org_id).status = "deletion_pending"
-    assert owner.get(budget_url).status_code == 422
+    assert owner.get(budget_url).status_code == 403
 
 
 def test_single_owner_plan_reservation_idempotency_and_cancel(platform):
@@ -127,7 +128,7 @@ def test_single_owner_plan_reservation_idempotency_and_cancel(platform):
     assert client.post(endpoint, json=body).status_code == 403
     assert client.post(endpoint, json={**body, "confirm": "yes"},
                        headers=csrf).status_code == 422
-    assert client.post(endpoint, json=body, headers=csrf).status_code == 422
+    assert client.post(endpoint, json=body, headers=csrf).status_code == 403
     assert client.put(budget_url, json={"monthly_ceiling_usd": "0.40",
                        "confirm": "AUTHORIZE RESEARCH RESERVATIONS"},
                       headers=csrf).status_code == 200
@@ -158,7 +159,7 @@ def test_single_owner_plan_reservation_idempotency_and_cancel(platform):
     assert client.post(cancel_url, json=cancellation,
                        headers=csrf).json()["cancelled_now"] is False
     assert client.get(budget_url).json()["held_micros"] == 0
-    assert client.post(endpoint, json=body, headers=csrf).json()["created"] is False
+    assert client.post(endpoint, json=body, headers=csrf).status_code == 409
     other = client.post(endpoint, json={**body, "planned_run_id": plan.requests[1].id},
                         headers=csrf)
     assert other.status_code == 200
@@ -281,3 +282,124 @@ def test_no_live_transport_or_trusted_receipt_in_reservation_layer():
         for forbidden in ("requests.post(", "httpx.post(", "OpenAI(", "TrustedReceipt(",
                           "OPENAI_API_KEY", "urllib.request.urlopen("):
             assert forbidden not in body
+
+
+
+def test_server_policy_refuses_understated_and_unapproved_cost_profiles(platform):
+    """A caller cannot choose its own minimum hold or silently switch models."""
+    from app.db import session_scope
+    from app.models import VisibilityResearchBudget, VisibilityResearchReservation
+
+    _, org, user = _client_and_owner(platform, "price-floor")
+    original = _spec()
+    provider = original.providers[0]
+    lower = original.model_copy(update={
+        "providers": (provider.model_copy(update={
+            "max_charge_per_run_usd": Decimal("0.0001"),
+        }),),
+    })
+    alternative = original.model_copy(update={
+        "providers": (provider.model_copy(update={"model": "unpriced-model"}),),
+    })
+    with session_scope(org_id=org) as db:
+        authorize_budget(
+            db, org, user, monthly_ceiling_usd="0.75", owner_confirmed=True,
+        )
+    with session_scope(org_id=org) as db:
+        with pytest.raises(ResearchConflict, match="safety floor"):
+            reserve_planned_search(
+                db, org, user, spec=lower,
+                planned_run_id=build_ai_visibility_plan(lower).requests[0].id,
+                owner_confirmed=True,
+            )
+    with session_scope(org_id=org) as db:
+        with pytest.raises(ResearchConflict, match="not been approved"):
+            reserve_planned_search(
+                db, org, user, spec=alternative,
+                planned_run_id=build_ai_visibility_plan(alternative).requests[0].id,
+                owner_confirmed=True,
+            )
+    with session_scope(org_id=org) as db:
+        budget = db.query(VisibilityResearchBudget).one()
+        assert budget.held_micros == 0
+        assert db.query(VisibilityResearchReservation).count() == 0
+
+    # Same actual provider request with altered owner ceiling cannot silently
+    # reuse a previous hold; exact plan signature and ceiling must match.
+    with session_scope(org_id=org) as db:
+        reserved, created = reserve_planned_search(
+            db, org, user, spec=original,
+            planned_run_id=build_ai_visibility_plan(original).requests[0].id,
+            owner_confirmed=True,
+        )
+        assert created and reserved.ceiling_micros == 250000
+    raised = original.model_copy(update={
+        "providers": (provider.model_copy(update={
+            "max_charge_per_run_usd": Decimal("0.3000"),
+        }),),
+    })
+    assert build_ai_visibility_plan(raised).requests[0].id == (
+        build_ai_visibility_plan(original).requests[0].id
+    )
+    with session_scope(org_id=org) as db:
+        with pytest.raises(ResearchConflict, match="Idempotency conflict"):
+            reserve_planned_search(
+                db, org, user, spec=raised,
+                planned_run_id=build_ai_visibility_plan(raised).requests[0].id,
+                owner_confirmed=True,
+            )
+
+
+def test_parallel_cancel_never_double_releases_other_held_runs(platform):
+    """Stress stale SQLAlchemy identity-map rows after budget FOR UPDATE."""
+    from threading import Barrier
+
+    from app.db import session_scope
+    from app.models import VisibilityResearchBudget, VisibilityResearchReservation
+    from sqlalchemy import func
+
+    _, org, user = _client_and_owner(platform, "cancel-race")
+    spec = _spec()
+    with session_scope(org_id=org) as db:
+        authorize_budget(db, org, user, monthly_ceiling_usd="0.75", owner_confirmed=True)
+
+    def cancel_once(row_id, barrier):
+        barrier.wait(timeout=15)
+        with session_scope(org_id=org) as db:
+            row, changed = cancel_reserved_search(db, org, user, row_id)
+            assert row.status == "cancelled"
+            return changed
+
+    for iteration in range(8):
+        this_spec = spec.model_copy(update={
+            "experiment_id": f"mf036-cancel-race-{iteration}",
+        })
+        runs = build_ai_visibility_plan(this_spec).requests
+        with session_scope(org_id=org) as db:
+            rows = [
+                reserve_planned_search(
+                    db, org, user, spec=this_spec, planned_run_id=run.id,
+                    owner_confirmed=True,
+                )[0].id
+                for run in runs
+            ]
+        barrier = Barrier(6)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            outcomes = list(pool.map(
+                lambda _: cancel_once(rows[0], barrier), range(6)
+            ))
+        assert outcomes.count(True) == 1, (iteration, outcomes)
+        assert outcomes.count(False) == 5, (iteration, outcomes)
+        with session_scope(org_id=org) as db:
+            budget = db.query(VisibilityResearchBudget).one()
+            held = db.scalar(select(func.coalesce(
+                func.sum(VisibilityResearchReservation.ceiling_micros), 0
+            )).where(VisibilityResearchReservation.status == "reserved"))
+            assert budget.held_micros == held == 500000, (iteration, held, budget.held_micros)
+            assert 0 <= budget.held_micros <= budget.ceiling_micros
+        with session_scope(org_id=org) as db:
+            for row_id in rows[1:]:
+                _, changed = cancel_reserved_search(db, org, user, row_id)
+                assert changed
+        with session_scope(org_id=org) as db:
+            assert db.query(VisibilityResearchBudget).one().held_micros == 0
