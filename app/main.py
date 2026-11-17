@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import re
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
@@ -63,7 +64,13 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("Refusing to start: " + " | ".join(problems))
     for problem in problems:
         log.warning("startup check: %s", problem)
-    yield
+    # The MCP SDK manages an independent Streamable HTTP session manager.
+    # Start/stop it with the existing web lifespan only when explicitly enabled.
+    async with AsyncExitStack() as stack:
+        child = getattr(app.state, "mcp_resource_app", None)
+        if child is not None:
+            await stack.enter_async_context(child.router.lifespan_context(child))
+        yield
 
 
 def create_main_app() -> FastAPI:
@@ -169,11 +176,29 @@ def canonical_host(raw: bytes) -> str | None:
     return hostname
 
 
-class HostRouter:
-    """ASGI dispatcher: health checks, then app hosts vs. customer-site hosts."""
+def _configured_mcp_resource(settings):
+    """Opt-in, host-pinned protected MCP. Never create a noauth fallback."""
+    flag = os.getenv("MF_ENABLE_REMOTE_MCP", "false")
+    if flag not in ("false", "true"):
+        raise RuntimeError("MF_ENABLE_REMOTE_MCP must be exactly true or false")
+    if flag != "true":
+        return None, None
+    from .mcp_plugin.config import McpPluginSettings
+    from .mcp_plugin.server import create_app as create_mcp_app
 
-    def __init__(self, main_app, sites_app):
+    resource_settings = McpPluginSettings.from_env()
+    resource_host = urlsplit(resource_settings.resource_url).hostname
+    if resource_host not in settings.app_host_set:
+        raise RuntimeError("MCP resource hostname must be an approved application host")
+    return create_mcp_app(), resource_host
+
+
+class HostRouter:
+    """ASGI dispatcher: health, protected MCP, app hosts or customer sites."""
+
+    def __init__(self, main_app, sites_app, *, mcp_app=None, mcp_host=None):
         self.main_app, self.sites_app = main_app, sites_app
+        self.mcp_app, self.mcp_host = mcp_app, mcp_host
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -192,6 +217,15 @@ class HostRouter:
         path = scope.get("path", "")
         if path in ("/healthz", "/readyz"):
             return await self._health(path, scope, receive, send)
+        # The MCP resource uses its *own* OAuth and strict Host/Origin middleware.
+        # Never pass its JSON-RPC requests through the HTML application's CSRF
+        # middleware, and never route a customer website to the private MCP.
+        if self.mcp_app is not None and path in (
+                "/mcp", "/.well-known/oauth-protected-resource/mcp"):
+            if host != self.mcp_host:
+                return await PlainTextResponse("Not found.", status_code=404)(
+                    scope, receive, send)
+            return await self.mcp_app(scope, receive, send)
         if host in get_settings().app_host_set:
             return await self.main_app(scope, receive, send)
         return await self.sites_app(scope, receive, send)
@@ -209,7 +243,12 @@ class HostRouter:
 
 
 def create_app() -> HostRouter:
-    return HostRouter(create_main_app(), site_host.create_sites_app())
+    main = create_main_app()
+    mcp_app, mcp_host = _configured_mcp_resource(get_settings())
+    if mcp_app is not None:
+        main.state.mcp_resource_app = mcp_app
+    return HostRouter(main, site_host.create_sites_app(),
+                      mcp_app=mcp_app, mcp_host=mcp_host)
 
 
 app = create_app()
