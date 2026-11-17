@@ -61,7 +61,7 @@ Or:
 
     python -m app.local_connect.cli server
 
-These commands speak MCP on stdin/stdout, not HTTP. An authorized local IDE or MCP client must spawn the process. Do not run them as a public web server. No live MeasuredField ChatGPT plugin connection has been configured by this task.
+**Security gate (MF-046): These two old unpaired server launchers are permitted ONLY on a computer that has never had an account connection record or DPAPI device credential.** Both refuse startup once the MeasuredField account link exists, even if it was subsequently disconnected or the workspace is offline. Every model-callable file operation also rechecks this condition, so a previously started unpaired process cannot continue serving file content after account linking. Use the separate owner-approved `app.paired_connect` launcher on linked computers; never configure the unpaired server as a ChatGPT remote connector. These commands speak MCP on stdin/stdout, not HTTP. No live MeasuredField ChatGPT plugin connection has been configured by this task.
 
 ## Future ChatGPT integration
 

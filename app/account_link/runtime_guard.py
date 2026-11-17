@@ -76,6 +76,21 @@ class AccountRuntimeGuard:
             self._deny()
         return state
 
+    def require_never_linked_local_pilot(self) -> None:
+        """Deny the older unpaired stdio server on *any* account-connected PC.
+
+        Unlike paired tools, an unpaired tool can never use the cloud status to
+        authorize itself. It is only for a clean never-linked local pilot.
+        Merely having account metadata or a DPAPI credential is disqualifying,
+        even if the UI says disconnected, read-only, or cannot contact the API.
+        """
+        state = self._read_account()
+        if state is not None or self._credential_present():
+            raise AccessDenied(
+                "The legacy local server is disabled for account-linked computers. "
+                "Use the owner-approved paired connection launcher instead."
+            )
+
     def check(self, *, action: str = "read") -> None:
         """Synchronously authorize each tool, not just when GUI is open.
 

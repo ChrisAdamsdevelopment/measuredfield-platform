@@ -29,7 +29,7 @@ def parser() -> argparse.ArgumentParser:
     reject.add_argument("--id", required=True)
     audit = sub.add_parser("audit", help="Show action metadata without file content")
     audit.add_argument("--limit", type=int, default=30)
-    sub.add_parser("server", help="Start private stdio MCP server")
+    sub.add_parser("server", help="Start legacy never-linked local-only MCP server (not for account-linked computers)")
     return p
 
 

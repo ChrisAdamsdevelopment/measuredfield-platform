@@ -1,61 +1,83 @@
-"""Private stdio MCP server. No model-callable grants, approvals or shell access.
+"""Legacy never-linked local-only stdio MCP pilot.
 
-The owner must configure the grants separately with the local CLI.
-No network listener or public endpoint is created here.
+This old unpaired endpoint must NEVER serve files on a computer that has an
+account link. Use the separate, owner-approved paired MCP server instead.
+Every individual tool is checked, even if the stdio process was started before
+the owner linked or disconnected their computer. No public listener exists.
 """
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from .store import LocalConnect
+from app.account_link.runtime_guard import AccountRuntimeGuard
+from .store import LocalConnect, _home
 
 mcp = FastMCP(
-    "MeasuredField Connected Workspace",
+    "MeasuredField Connected Workspace — Never-Linked Private Pilot",
     instructions=(
-        "Only user-granted project folders are accessible. Never request credential "
-        "files. File edits are proposals that a human must approve separately on "
-        "their computer. There is no shell, direct write, deletion, pairing or grant tool."
+        "Legacy owner-local pilot only, disabled after any account connection. "
+        "Only user-granted project folders are available. Edits are proposals "
+        "requiring separate owner approval. There is no shell, direct write, "
+        "deletion, pairing or grant tool."
     ),
 )
 
 
+def _guard() -> AccountRuntimeGuard:
+    guard = AccountRuntimeGuard(_home())
+    guard.require_never_linked_local_pilot()
+    return guard
+
+
+def _legacy_call(method: str, *args, **kwargs):
+    """Guard *before and after* every model-callable local file operation."""
+    guard = _guard()
+    local = LocalConnect(guard.home)
+    result = getattr(local, method)(*args, **kwargs)
+    # If account linking began during the operation, never release the result.
+    guard.require_never_linked_local_pilot()
+    return result
+
+
 @mcp.tool()
 def list_granted_projects() -> list[dict]:
-    """List explicitly connected project names, IDs and read/read-write permissions."""
-    return LocalConnect().grants(include_roots=False)
+    """List locally granted projects ONLY on a never-linked computer."""
+    return _legacy_call("grants", include_roots=False)
 
 
 @mcp.tool()
 def browse_project(grant_id: str, relative_path: str = "") -> dict:
-    """Browse one folder inside a user-approved project (max 100 entries)."""
-    return LocalConnect().browse(grant_id, relative_path)
+    """Browse a selected folder in the never-linked local pilot."""
+    return _legacy_call("browse", grant_id, relative_path)
 
 
 @mcp.tool()
 def read_project_file(grant_id: str, relative_path: str) -> dict:
-    """Read UTF-8 text up to 256 KiB inside the selected project's permitted scope."""
-    return LocalConnect().read(grant_id, relative_path)
+    """Read a bounded UTF-8 file only for the never-linked local pilot."""
+    return _legacy_call("read", grant_id, relative_path)
 
 
 @mcp.tool()
 def propose_project_edit(grant_id: str, relative_path: str, new_content: str) -> dict:
-    """Stage a whole-text-file edit; NEVER changes files until local owner approval."""
-    return LocalConnect().propose(grant_id, relative_path, new_content)
+    """Stage a review-only proposal; never apply it automatically."""
+    return _legacy_call("propose", grant_id, relative_path, new_content)
 
 
 @mcp.tool()
 def list_pending_edits() -> list[dict]:
-    """Show staged changes awaiting local user approval, without exposing their content."""
-    return LocalConnect().pending()
+    """Show pending changes without disclosing file contents."""
+    return _legacy_call("pending")
 
 
 @mcp.tool()
 def recent_connection_activity(limit: int = 20) -> list[dict]:
-    """Show privacy-minimal metadata about recent computer-connection actions."""
-    return LocalConnect().audit(limit)
+    """Show privacy-minimal local activity only in never-linked pilot."""
+    return _legacy_call("audit", limit)
 
 
 def main() -> None:
+    # Prevent even initializing the stdio protocol on any linked computer.
+    _guard()
     mcp.run(transport="stdio")
 
 
