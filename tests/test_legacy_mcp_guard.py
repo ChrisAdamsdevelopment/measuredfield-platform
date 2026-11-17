@@ -19,6 +19,18 @@ from app.local_connect import mcp_server
 from app.local_connect.cli import main as cli_main
 
 
+def _mcp_is_error(result) -> bool:
+    """Fail closed across MCP 1.x isError and MCP 2.x is_error result fields."""
+    old = getattr(result, "isError", None)
+    new = getattr(result, "is_error", None)
+    if old is not None and new is not None and old != new:
+        raise AssertionError("Conflicting MCP tool error flags")
+    flag = new if new is not None else old
+    if not isinstance(flag, bool):
+        raise AssertionError("MCP tool result did not specify an error status")
+    return flag
+
+
 @pytest.fixture
 def site(tmp_path, monkeypatch):
     home = tmp_path / "state"
@@ -212,16 +224,16 @@ def test_actual_separate_stdio_mcp_process_denies_after_link(site):
                     "relative_path": "hello.txt",
                 }
                 before = await session.call_tool("read_project_file", arguments)
-                assert before.isError is False
+                assert _mcp_is_error(before) is False
                 assert "synthetic-owner-file" in str(before.content)
                 add_account_state(site, "revoked")
                 after = await session.call_tool("read_project_file", arguments)
-                assert after.isError is True
+                assert _mcp_is_error(after) is True
                 assert "synthetic-owner-file" not in str(after.content)
                 proposal = await session.call_tool("propose_project_edit", {
                     **arguments, "new_content": "forbidden",
                 })
-                assert proposal.isError is True
+                assert _mcp_is_error(proposal) is True
                 assert site["local"].pending() == []
 
     asyncio.run(scenario())
@@ -243,3 +255,19 @@ def test_linked_direct_stdio_start_exits_before_protocol(site):
     )
     assert result.returncode != 0
     assert "synthetic-owner-file" not in (result.stdout + result.stderr)
+
+
+
+def test_mcp_error_flag_is_strict_for_both_sdk_spellings():
+    from types import SimpleNamespace
+
+    assert _mcp_is_error(SimpleNamespace(isError=True)) is True
+    assert _mcp_is_error(SimpleNamespace(is_error=True)) is True
+    assert _mcp_is_error(SimpleNamespace(isError=False)) is False
+    assert _mcp_is_error(SimpleNamespace(is_error=False)) is False
+    with pytest.raises(AssertionError, match="did not specify"):
+        _mcp_is_error(SimpleNamespace())
+    with pytest.raises(AssertionError, match="did not specify"):
+        _mcp_is_error(SimpleNamespace(is_error="false"))
+    with pytest.raises(AssertionError, match="Conflicting"):
+        _mcp_is_error(SimpleNamespace(is_error=True, isError=False))
