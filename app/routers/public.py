@@ -50,7 +50,7 @@ def public_sitemap():
     if settings.env != "production":
         raise HTTPException(404, "Not found")
     base = settings.public_base_url.rstrip("/")
-    paths = ["/", "/assessment", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
+    paths = ["/", "/platform", "/assessment", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
     entries = []
     for path in paths:
         extra = ""
@@ -88,6 +88,12 @@ def privacy(request: Request, principal: Principal | None = Depends(get_principa
 @router.get("/terms")
 def terms(request: Request, principal: Principal | None = Depends(get_principal)):
     return render(request, "public/terms.html")
+
+
+@router.get("/platform")
+def platform_overview(request: Request, principal: Principal | None = Depends(get_principal)):
+    """Indexable, honest overview: public copy cannot grant private tool access."""
+    return render(request, "public/platform.html")
 
 
 # -------------------------------------------------------------------- free sample preview

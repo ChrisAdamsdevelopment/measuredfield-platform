@@ -1,0 +1,81 @@
+{% extends "public/base.html" %}
+{% block title %}Small Business Growth Platform, Local Search, Websites &amp; AI Tools | MeasuredField{% endblock %}
+{% block description %}Explore MeasuredField's connected small-business workspace: websites, inquiry follow-up, customer records, local market intelligence, SEO evidence, and permissioned ChatGPT/desktop pilots. See what is ready and what is in testing.{% endblock %}
+{% block social_meta %}
+{% if settings.public_base_url %}
+<link rel="canonical" href="{{ settings.public_base_url.rstrip('/') }}/platform">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MeasuredField">
+<meta property="og:title" content="MeasuredField Platform | Your business, organized around evidence">
+<meta property="og:description" content="Explore websites, inquiries, local research, AI visibility and optional connected tools in one business workspace. See what is available and what is in beta.">
+<meta property="og:url" content="{{ settings.public_base_url.rstrip('/') }}/platform">
+<meta property="og:image" content="{{ settings.public_base_url.rstrip('/') }}/static/media/measuredfield-social-preview.jpg">
+<meta name="twitter:card" content="summary_large_image">
+{% endif %}
+{% endblock %}
+{% block structured_data %}
+{% if settings.public_base_url %}
+{% set root = settings.public_base_url.rstrip('/') %}
+{% set schema = {"@context":"https://schema.org","@type":"WebPage","@id":root ~ "/platform#webpage","url":root ~ "/platform","name":"MeasuredField small business growth platform","description":"Overview of MeasuredField websites, inquiries, customer records, public-market evidence and owner-controlled AI integration pilots.","isPartOf":{"@type":"WebSite","name":"MeasuredField","url":root ~ "/"}} %}
+<script type="application/ld+json">{{ schema | tojson }}</script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<section class="hero" style="padding:80px 0 74px">
+<div class="wrap">
+<div class="eyebrow"><span class="eyebrow-line"></span> THE MEASUREDFIELD PLATFORM</div>
+<h1>Run the business.<br><em>Keep the evidence.</em></h1>
+<p class="lead">Websites and inquiries, market intelligence, customer records and business decisions should work together. MeasuredField gives owners a growing workspace to organize what matters, review changes and learn from measurable outcomes.</p>
+<div class="actions">
+<a class="btn primary" href="/assessment">Start with your business</a>
+<a class="btn secondary" href="/login">Open your workspace</a>
+</div>
+<p class="hero-foot">Public information is available to everyone. Account features require onboarding. Experimental connectors are not activated by default.</p>
+</div></section>
+
+<section id="foundation" class="section"><div class="wrap">
+<div class="section-head"><div class="eyebrow">Core workspace</div><h2>The systems that help work become results.</h2><p>Built around one business at a time, with separate permissions and records for each business.</p></div>
+<div class="feature-grid">
+<article class="feature"><div class="feature-no">01 / WEBSITE STUDIO</div><h3>Build, publish and improve</h3><p>Work from a business's own services, city and branding. Review site versions and publish changes with approval. Keep an edit history and rollback options.</p><div class="feature-end">Workspace foundation</div></article>
+<article class="feature"><div class="feature-no">02 / INQUIRY DESK</div><h3>Stop losing follow-ups</h3><p>Organize incoming leads, assign owners, add notes and follow-up dates. Record the first response, status and whether the opportunity was won or lost.</p><div class="feature-end">Workspace foundation · provider integrations vary</div></article>
+<article class="feature"><div class="feature-no">03 / CUSTOMER RECORDS</div><h3>Know the history</h3><p>Keep customers, documents, projects and proposals associated with the work. Team roles control what members can view or change.</p><div class="feature-end">Workspace foundation</div></article>
+</div></div></section>
+
+<section id="intelligence" class="section alt"><div class="wrap">
+<div class="section-head"><div class="eyebrow">Research and visibility</div><h2>Which market? Which search? Which evidence?</h2><p>Good business decisions depend on knowing exactly what the underlying information does—and does not—tell you.</p></div>
+<div class="feature-grid">
+<article class="feature"><div class="feature-no">04 / MARKET INTELLIGENCE</div><h3>Local business landscapes</h3><p>Explore selected U.S. markets using Census Bureau public aggregates. Employer-business evidence from 2023 County Business Patterns is distinct from nonemployer-business evidence from 2024 Nonemployer Statistics. The dashboard preserves sources, reference years and geographic limits.</p><div class="feature-end">Authenticated beta · public-source data, not live competitor counts</div></article>
+<article class="feature"><div class="feature-no">05 / LOCAL SEARCH RESEARCH</div><h3>Geography changes the answer</h3><p>Compare available local search observations by city, coordinate and search phrase. Understand what has actually been observed versus what still needs a provider measurement.</p><div class="feature-end">Imported evidence / research pilot</div></article>
+<article class="feature"><div class="feature-no">06 / AI VISIBILITY</div><h3>Research answer visibility</h3><p>Organize questions and evidence for how an AI assistant may describe a business. Historic, imported and hypothetical observations are labeled separately; continuous live model monitoring is not implied.</p><div class="feature-end">Private research pilot</div></article>
+</div>
+<p style="margin-top:30px"><a class="btn secondary" href="/visibility-preview">Explore the free local-visibility example</a></p>
+</div></section>
+
+<section id="connections" class="section"><div class="wrap">
+<div class="section-head"><div class="eyebrow">Optional connections</div><h2>Your business. Your access decisions.</h2><p>Measurability matters, but so does keeping account access under the owner's control.</p></div>
+<div class="feature-grid">
+<article class="feature"><div class="feature-no">07 / CHATGPT</div><h3>Ask questions in natural language</h3><p>The private MeasuredField ChatGPT plugin is being connected to the authenticated MCP service. Its initial read-only tools are designed to recognize the actual signed-in owner and their permitted business. Availability depends on OAuth verification and plugin access—not simply having a ChatGPT account.</p><div class="feature-end">Private connection pilot · not generally available</div></article>
+<article class="feature"><div class="feature-no">08 / YOUR COMPUTER</div><h3>Scoped desktop collaboration</h3><p>Optional computer pairing is designed around explicit device confirmation, narrow folder permissions and revocation. Installing the website alone does not grant MeasuredField access to local files or browsers.</p><div class="feature-end">Permissioned development pilot</div></article>
+<article class="feature"><div class="feature-no">09 / EMAIL &amp; GOOGLE DATA</div><h3>Connect authorized business data</h3><p>Gmail and Google Search Console can add useful context when each business authorizes them through an appropriate connection. These provider integrations are being verified separately and are not automatically enabled in the current beta.</p><div class="feature-end">Provider-dependent integrations · not active by default</div></article>
+</div></div></section>
+
+<section id="improvement-loop" class="section process"><div class="wrap process-grid">
+<div><div class="eyebrow">Better context over time</div><h2>Useful memory, not unexplained guesses.</h2><p class="process-intro">MeasuredField's long-term direction is to retain confirmed decisions, imported evidence, approved changes and measured outcomes for the next session. A proposed lesson is not the same as a verified fact, and automatic rewriting of a live business is not the goal.</p><a class="text-link" href="/assessment">Tell us what you want to improve</a></div>
+<div class="steps">
+<div class="step"><span>01</span><div><h3>Observe</h3><p>Record the source, business, date and geographic area.</p></div></div>
+<div class="step"><span>02</span><div><h3>Decide</h3><p>Present options, uncertainty and the owner's approval.</p></div></div>
+<div class="step"><span>03</span><div><h3>Act</h3><p>Carry out authorized changes, preserving a review trail.</p></div></div>
+<div class="step"><span>04</span><div><h3>Learn</h3><p>Compare the outcome with the goal; preserve corrections and evidence.</p></div></div>
+</div></div></section>
+
+<section id="founder-pilot" class="section alt"><div class="wrap">
+<div class="section-head"><div class="eyebrow">Founder Pilot</div><h2>Help shape what comes next.</h2><p>MeasuredField is being validated with invited businesses before general self-service access. You can explore the public website now, start an assessment, and share feedback from an invited workspace account.</p></div>
+<div class="feature-grid">
+<article class="feature"><div class="feature-no">START</div><h3>Explain your business</h3><p>Answer two practical questions about your work and what is holding it back. Your first assessment is free.</p><p><a class="text-link" href="/assessment">Start your assessment</a></p></article>
+<article class="feature"><div class="feature-no">TEST</div><h3>Use an invited workspace</h3><p>Beta participants can inspect the currently enabled modules. Private provider connections need their own authorizations and may still be unavailable.</p><p><a class="text-link" href="/login">Sign in to your workspace</a></p></article>
+<article class="feature"><div class="feature-no">REPORT</div><h3>Tell us what works</h3><p>Submit a bug, improvement idea or general feedback from your workspace. You can view its review status; do not include passwords or customer secrets.</p><p><a class="text-link" href="/login?next=/app/feedback">Send beta feedback</a></p></article>
+</div>
+<p class="small" style="margin-top:26px">Public descriptions are product information, not a promise of immediate access to every module. Read our <a href="/privacy">Privacy</a> and <a href="/terms">Terms</a> information before connecting business data.</p>
+</div></section>
+<section class="cta-band"><div class="wrap"><h2>Start with the business you want to build.</h2><p>Make the first step concrete and keep improving with evidence.</p><a class="btn primary" href="/assessment">Start your free assessment</a></div></section>
+{% endblock %}
