@@ -1,6 +1,9 @@
 {% extends "public/base.html" %}
 {% block title %}Start your free workspace | {{ brand }}{% endblock %}
 {% block description %}Create a no-card MeasuredField founding beta workspace for your business. Verify your email and explore the tools available today.{% endblock %}
+{% block social_meta %}
+{% if settings.public_base_url %}<link rel="canonical" href="{{ settings.public_base_url.rstrip('/') }}/signup">{% endif %}
+{% endblock %}
 {% block content %}
 <div class="flow"><div class="narrow">
   <div class="eyebrow"><span class="eyebrow-line"></span> Founding beta</div>

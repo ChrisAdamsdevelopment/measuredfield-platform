@@ -50,7 +50,7 @@ def public_sitemap():
     if settings.env != "production":
         raise HTTPException(404, "Not found")
     base = settings.public_base_url.rstrip("/")
-    paths = ["/", "/platform", "/assessment", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
+    paths = ["/", "/platform", "/assessment", "/signup", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
     entries = []
     for path in paths:
         extra = ""

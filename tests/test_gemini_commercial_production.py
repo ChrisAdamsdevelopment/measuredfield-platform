@@ -140,5 +140,10 @@ def test_marketing_robot_rules_and_video_sitemap_only_on_real_launch(platform):
         assert not any("/app/" in u or "/operator" in u for u in urls)
         assert "video:video" in sitemap.text
         assert "2026-11-13T15:12:00-07:00" in sitemap.text
+        assert f"<loc>{config.public_base_url.rstrip('/')}/signup</loc>" in sitemap.text
+        assert not any(f"<loc>{config.public_base_url.rstrip('/')}{p}</loc>" in sitemap.text for p in ("/login", "/app", "/operator", "/accept-invite", "/signup/thanks"))
+        signup = c.get("/signup")
+        assert signup.status_code == 200
+        assert f'<link rel="canonical" href="{config.public_base_url.rstrip("/")}/signup">' in signup.text
     finally:
         config.env,config.video_publication_date=original_env,original_date
