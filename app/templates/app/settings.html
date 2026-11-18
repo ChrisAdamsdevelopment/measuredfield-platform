@@ -20,7 +20,12 @@
 {% if can('billing.read') %}<div class="card"><h2>Plan and billing</h2>
 <dl class="kv"><dt>Plan</dt><dd>{{ billing.get('offer') or org.plan }}</dd>
 <dt>Payment</dt><dd>{% if billing.get('paid') %}Paid: ${{ '%.2f'|format(billing.get('amount_cents', 0) / 100) }}{% else %}No payment recorded for this workspace.{% endif %}</dd></dl>
-<p class="small muted actions">Invoices and card management will appear here when online payment is switched on.</p></div>{% endif %}
+{% if billing.get('paid') and payments_live and role == 'owner' and org.plan == 'operate' %}
+<p class="small muted">Manage invoices, payment methods and subscription cancellation securely in Stripe. Subscription changes take effect when Stripe confirms them.</p>
+<form method="post" action="/app/billing/portal"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="actions"><button class="btn" type="submit">Manage billing in Stripe</button></div></form>
+{% elif not billing.get('paid') %}<p class="small muted actions">This workspace has no recorded charge. Your founding beta access does not require a card.</p>
+{% elif not payments_live %}<p class="small muted actions">Online billing management is unavailable. Contact support for invoices or cancellation.</p>
+{% endif %}</div>{% endif %}
 
 {% if can('data.manage') %}<div class="card"><h2>Your data</h2>
 <p>Download everything in this workspace as one file, including documents.</p>
