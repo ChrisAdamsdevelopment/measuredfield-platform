@@ -50,7 +50,7 @@ def public_sitemap():
     if settings.env != "production":
         raise HTTPException(404, "Not found")
     base = settings.public_base_url.rstrip("/")
-    paths = ["/", "/platform", "/assessment", "/signup", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
+    paths = ["/", "/platform", "/local/prescott", "/assessment", "/signup", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
     entries = []
     for path in paths:
         extra = ""
@@ -94,6 +94,12 @@ def terms(request: Request, principal: Principal | None = Depends(get_principal)
 def platform_overview(request: Request, principal: Principal | None = Depends(get_principal)):
     """Indexable, honest overview: public copy cannot grant private tool access."""
     return render(request, "public/platform.html")
+
+
+@router.get("/local/prescott")
+def prescott_local_growth(request: Request, principal: Principal | None = Depends(get_principal)):
+    """Public local service overview; never implies a verified storefront or live rank scan."""
+    return render(request, "public/local_prescott.html")
 
 
 # -------------------------------------------------------------------- free sample preview

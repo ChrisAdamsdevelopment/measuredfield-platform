@@ -1,0 +1,116 @@
+{% extends "public/base.html" %}
+{% block title %}Prescott & Prescott Valley Local SEO, Websites & Business Systems | MeasuredField{% endblock %}
+{% block description %}Practical website improvement, Google Business Profile guidance, local SEO, inquiry follow-up and evidence-based AI search research for Prescott Valley, Prescott, Chino Valley and Dewey-Humboldt businesses. Start with a free business assessment.{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/prescott_local.css">{% endblock %}
+{% block social_meta %}
+{% if settings.public_base_url %}
+{% set root = settings.public_base_url.rstrip('/') %}
+<link rel="canonical" href="{{ root }}/local/prescott">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MeasuredField">
+<meta property="og:title" content="Prescott-Area Small Business Growth | MeasuredField">
+<meta property="og:description" content="Local business visibility, websites and follow-up built around evidence—not guesses. Start your free assessment.">
+<meta property="og:url" content="{{ root }}/local/prescott">
+<meta property="og:image" content="{{ root }}/static/media/measuredfield-social-preview.jpg">
+<meta name="twitter:card" content="summary_large_image">
+{% endif %}
+{% endblock %}
+{% block structured_data %}
+{% if settings.public_base_url %}
+{% set root = settings.public_base_url.rstrip('/') %}
+{% set region = ["Prescott Valley", "Prescott", "Chino Valley", "Dewey-Humboldt"] %}
+{% set schema = {"@context":"https://schema.org","@graph":[
+{"@type":"WebPage","@id":root ~ "/local/prescott#page","url":root ~ "/local/prescott",
+"name":"Local marketing, websites and business systems in the Prescott area | MeasuredField",
+"description":"Local marketing and business-system consultation for service businesses in the Prescott Quad Cities.",
+"isPartOf":{"@id":root ~ "/#website"}},
+{"@type":"Service","@id":root ~ "/local/prescott#local-service","name":"MeasuredField local business growth and digital operations support",
+"serviceType":"Website optimization, local search analysis, lead-management consultation and authorized business workflows",
+"provider":{"@id":root ~ "/#organization"},
+"areaServed":region | map('string') | list,
+"url":root ~ "/local/prescott"}
+]} %}
+<script type="application/ld+json">{{ schema | tojson }}</script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<section class="local-hero">
+  <div class="wrap local-hero-grid">
+    <div>
+      <p class="local-eyebrow">PRESCOTT VALLEY • PRESCOTT • CHINO VALLEY • DEWEY-HUMBOLDT</p>
+      <h1>More than a website.<br><em>A better way to grow your local business.</em></h1>
+      <p class="local-lead">Customers find you on Google, visit your website, call, compare, and decide. MeasuredField helps local business owners connect those steps—with clearer websites, accurate business information, practical follow-up systems, and evidence you can actually inspect.</p>
+      <div class="actions">
+        <a class="btn primary" href="/assessment">Start your free business assessment <span aria-hidden="true">→</span></a>
+        <a class="btn secondary" href="/platform">Explore the platform</a>
+      </div>
+      <p class="local-explainer">No charge or card to complete the initial assessment. Managed services are discussed separately after we understand your needs. Online tools and integrations have different readiness levels.</p>
+      <div class="local-tags"><span>Google Business Profile</span><span>Local SEO &amp; websites</span><span>Lead follow-up</span><span>AI visibility research</span></div>
+    </div>
+    <div class="local-panel" aria-label="Example of a local business improvement process, not live customer metrics">
+      <div class="local-panel-top"><span class="local-dot" aria-hidden="true"></span><strong>From being found to winning the job</strong></div>
+      <ol>
+        <li><b>Be discoverable</b><small>Correct Google listing, website and service details</small></li>
+        <li><b>Make it easy to inquire</b><small>Mobile-friendly pages, clear contact paths and requests</small></li>
+        <li><b>Follow through</b><small>Track questions, estimates, and the next action</small></li>
+        <li><b>Learn from evidence</b><small>Record calls, form submissions and available search data</small></li>
+      </ol>
+      <p class="local-panel-note">Illustrative workflow, not an automatically generated ranking report.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section local-section" id="how-we-help">
+  <div class="wrap">
+    <div class="section-head"><div class="eyebrow">WHAT WE WORK ON</div><h2>Make your entire customer journey work harder.</h2><p>Practical, owner-approved improvements—not another disconnected marketing dashboard.</p></div>
+    <div class="local-services">
+      <article class="local-card"><span>01 / GOOGLE</span><h3>Google Business Profile &amp; local visibility</h3><p>Review categories, services, coverage, photos, review responses, and where available, search-position evidence. Keep the listing truthful and under the business owner's control.</p><small>Research and owner-approved management; rankings are not guaranteed.</small></article>
+      <article class="local-card"><span>02 / WEBSITE</span><h3>Better websites, clearer requests</h3><p>Make services easy to understand, improve mobile pages and structured data, strengthen calls to action, and connect visitors to a working inquiry path.</p><small>Existing sites can be assessed before recommending a rebuild.</small></article>
+      <article class="local-card"><span>03 / OPERATIONS</span><h3>Follow up while interest is fresh</h3><p>Organize customer inquiries, notes, project opportunities and next steps in an owner-controlled workspace, with integrations enabled only when authorized.</p><small>Availability depends on the workspace and provider connection.</small></article>
+      <article class="local-card"><span>04 / MEASUREMENT</span><h3>Know what led to the next call</h3><p>Use available Search Console evidence, tagged campaigns and verified inquiry records to separate useful signals from speculation.</p><small>AI-answer research is an early pilot, not promised live AI rankings.</small></article>
+    </div>
+  </div>
+</section>
+
+<section class="section alt local-section" id="local-proof">
+  <div class="wrap local-proof-grid">
+    <div>
+      <div class="eyebrow">REAL PROJECT EXPERIENCE</div>
+      <h2>Built from hands-on work with a local contractor.</h2>
+      <p>Work supporting <a href="https://prescottsbestconstruction.com/" rel="noopener noreferrer">Prescott's Best Construction</a> has informed the MeasuredField approach: public service pages, website updates, Search Console verification, Google Business Profile improvements, video content and lead-request experiences.</p>
+      <p>That work is an implementation example, <strong>not a promise that every MeasuredField tool is fully automated</strong>. Results depend on the business, its starting point and actions actually completed.</p>
+      <a class="text-link" href="https://prescottsbestconstruction.com/" rel="noopener noreferrer">View the contractor's public website</a>
+    </div>
+    <figure class="local-proof-media">
+      <img src="/static/media/measuredfield-local-contractor-results-114.webp" width="960" height="540" loading="lazy" decoding="async" alt="Illustrated example of a reported traffic-growth observation for a local contractor, not a raw analytics time-series chart">
+      <figcaption>Case-study artwork based on a reported Wix Analytics observation. Illustration is not a raw performance chart and does not establish that software caused growth.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section local-section">
+ <div class="wrap">
+  <div class="section-head"><div class="eyebrow">START HERE</div><h2>Tell us where customers are getting stuck.</h2><p>Whether you are starting from zero or already paying for marketing, begin with the business you actually run.</p></div>
+  <div class="local-steps">
+   <div><strong>1. Explain the business</strong><p>Complete the existing two-question assessment. Tell us what you're building and what's getting in the way.</p></div>
+   <div><strong>2. Review real priorities</strong><p>We can discuss which Google, website and follow-up improvements fit your situation. We don't pretend a sample is a live scan.</p></div>
+   <div><strong>3. Approve what comes next</strong><p>Agree on a limited implementation or explore the free beta workspace before committing to larger work.</p></div>
+  </div>
+  <div class="local-cta-strip">
+   <div><h3>Serving businesses across Arizona's Quad Cities.</h3><p>Contractors, cleaners, landscapers and other locally focused small businesses.</p></div>
+   <div class="actions"><a class="btn primary" href="/assessment">Start free assessment</a><a class="btn secondary" href="/signup">Explore the free beta</a></div>
+  </div>
+ </div>
+</section>
+
+<section class="section alt local-section">
+ <div class="wrap local-faq">
+  <div class="section-head"><div class="eyebrow">FREQUENT QUESTIONS</div><h2>Clear answers before you commit.</h2></div>
+  <details><summary>Do I have to replace my existing website?</summary><p>No. Start by identifying what already works. A focused improvement may be more valuable than a complete rebuild.</p></details>
+  <details><summary>Can you promise the top three Google Maps positions?</summary><p>No. Google controls ranking and considers relevance, distance, and prominence. We can improve accurate business information and assess observed performance, but no one can honestly guarantee local-pack placement.</p></details>
+  <details><summary>Is the free visibility example a real Google or AI audit?</summary><p>No. The public visibility preview is not a live scan. It is an illustrative example built from the information you enter. Actual search/AI visibility research requires approved providers, evidence sources, and a separately verified process.</p></details>
+  <details><summary>What does the initial assessment cost?</summary><p>The two-question assessment is free. Optional managed implementation and subscriptions are separate; scope and pricing should be confirmed before paid work begins.</p></details>
+  <p><a href="/visibility-preview">Explore an illustrative local-visibility example</a> or <a href="/assessment">tell us about your business</a>.</p>
+ </div>
+</section>
+{% endblock %}
