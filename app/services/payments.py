@@ -46,12 +46,29 @@ class StripeProvider:
             "cancel_url": cancel_url,
             "metadata[order_id]": order_id,
             "line_items[0][quantity]": "1",
-            "line_items[0][price_data][currency]": "usd",
-            "line_items[0][price_data][unit_amount]": str(int(offer["price_cents"])),
-            "line_items[0][price_data][product_data][name]": offer["name"],
         }
+        # Real Stripe Price objects are required for product-restricted coupons and
+        # stable subscriptions. Existing non-promotional one-time test offers retain
+        # the legacy inline price_data integration until catalog prices are approved.
+        price_id = str(offer.get("stripe_price_id") or "")
+        if price_id:
+            if not price_id.startswith("price_") or not price_id[6:].isalnum():
+                raise PaymentError("Invalid configured Stripe Price ID")
+            form["line_items[0][price]"] = price_id
+        else:
+            form["line_items[0][price_data][currency]"] = "usd"
+            form["line_items[0][price_data][unit_amount]"] = str(int(offer["price_cents"]))
+            form["line_items[0][price_data][product_data][name]"] = offer["name"]
+            if recurring:
+                form["line_items[0][price_data][recurring][interval]"] = "month"
         if recurring:
-            form["line_items[0][price_data][recurring][interval]"] = "month"
+            # Included on subscription and invoice events so events arriving before
+            # checkout.session.completed can be safely correlated, without an email.
+            form["subscription_data[metadata][order_id]"] = order_id
+        if offer.get("allow_promotion_codes") is True:
+            if not price_id:
+                raise PaymentError("Promotion codes require a configured Stripe Price ID")
+            form["allow_promotion_codes"] = "true"
         try:
             response = self.client.post(
                 "https://api.stripe.com/v1/checkout/sessions", data=form,
