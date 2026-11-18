@@ -25,9 +25,7 @@
 {% set root_url = settings.public_base_url.rstrip('/') %}
 {% set schema = {"@context": "https://schema.org", "@graph": [
   {"@type": "Organization", "@id": root_url ~ "/#organization", "name": "MeasuredField",
-   "url": root_url ~ "/", "logo": {"@type": "ImageObject", "url": root_url ~ "/static/media/measuredfield-logo-dark-transparent.webp",
-   "contentUrl": root_url ~ "/static/media/measuredfield-logo-dark-transparent.webp",
-   "caption": "MeasuredField primary brand logo"}},
+   "url": root_url ~ "/", "logo": root_url ~ "/static/media/measuredfield-logo-dark-transparent.webp"},
   {"@type": "WebSite", "@id": root_url ~ "/#website", "url": root_url ~ "/",
    "name": "MeasuredField", "publisher": {"@id": root_url ~ "/#organization"},
    "image": root_url ~ "/static/media/measuredfield-social-preview.jpg"},
@@ -41,12 +39,7 @@
    "description": "Optional monthly business-building and marketing strategy support for owners with a MeasuredField workspace.",
    "provider": {"@id": root_url ~ "/#organization"},
    "image": root_url ~ "/static/media/measuredfield-growth-partner-99-month.webp",
-   "offers": {"@type": "Offer", "price": "99.00", "priceCurrency": "USD", "url": root_url ~ "/#pricing"}},
-  {"@type":"ImageObject", "@id":root_url ~ "/#local-contractor-results-image",
-   "name":"Prescott's Best Construction traffic results — +114%",
-   "contentUrl":root_url ~ "/static/media/measuredfield-local-contractor-results-114.webp",
-   "caption":"Illustration presenting the contractor's Wix-reported 114 percent traffic-growth metric; chart line is not an underlying analytics timeseries",
-   "creditText":"Wix Analytics traffic-growth notification, reported and verified by the business owner"}
+   "offers": {"@type": "Offer", "price": "99.00", "priceCurrency": "USD", "url": root_url ~ "/#pricing"}}
 ] } %}
 <script type="application/ld+json">{{ schema | tojson }}</script>
 {% endif %}

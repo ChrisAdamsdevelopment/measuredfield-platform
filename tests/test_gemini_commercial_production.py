@@ -1,6 +1,8 @@
 """Checks for the real 2026-11-13 Gemini-generated 30-second launch film and landing media."""
 from __future__ import annotations
-import html,json,re,struct
+import html
+import json
+import re
 from pathlib import Path
 import pytest
 from .conftest import client_for
@@ -22,6 +24,24 @@ def test_homepage_uses_new_brand_pictures_real_proof_and_video(platform):
     assert 'preload="metadata"' in txt
     assert '/watch/measuredfield-business-launch' in txt
     assert "Measure Build" not in txt  # do not confuse the final Stripe brand
+
+def test_homepage_does_not_advertise_unlicensed_image_metadata(platform):
+    """A Wix-derived proof graphic is not a licensable photo; no invented rights."""
+    c = client_for(platform)
+    page = c.get("/")
+    assert page.status_code == 200
+    scripts = re.findall(r'<script type="application/ld[+]json">(.*?)</script>', page.text, re.S)
+    assert len(scripts) == 1
+    schema = json.loads(html.unescape(scripts[0]))
+    graph = schema["@graph"]
+    assert not any(row.get("@type") == "ImageObject" for row in graph)
+    org = next(row for row in graph if row.get("@type") == "Organization")
+    assert org["logo"].endswith("/static/media/measuredfield-logo-dark-transparent.webp")
+    assert any(row.get("@type") == "WebSite" for row in graph)
+    assert len([row for row in graph if row.get("@type") == "Service"]) == 2
+    assert 'src="/static/media/measuredfield-local-contractor-results-114.webp"' in page.text
+    assert "The accompanying illustration is a creative presentation" in page.text
+
 
 def test_video_watch_metadata_and_pub_date_gate(platform):
     c=client_for(platform)
