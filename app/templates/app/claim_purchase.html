@@ -1,0 +1,28 @@
+{% extends "app/base.html" %}
+{% block title %}Connect a Stripe purchase{% endblock %}
+{% block content %}
+<header><div><h1>Connect a purchase</h1><p>Verified Stripe purchases waiting to be assigned to this business.</p></div></header>
+<div class="card">
+<p><strong>Selected business:</strong> {{ org.name }}. A purchase can be assigned only once, by an owner who controls the Stripe billing email. No new business will be created here.</p>
+{% if not is_owner %}<p>Only the owner of this business can connect purchases.</p>
+{% elif not verified_email %}<p>Your login does not yet have a recorded email-delivered verification. Use the password recovery email to prove control of the inbox, then sign in again before claiming a purchase. Do not pay again.</p>
+<p><a href="/forgot">Verify the account email</a></p>
+{% elif not claims %}
+<p>No unclaimed purchases have been verified for your account email. If you recently checked out, Stripe processing may not be complete or the billing email may differ.</p>
+{% else %}
+{% for c in claims %}
+<div class="card">
+<h2>{{ 'Business Workspace' if c.offer_code == 'operate' else 'Growth Partner' if c.offer_code == 'growth_partner' else 'Unknown purchase — support review required' }}</h2>
+<p>Stripe checkout verified. Total {{ '$%.2f'|format(c.amount_total_cents / 100) }}{% if c.discount_cents %}; discount {{ '$%.2f'|format(c.discount_cents / 100) }}{% endif %}. This purchase has not yet been assigned to any workspace.</p>
+{% if c.offer_code == 'growth_partner' %}<p>Growth Partner requires an active Business Workspace subscription in this business.</p>{% endif %}
+<form method="post" action="/app/billing/claim/{{ c.id }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label><input type="checkbox" name="confirm" value="yes" required> I own this purchase and want it connected to {{ org.name }}.</label>
+<div class="actions"><button type="submit" class="btn">Connect this purchase</button></div></form>
+</div>
+{% endfor %}
+{% endif %}
+<p class="small muted">Stripe charges, cancellations, and invoices remain with Stripe. A completed payment does not authorize a different user's business. Incorrect or unmatched transactions require support review.</p>
+<p><a href="/app/settings">Back to business settings</a></p>
+</div>
+{% endblock %}

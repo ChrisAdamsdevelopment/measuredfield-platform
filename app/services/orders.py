@@ -214,7 +214,8 @@ def _reconcile_subscription(db: TenantSession, row: BillingSubscription) -> None
         # billing snapshot so a canceled founder subscription restores beta.
         # Never trust a single out-of-order cancellation when another verified
         # recurring checkout is still active on this tenant.
-        if order.offer_code == "operate" and order.offer_snapshot.get("checkout_origin") == "owner_workspace":
+        if (order.offer_code == "operate" and order.offer_snapshot.get("checkout_origin")
+                in ("owner_workspace", "direct_payment_link")):
             linked = db.scalars(select(BillingSubscription).join(
                 ServiceOrder, BillingSubscription.order_id == ServiceOrder.id).where(
                 BillingSubscription.org_id == org.id,
@@ -432,7 +433,11 @@ def handle_stripe_event(db: TenantSession, event: dict) -> str:
         return "malformed_object"
     kind = event["type"]
     if kind == "checkout.session.completed":
-        return _process_checkout(db, event, obj)
+        outcome = _process_checkout(db, event, obj)
+        if outcome == "unknown_order" and obj.get("payment_link"):
+            from .payment_link_claims import from_signed_checkout
+            return from_signed_checkout(db, event, obj)
+        return outcome
     if kind == "checkout.session.expired":
         return _process_checkout_expired(db, event, obj)
     if kind in ("customer.subscription.created", "customer.subscription.updated",

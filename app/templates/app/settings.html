@@ -18,6 +18,7 @@
 </dl></div>
 
 {% if can('billing.read') %}<div class="card"><h2>Plan and billing</h2>
+<p class="small muted">Already purchased through a Stripe Payment Link? <a href="/app/billing/claim">Connect a verified purchase to this business</a>. A Stripe receipt by itself does not activate access.</p>
 <dl class="kv"><dt>Plan</dt><dd>{% if subscription_active %}Ongoing Business Workspace (active){% else %}{{ billing.get('offer') or org.plan }}{% endif %}</dd>
 <dt>Subscription</dt><dd>{% if subscription_active %}<span class="badge live">Active</span> Your verified Business Workspace subscription is active, including any Stripe discount.{% elif checkout_pending %}<span class="badge unknown">Pending</span> Stripe checkout or subscription verification is pending. Your existing beta workspace remains available.{% else %}Your free founding-beta workspace remains available without payment.{% endif %}</dd></dl>
 {% if subscription_active and subscription_linked and payments_live and role == 'owner' %}

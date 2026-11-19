@@ -248,6 +248,74 @@ class ServiceOrder(Base):
     created_at: Mapped[datetime] = TS()
 
 
+class PendingPaymentLinkClaim(Base):
+    """Platform-only Stripe direct checkout awaiting verified owner election.
+
+    No tenant resources are provisioned from a billing email. This row becomes
+    claimable only through a signed event, verified Stripe API evidence and an
+    authenticated owner with verified mailbox control.
+    """
+    __tablename__ = "payment_link_claims"
+    id: Mapped[uuid.UUID] = PK()
+    checkout_session_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_subscription_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_customer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stripe_payment_link_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stripe_price_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    offer_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    billing_email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
+    amount_subtotal_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    discount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    stripe_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    subscription_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending_claim", nullable=False)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"))
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_orders.id", ondelete="SET NULL"), unique=True)
+    claimed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[datetime] = TS()
+    claimed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        CheckConstraint("status IN ('pending_claim', 'claimed', 'expired', 'needs_review')",
+                        name="ck_payment_link_claim_status"),
+        CheckConstraint("amount_subtotal_cents > 0 AND amount_total_cents >= 0 "
+                        "AND discount_cents BETWEEN 0 AND amount_subtotal_cents "
+                        "AND tax_cents >= 0 AND "
+                        "amount_total_cents = amount_subtotal_cents - discount_cents + tax_cents",
+                        name="ck_payment_link_claim_amounts"),
+        Index("ix_payment_link_claims_status", "status"),
+    )
+
+
+class PaymentLinkClaimReview(Base):
+    """Immutable platform review trail for disputed direct Stripe purchases.
+
+    No tenant RLS: operators can inspect pending unassigned transactions, but
+    must never see tenant content or grant access without a verified owner claim.
+    """
+    __tablename__ = "payment_link_claim_reviews"
+    id: Mapped[uuid.UUID] = PK()
+    claim_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payment_link_claims.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
+    reviewer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        CheckConstraint("action = 'recheck'", name="ck_payment_link_review_action"),
+        CheckConstraint("outcome IN ('reopened', 'needs_review', 'unavailable')",
+                        name="ck_payment_link_review_outcome"),
+    )
+
+
 class PaymentEvent(Base):
     """Verified webhook deliveries, keyed by provider event id for idempotency."""
     __tablename__ = "payment_events"

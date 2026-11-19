@@ -368,7 +368,15 @@ async def stripe_webhook(request: Request, db: TenantSession = Depends(get_db)):
         event = provider.verify_webhook(payload, request.headers.get("stripe-signature", ""))
     except payments.PaymentError:
         return JSONResponse({"error": "Invalid signature."}, status_code=400)
-    outcome = orders.handle_stripe_event(db, event)
+    try:
+        outcome = orders.handle_stripe_event(db, event)
+    except Exception as exc:
+        from ..services.payment_link_claims import PaymentLinkRetry
+        if not isinstance(exc, PaymentLinkRetry):
+            raise
+        # A transient Stripe API failure must not commit the event-ID ledger.
+        # The 503 rolls the entire request back so Stripe can retry this event.
+        return JSONResponse({"error": "Temporary payment verification failure"}, status_code=503)
     return JSONResponse({"received": True, "outcome": outcome})
 
 
