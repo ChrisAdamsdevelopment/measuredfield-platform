@@ -63,8 +63,7 @@ def test_work_directory_creation_and_nested_file(tmp_path, monkeypatch):
     assert bound.make_directory(grant, "src")["created"]
     assert (root / "src").is_dir()
     assert bound.write_file(grant, "src/app.py", "print('hello')")["written"]
-    with pytest.raises((AccessDenied, FileExistsError)):
-        bound.make_directory(grant, "src")
+    assert bound.make_directory(grant, "src")["created"] is False  # safe idempotent retry
     assert "work_directory_create" in {e["action"] for e in local.audit()}
 
 

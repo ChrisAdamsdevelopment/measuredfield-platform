@@ -113,7 +113,7 @@ def _verified_actor(bearer, *, issuer: str, audience: str) -> uuid.UUID:
     identity = getattr(bearer, "identity", None)
     if (identity is None or identity.issuer != issuer or identity.audience != audience
             or not { "mf:read", WORK_SCOPE }.issubset(identity.scopes)
-            or not isinstance(bearer.issued_at, int)):
+            or type(bearer.issued_at) is not int):
         raise ConnectorAccessDenied("Computer write authorization is unavailable")
     actor = linked_subject_user_id(identity.issuer, identity.subject, bearer.issued_at)
     if not isinstance(actor, uuid.UUID):

@@ -6,6 +6,8 @@ from tkinter import messagebox, ttk
 from typing import Callable
 
 from app.local_connect import AccessDenied
+from app.account_link.runtime_guard import AccountRuntimeGuard
+from app.desktop_companion.worker_launcher import launch_owner_work_session
 from .controller import safe_display
 from .pairing_controller import PairingOwnerController
 
@@ -19,13 +21,14 @@ class PairingPanel(ttk.Frame):
                  report: Callable[[str], None] | None = None):
         super().__init__(master, padding=12)
         self.owner = owner
+        self._workers = {}
         self.report = report or (lambda _msg: None)
         ttk.Label(
             self, text="Connect a trusted assistant to specific project folders",
             style="Subheading.TLabel",
         ).pack(anchor="w", pady=(0, 6))
         ttk.Label(
-            self, text="Private local test only. This does not connect your ChatGPT account.",
+            self, text="Authorize the folders you choose. Verified Work mode connects to your MeasuredField workspace over outbound HTTPS.",
             style="Body.TLabel",
         ).pack(anchor="w", pady=(0, 8))
         ttk.Label(self, text="1. Choose the folders this temporary connection may see.").pack(
@@ -51,7 +54,7 @@ class PairingPanel(ttk.Frame):
         form = ttk.Frame(self)
         form.pack(fill="x", pady=(0, 6))
         ttk.Label(form, text="2. Connection name").grid(row=0, column=0, sticky="w")
-        self.name = tk.StringVar(value="Private assistant test")
+        self.name = tk.StringVar(value="Temporary project Work")
         ttk.Entry(form, textvariable=self.name, width=28).grid(
             row=1, column=0, sticky="ew", padx=(0, 12)
         )
@@ -122,6 +125,9 @@ class PairingPanel(ttk.Frame):
         ).pack(side="left", padx=(0, 8))
         ttk.Button(
             connection_actions, text="Connection activity", command=self.view_activity,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            connection_actions, text="Start cloud Work", command=self.start_cloud_work,
         ).pack(side="left")
         ttk.Label(
             self, text="Only explicitly approved Work-mode pairings can change project files. "
@@ -171,10 +177,10 @@ class PairingPanel(ttk.Frame):
             )
             if not messagebox.askyesno(
                 "Pair only these folders?",
-                "Allow this PRIVATE LOCAL test connection?\n\n" +
+                "Authorize this scoped connection?\n\n" +
                 "Connection: " + safe_display(name) + "\n" +
                 "Duration: " + str(minutes) + " minutes\n\n" +
-                selected + "\n\nNo ChatGPT account or tunnel is automatically connected.",
+                selected + "\n\nCloud Work mode starts only for a live, verified Work-mode device. ""No inbound listener is opened.",
                 parent=self.winfo_toplevel(),
             ):
                 return
@@ -195,24 +201,80 @@ class PairingPanel(ttk.Frame):
                     parent=self.winfo_toplevel(),
                 ):
                     return
+            if direct_work:
+                # Check CURRENT cloud authorization before creating a new
+                # writable session. An offline/stale device is never promoted.
+                AccountRuntimeGuard(self.owner.store.home).check(action="write")
             pair = self.owner.pair(
                 name, project_ids, minutes=minutes,
                 allow_suggestions=writable and not direct_work, allow_writes=direct_work,
                 confirmed=True, confirmed_suggestions=writable and not direct_work,
                 confirmed_writes=direct_work,
             )
+            if direct_work:
+                try:
+                    self._workers[pair["pairing_id"]] = launch_owner_work_session(
+                        pair["pairing_id"], registry=self.owner.registry)
+                except (AccessDenied, OSError):
+                    self.owner.disconnect(pair["pairing_id"], confirmed=True)
+                    raise
             self.suggestions.set(False)
             self.work_mode.set(False)
             self.refresh()
-            self.report("Private local connection created. It is not connected to ChatGPT.")
+            self.report(
+                "Owner-approved cloud Work worker launched." if direct_work else
+                "Private local connection created."
+            )
             messagebox.showinfo(
-                "Private connection created",
-                "The connection is ready for an authorized local MCP test.\n\n"
-                "It expires at " + pair["expires_at"] +
-                ". No background tunnel has been started.",
+                "Work session launched" if direct_work else "Local connection created",
+                ("The Work worker was launched for your approved folders. "
+                 "Actual work requires your connected ChatGPT account and a valid "
+                 "device token; check the Computers page for completed receipts."
+                 if direct_work else
+                 "This local pairing is ready for an authorized local session. ")
+                + "\n\nExpires at " + pair["expires_at"] + ".",
                 parent=self.winfo_toplevel(),
             )
         except (AccessDenied, ValueError, OSError) as exc:
+            self._error(exc)
+
+    def start_cloud_work(self) -> None:
+        """Explicit owner UI action; no model/API caller can start local work."""
+        selection = self.connection_tree.selection()
+        if not selection:
+            messagebox.showinfo(
+                "Select a Work session",
+                "Select an active Work-mode connection first.",
+                parent=self.winfo_toplevel(),
+            )
+            return
+        pair_id = selection[0]
+        try:
+            pair = next(
+                (c for c in self.owner.connections() if c["pairing_id"] == pair_id),
+                None,
+            )
+            if not pair or pair["status"] != "active" or not pair.get("can_write"):
+                raise AccessDenied("Select an active owner-approved Work connection")
+            existing = self._workers.get(pair_id)
+            if existing is not None and existing.poll() is None:
+                messagebox.showinfo(
+                    "Work session already started",
+                    "The worker is already running for this connection.",
+                    parent=self.winfo_toplevel(),
+                )
+                return
+            process = launch_owner_work_session(
+                pair_id, registry=self.owner.registry)
+            self._workers[pair_id] = process
+            self.report("Cloud Work worker process started.")
+            messagebox.showinfo(
+                "Work session started",
+                "The background worker started. It executes only scoped jobs "
+                "while your account and this timed pairing remain authorized.",
+                parent=self.winfo_toplevel(),
+            )
+        except (AccessDenied, OSError, ValueError) as exc:
             self._error(exc)
 
     def view_connection(self) -> None:
@@ -315,11 +377,17 @@ class PairingPanel(ttk.Frame):
             if not messagebox.askyesno(
                 "Disconnect this connection?",
                 "Disconnect " + safe_display(pair["name"]) + " now?\n\n"
-                "Its next MCP request will be denied. Your project folders stay on your computer.",
+                "Its next work request will be denied. Your project folders stay on your computer.",
                 parent=self.winfo_toplevel(),
             ):
                 return
             self.owner.disconnect(pair_id, confirmed=True)
+            running = self._workers.pop(pair_id, None)
+            if running is not None and running.poll() is None:
+                try:
+                    running.terminate()
+                except OSError:
+                    pass  # Local pairing revocation itself denies every future write.
             self.refresh()
             self.report("Trusted local connection revoked.")
         except (AccessDenied, ValueError, OSError) as exc:

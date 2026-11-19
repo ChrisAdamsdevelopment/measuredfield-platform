@@ -100,7 +100,18 @@ class WorkActions:
             raise AccessDenied("Choose a child directory of an existing approved folder")
         self._check(grant_id)
         self.local._path(grant_id, relative_path, require_write=True)
-        os.mkdir(path)
+        try:
+            os.mkdir(path)
+            created = True
+        except FileExistsError:
+            # Another authorized worker may have just completed this exact
+            # idempotent request. Verify the final object is STILL an ordinary
+            # directory within the same approved grant; never accept a link.
+            self._check(grant_id)
+            resolved, _ = self.local._path(grant_id, relative_path, require_write=True)
+            if not resolved.is_dir():
+                raise AccessDenied("The destination is not a permitted directory") from None
+            created = False
         with self.local._db() as db:
             self.local._audit(db, "work_directory_create", "ok", grant_id, relative)
-        return {"created": True, "path": relative}
+        return {"created": created, "path": relative}

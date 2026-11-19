@@ -85,6 +85,8 @@ def recent_connection_activity(limit: int = 20) -> list[dict]:
 
 
 def main() -> None:
+    # MCP handshake itself grants no file access. Every tool independently
+    # validates the local pairing and current linked account before work.
     mcp.run(transport="stdio")
 
 

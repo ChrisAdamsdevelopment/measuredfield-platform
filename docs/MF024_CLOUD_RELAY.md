@@ -126,3 +126,33 @@ source code, logs, device response bodies or database rows.
 The local key handoff is
 D:\GrowthEngineeringVenture\PRIVATE_AUTH\MeasuredField\MEASUREDFIELD_WORK_RELAY_20261119.env.
 It has NOT been added to Render as part of these branch-only changes.
+
+## Windows owner launcher and network interruption behavior
+
+The desktop Trusted Connections panel now checks the live, linked
+MeasuredField account's Work permission before granting direct Work-mode
+file access. With the owner's explicit confirmation, it launches a
+credential-free-argument, background outbound worker using the current
+Python environment. A **Start cloud Work** action is available for an
+existing active Work pairing. **Disconnect** revokes the local grant
+before stopping the worker. The worker does not instantiate the interactive
+AccountLinkController during startup because that controller deliberately
+invalidates previous pairings when the owner opens the UI; instead it uses
+AccountRuntimeGuard with live HTTPS authorization on each poll and each
+file operation. It checks local grant expiry/revocation BEFORE cloud polling.
+
+The worker never prints a success claim when a receipt cannot be confirmed.
+Transient device API failures leave a leased request to expire and be safely
+retried with the same job identifier and on-disk content digest. Explicit
+401 credential revocations stop the process. Owner account validation
+failures revoke the local grant immediately.
+
+The current source-run Python worker is not yet a signed standalone desktop
+installer. A packaged installer/upgrade mechanism is a separate release
+requirement. Production deployment and the Render encryption key are
+still gated on review plus database backup and rollback planning.
+
+**KMS_ENVELOPE_PENDING:** The primary Render Fernet master remains a shared
+root key despite per-tenant HKDF derivation. A stolen master can decrypt all
+queued tenant ciphertext. Replace with KMS-backed per-org envelope keys once
+available, while maintaining the documented rotation process.

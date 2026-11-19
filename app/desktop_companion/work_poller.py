@@ -9,18 +9,44 @@ from __future__ import annotations
 import argparse
 import hashlib
 import time
+from types import SimpleNamespace
 
-from app.account_link.client import DeviceApi
-from app.account_link.controller import AccountLinkController
+from app.account_link.client import DeviceApi, DeviceClientError, DeviceRevoked
+from app.account_link.runtime_guard import AccountRuntimeGuard
 from app.local_connect.store import AccessDenied, ConflictError
 from app.paired_connect.registry import BoundSession, PairingRegistry
+
+
+class _VerifiedWorkerAccount:
+    """Non-UI account verifier that preserves a freshly owner-approved pairing.
+
+    AccountLinkController is an interactive UI lifecycle controller and intentionally
+    revokes old pairing sessions on app startup. A worker launched by that very
+    UI must NOT instantiate it: doing so revokes the new Work pairing. Instead,
+    check live server authority through the same fail-closed AccountRuntimeGuard
+    used on every BoundSession file operation.
+    """
+
+    def __init__(self, home):
+        self.guard = AccountRuntimeGuard(home)
+        self.secrets = self.guard.secrets
+
+    def refresh(self):
+        self.guard.check(action="write")
+        state = self.guard._read_account()
+        if state is None or state.get("status") != "active" or state.get("access") != "work":
+            raise AccessDenied("The linked computer is not verified for Work mode")
+        return SimpleNamespace(
+            status=state["status"], access=state["access"],
+            server_url=state["server_url"], device_id=state["device_id"],
+        )
 
 
 class WorkPoller:
     def __init__(self, *, pairing_id: str, home=None, api_factory=DeviceApi,
                  account=None, registry=None):
         self.registry = registry or PairingRegistry(home)
-        self.account = account or AccountLinkController(self.registry.connect)
+        self.account = account or _VerifiedWorkerAccount(self.registry.home)
         self.pairing_id = pairing_id
         self.api_factory = api_factory
 
@@ -65,6 +91,12 @@ class WorkPoller:
 
     def once(self) -> bool:
         """Claim, execute, and acknowledge one job; false means no queued work."""
+        # Stop immediately when the owner's local Work session is revoked or
+        # expires, even if no remote jobs are pending. No network poll follows.
+        approved = self.registry.token_for_local_launcher(self.pairing_id)
+        local_scope = self.registry.authorize(self.pairing_id, approved)
+        if not local_scope.get("can_write"):
+            raise AccessDenied("This local connection cannot make file changes")
         view = self.account.refresh()
         if view.status != "active" or view.access != "work":
             raise AccessDenied("Computer is not owner-verified for Work mode")
@@ -109,8 +141,23 @@ def main() -> int:
     poller = WorkPoller(pairing_id=args.pairing_id)
     try:
         while True:
-            processed = poller.once()
-            print("Work request processed." if processed else "No work waiting.", flush=True)
+            try:
+                processed = poller.once()
+            except DeviceRevoked:
+                # The cloud explicitly rejected the device bearer. Do not
+                # keep polling with credentials the owner has revoked.
+                print("Computer disconnected; the work session stopped.", flush=True)
+                return 2
+            except DeviceClientError:
+                # A leased job may have saved a real file even when the
+                # receipt could not reach the server. The next claim retries
+                # under the same immutable job id and on-disk SHA check.
+                print("Workspace temporarily unavailable. No work completion is claimed.", flush=True)
+                if args.once:
+                    return 2
+                time.sleep(args.poll_seconds)
+                continue
+            print("Work request acknowledged." if processed else "No work waiting.", flush=True)
             if args.once:
                 return 0
             time.sleep(args.poll_seconds)

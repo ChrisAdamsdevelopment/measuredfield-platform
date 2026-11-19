@@ -76,9 +76,12 @@ def test_revoked_local_pairing_prevents_remote_file_write(tmp_path, monkeypatch)
     poller = WorkPoller(
         pairing_id=pair_id, registry=registry, account=account,
         api_factory=lambda origin: FakeApi())
-    assert poller.once() is True
+    from app.local_connect.store import AccessDenied
+    import pytest
+    with pytest.raises(AccessDenied):
+        poller.once()  # revoked owner pairing is rejected BEFORE cloud polling
     assert not (root / "index.html").exists()
-    assert notices[0]["succeeded"] is False
+    assert notices == []
 
 
 def test_poller_does_not_claim_without_verified_work_account(tmp_path, monkeypatch):
@@ -94,3 +97,82 @@ def test_poller_does_not_claim_without_verified_work_account(tmp_path, monkeypat
     with pytest.raises(AccessDenied):
         poller.once()
     assert called == [] and not (root / "index.html").exists()
+
+
+def test_default_worker_does_not_revoke_fresh_owner_pairing(tmp_path, monkeypatch):
+    """Headless worker must not call account UI startup that revokes all sessions."""
+    root, grant, registry, pair_id, account = _owner_env(tmp_path, monkeypatch)
+    import app.desktop_companion.work_poller as module
+
+    class WorkerGuard:
+        def __init__(self, home):
+            assert home == registry.home
+            self.secrets = SimpleNamespace(load=lambda: "synthetic-device-credential")
+        def check(self, *, action):
+            assert action == "write"
+        def _read_account(self):
+            return {
+                "status": "active", "access": "work",
+                "device_id": "approved-test-device",
+                "server_url": "https://trusted.measuredfield.test",
+            }
+
+    class NoWorkApi:
+        def claim_work(self, credential):
+            assert credential == "synthetic-device-credential"
+            return None
+        def close(self): pass
+
+    monkeypatch.setattr(module, "AccountRuntimeGuard", WorkerGuard)
+    poller = module.WorkPoller(
+        pairing_id=pair_id, registry=registry,
+        api_factory=lambda origin: NoWorkApi())
+    assert registry.authorize(
+        pair_id, registry.token_for_local_launcher(pair_id))["can_write"] is True
+    assert poller.once() is False
+    assert registry.authorize(
+        pair_id, registry.token_for_local_launcher(pair_id))["can_write"] is True
+    registry.revoke(pair_id)
+    from app.local_connect.store import AccessDenied
+    import pytest
+    with pytest.raises(AccessDenied):
+        poller.once()
+
+
+def test_worker_main_handles_transient_cloud_failure_without_crashing(monkeypatch, capsys):
+    import sys
+    import app.desktop_companion.work_poller as module
+    from app.account_link.client import DeviceClientError, DeviceRevoked
+    calls = []
+    class TemporaryFailure:
+        def __init__(self, **kwargs): pass
+        def once(self):
+            calls.append("poll")
+            if len(calls) == 1:
+                raise DeviceClientError("Synthetic network interruption")
+            raise KeyboardInterrupt()
+    monkeypatch.setattr(module, "WorkPoller", TemporaryFailure)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(sys, "argv", ["work_poller", "--pairing-id", "synthetic-pair-id"])
+    assert module.main() == 0
+    assert calls == ["poll", "poll"]
+    assert "No work completion is claimed" in capsys.readouterr().out
+
+    class Revoked:
+        def __init__(self, **kwargs): pass
+        def once(self): raise DeviceRevoked("Synthetic revoked bearer")
+    monkeypatch.setattr(module, "WorkPoller", Revoked)
+    assert module.main() == 2
+    assert "disconnected" in capsys.readouterr().out
+
+
+def test_idempotent_existing_directory_is_safe(tmp_path, monkeypatch):
+    root, grant, registry, pair_id, account = _owner_env(tmp_path, monkeypatch)
+    from app.paired_connect.registry import BoundSession
+    session = BoundSession(
+        pair_id, registry.token_for_local_launcher(pair_id), registry.home)
+    first = session.make_directory(grant, "assets")
+    second = session.make_directory(grant, "assets")
+    assert first["created"] is True
+    assert second["created"] is False
+    assert (root / "assets").is_dir()
