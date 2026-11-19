@@ -545,6 +545,7 @@ class Lead(Base):
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = TS()
+    __table_args__ = (UniqueConstraint("org_id", "id", name="uq_leads_org_id"),)
 
 
 class LeadNote(Base):
@@ -555,6 +556,42 @@ class LeadNote(Base):
     author_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = TS()
+
+
+class McpActionDraft(Base):
+    """Tenant-scoped draft proposed through OAuth. NO external effect on creation.
+
+    A separate MeasuredField owner session must approve or decline the draft.
+    Models and MCP OAuth clients never receive approval or publishing authority.
+    """
+    __tablename__ = "mcp_action_drafts"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    oauth_client_id: Mapped[str] = mapped_column(String(250), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, default="inquiry_reply")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    body_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending_review")
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reviewed_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "created_by", "idempotency_key",
+                         name="uq_mcp_draft_actor_idempotency"),
+        ForeignKeyConstraint(["org_id", "lead_id"], ["leads.org_id", "leads.id"],
+                             ondelete="CASCADE", name="fk_mcp_draft_lead_same_org"),
+        CheckConstraint("kind = 'inquiry_reply'", name="ck_mcp_draft_kind"),
+        CheckConstraint("status IN ('pending_review', 'approved', 'declined')",
+                        name="ck_mcp_draft_status"),
+        CheckConstraint("char_length(body) BETWEEN 1 AND 4000",
+                        name="ck_mcp_draft_body_length"),
+        CheckConstraint("char_length(idempotency_key) BETWEEN 12 AND 80",
+                        name="ck_mcp_draft_idempotency_length"),
+        Index("ix_mcp_drafts_org_status_created", "org_id", "status", "created_at"),
+    )
 
 
 class Customer(Base):
@@ -927,7 +964,7 @@ TENANT_TABLES = [
     "visibility_research_reservations", "visibility_research_budgets",
     "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
-    "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
+    "mcp_action_drafts", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
@@ -939,7 +976,7 @@ TENANT_MODELS = {
     "visibility_experiments": VisibilityExperiment,
     "visibility_questions": VisibilityQuestion,
     "visibility_gsc_snapshots": VisibilityGscSnapshot,
-    "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
+    "mcp_action_drafts": McpActionDraft, "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
     "customers": Customer, "memory_items": MemoryItem, "documents": Document,
     "lesson_candidates": LessonCandidate, "assessment_reports": AssessmentReport,
     "improvements": Improvement, "site_events": SiteEvent, "site_versions": SiteVersion,

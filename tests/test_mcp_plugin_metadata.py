@@ -61,6 +61,7 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         "get_connected_profile", "list_my_businesses",
         "get_business_overview", "list_inquiries", "get_inquiry", "preview_reply",
         "list_supported_census_markets", "get_census_market_snapshot",
+        "save_inquiry_reply_draft",
     }
     for name, decorator in tools.items():
         kwargs = {item.arg: item.value for item in decorator.keywords}
@@ -73,6 +74,12 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         assert len(call.args) == 1
         assert isinstance(call.args[0], ast.Attribute)
         assert call.args[0].attr == "read_scope"
+        extra_scope = {k.arg: k.value for k in call.keywords}.get("with_scope")
+        if name == "save_inquiry_reply_draft":
+            assert isinstance(extra_scope, ast.Attribute)
+            assert extra_scope.attr == "write_scope"
+        else:
+            assert extra_scope is None
 
 
 def test_only_authenticated_profile_is_marked_as_special_identity():

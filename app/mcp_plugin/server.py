@@ -1,4 +1,4 @@
-"""Official MCP v2, OAuth-protected and read-only MeasuredField gateway.
+"""Official MCP v2, OAuth-protected MeasuredField gateway with review-only drafts.
 
 Run only after verified staging OAuth, a linked identity and approved HTTPS.
 Launch with uvicorn --factory app.mcp_plugin.server:create_app.
@@ -20,14 +20,47 @@ from .links import linked_subject_user_id
 from .tokens import OAuthAccessDenied, OAuthJWTVerifier
 
 
-def oauth_tool_metadata(scope: str, *, profile: bool = False) -> dict:
-    """Advertise explicit tool-level OAuth security per current ChatGPT MCP contract."""
+def oauth_tool_metadata(scope: str, *, profile: bool = False,
+                        with_scope: str | None = None) -> dict:
+    """Explicit per-tool OAuth scopes; write tools require BOTH read and write."""
     if not isinstance(scope, str) or not scope.strip():
         raise ValueError("A nonblank OAuth tool scope is required")
-    metadata = {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]}
+    scopes = [scope]
+    if with_scope is not None:
+        if (not isinstance(with_scope, str) or not with_scope.strip()
+                or with_scope == scope):
+            raise ValueError("A distinct nonblank OAuth write scope is required")
+        scopes.append(with_scope)
+    metadata = {"securitySchemes": [{"type": "oauth2", "scopes": scopes}]}
     if profile:
         metadata["openai/profile"] = True
     return metadata
+
+
+def oauth_write_scope_challenge(settings: McpPluginSettings):
+    """An authenticated read-only owner can ask ChatGPT for extra write consent.
+
+    A failed signature, revoked account or missing read scope must NEVER
+    receive this upgrade prompt, only the ordinary authentication denial.
+    """
+    from mcp.types import CallToolResult, TextContent
+
+    resource_host = urlsplit(settings.resource_url).hostname
+    if not resource_host:
+        raise ValueError("A trusted HTTPS MCP hostname is required")
+    metadata_url = f"https://{resource_host}/.well-known/oauth-protected-resource/mcp"
+    header = (
+        f'Bearer resource_metadata="{metadata_url}", '
+        f'scope="{settings.read_scope} {settings.write_scope}", '
+        'error="insufficient_scope", '
+        'error_description="Grant MeasuredField draft write access"'
+    )
+    return CallToolResult(
+        content=[TextContent(type="text", text=(
+            "Additional OAuth authorization is required to save this draft. "
+            "No customer was contacted and no changes were made."))],
+        isError=True, **{"_meta": {"mcp/www_authenticate": [header]}},
+    )
 
 
 def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=None):
@@ -43,6 +76,10 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     actual_gateway = gateway or ReadOnlyBusinessGateway(
         issuer=settings.issuer, resource_audience=settings.resource_url,
         resolve_subject=linked_subject_user_id)
+    from app.mcp_actions.drafts import OwnerDraftGateway
+    draft_gateway = OwnerDraftGateway(
+        issuer=settings.issuer, audience=settings.resource_url,
+        read_scope=settings.read_scope, write_scope=settings.write_scope)
 
     class LinkedTokenVerifier:
         async def verify_token(self, token: str):
@@ -69,12 +106,13 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         ),
     )
 
-    def checked_bearer():
+    def checked_bearer(*, require_write: bool = False):
         verified = get_access_token()
         # A direct/in-memory/stdio tool invocation must never bypass HTTP auth.
         if (verified is None or not isinstance(verified.subject, str) or
                 not verified.subject or not isinstance(verified.token, str) or
                 settings.read_scope not in verified.scopes or
+                (require_write and settings.write_scope not in verified.scopes) or
                 verified.resource != settings.resource_url):
             raise ConnectorAccessDenied("Verified HTTP OAuth identity is required")
         # Defense in depth: the MCP SDK's stdio/in-memory contexts can bypass
@@ -86,7 +124,8 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         except OAuthAccessDenied:
             raise ConnectorAccessDenied("OAuth identity is not authorized") from None
         if (bearer.identity.subject != verified.subject or
-                bearer.client_id != verified.client_id):
+                bearer.client_id != verified.client_id or
+                (require_write and settings.write_scope not in bearer.identity.scopes)):
             raise ConnectorAccessDenied("OAuth session identity changed")
         return bearer
 
@@ -167,6 +206,44 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             "proposed_message": message.strip(),
             "owner_action_needed": "Review and approve separately in MeasuredField",
         }
+
+    @mcp.tool(
+        title="Save reply draft for owner review",
+        annotations=ToolAnnotations(
+            read_only_hint=False, destructive_hint=False,
+            idempotent_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope, with_scope=settings.write_scope),
+    )
+    def save_inquiry_reply_draft(
+        business_id: str, inquiry_id: str,
+        message: Annotated[str, Field(min_length=1, max_length=4000)],
+        request_id: Annotated[str, Field(min_length=12, max_length=80)],
+    ) -> dict:
+        """SAVE a private proposed reply, never send it to the customer.
+
+        This modifies only one currently authorized tenant after a distinct
+        OAuth write scope and current owner/admin membership are verified.
+        A separate MeasuredField owner page is required to approve/decline.
+        Use a stable request_id for retries; same id cannot change the draft.
+        """
+        try:
+            bearer = checked_bearer(require_write=True)
+        except ConnectorAccessDenied:
+            # Only an otherwise-valid, signed, currently linked mf:read owner
+            # may be prompted for incremental mf:drafts.write consent.
+            # Forged, anonymous and revoked read tokens stay outright denied.
+            read_bearer = checked_bearer()
+            if settings.write_scope in read_bearer.identity.scopes:
+                raise
+            # A signed mf:read token is insufficient by itself: the owner
+            # may have revoked the identity link since token issuance.
+            if not isinstance(linked_subject_user_id(
+                    read_bearer.identity.issuer, read_bearer.identity.subject,
+                    read_bearer.issued_at), uuid.UUID):
+                raise ConnectorAccessDenied("The owner connection is no longer authorized")
+            return oauth_write_scope_challenge(settings)
+        return draft_gateway.save_reply_draft(
+            bearer, business_id, inquiry_id, message, request_id)
 
     from .census_market_tools import available_markets, market_snapshot
 
