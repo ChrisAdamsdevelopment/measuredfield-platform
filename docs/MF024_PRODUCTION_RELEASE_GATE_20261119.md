@@ -19,10 +19,10 @@ expires at 2026-12-13T18:00:16Z per Render API.
   Do NOT reset, force push or replace a branch with the other branch's tree.
 - Existing public brand icons, responsive video/website assets, before/after
   preview modules and new ChatGPT Work relay are preserved.
-- Full candidate PostgreSQL 18? Tests use disposable PostgreSQL image, not the
-  live PostgreSQL 18 instance. Full suite result: 1,347 passed, zero skipped,
-  errors, failures; disposable PostgreSQL removed. Production compatibility
-  still requires a real PostgreSQL 18 migration rehearsal.
+- Full candidate suite uses disposable PostgreSQL **16**, not the live
+  PostgreSQL **18** instance. Full suite result: 1,347 passed, zero skips,
+  errors, or failures; disposable PostgreSQL removed. Production compatibility
+  requires an independent PostgreSQL 18 migration rehearsal before deployment.
 - Focussed visual-preview, brand, Work and MCP tests passed 65; 2 tests
   intentionally skipped when PostgreSQL test fixture was unavailable;
   full database suite exercises them without skips.

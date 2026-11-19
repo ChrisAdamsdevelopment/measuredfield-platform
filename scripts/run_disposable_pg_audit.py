@@ -1,7 +1,8 @@
-"""Create and remove an isolated loopback PostgreSQL 16 Docker container for RLS audit.
+"""Create/remove an isolated loopback PostgreSQL Docker container for RLS audit.
 
-Never touches existing containers, database volumes, public ports, or live credentials.
-Only uses a cached postgres:16-alpine image; Docker network pulls are disabled.
+Use cached postgres:16-alpine by default, or postgres:18-alpine with --pg18.
+Never touches existing containers, database volumes, public ports or live
+credentials; Docker image pulls are disabled during tests.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGE = "postgres:16-alpine"
+IMAGE = "postgres:18-alpine" if "--pg18" in sys.argv[1:] else "postgres:16-alpine"
 
 
 def run(args: list[str], **kwargs):
@@ -24,7 +25,7 @@ def run(args: list[str], **kwargs):
 def main() -> int:
     cached = run(["docker", "image", "inspect", IMAGE], capture_output=True)
     if cached.returncode:
-        raise SystemExit("Audit requires cached Docker image postgres:16-alpine; no image pull attempted.")
+        raise SystemExit(f"Audit requires cached Docker image {IMAGE}; no image pull attempted.")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -45,7 +46,7 @@ def main() -> int:
             print("Unable to start disposable PostgreSQL container.", file=sys.stderr)
             return 2
         started = True
-        print("Disposable PostgreSQL started on local loopback only.", flush=True)
+        print(f"Disposable {IMAGE} started on local loopback only.", flush=True)
         for _ in range(50):
             result = run(["docker", "exec", name, "pg_isready", "-q",
                           "-U", "postgres", "-d", dbname], capture_output=True)
