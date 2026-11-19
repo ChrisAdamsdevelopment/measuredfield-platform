@@ -558,6 +558,40 @@ class LeadNote(Base):
     created_at: Mapped[datetime] = TS()
 
 
+class LeadReply(Base):
+    """Tenant-scoped inquiry reply. Provider acceptance is NOT final delivery."""
+    __tablename__ = "lead_replies"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
+    to_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="draft", server_default="draft", nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255))
+    last_error: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = TS()
+    approved_at: Mapped[datetime | None] = OPT_TS()
+    accepted_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "lead_id"], ["leads.org_id", "leads.id"],
+                             ondelete="CASCADE", name="fk_lead_reply_same_org"),
+        CheckConstraint("status IN ('draft','queued','accepted','failed','not_configured')",
+                        name="ck_lead_reply_status"),
+        CheckConstraint("char_length(subject) BETWEEN 1 AND 200", name="ck_lead_reply_subject"),
+        CheckConstraint("char_length(body) BETWEEN 1 AND 4000", name="ck_lead_reply_body"),
+        CheckConstraint(
+            "(status = 'draft' AND approved_by IS NULL AND approved_at IS NULL) OR "
+            "(status <> 'draft' AND approved_by IS NOT NULL AND approved_at IS NOT NULL)",
+            name="ck_lead_reply_explicit_approval"),
+        Index("ix_lead_replies_org_lead_date", "org_id", "lead_id", "created_at"),
+    )
+
+
 class McpActionDraft(Base):
     """Tenant-scoped draft proposed through OAuth. NO external effect on creation.
 
@@ -964,7 +998,7 @@ TENANT_TABLES = [
     "visibility_research_reservations", "visibility_research_budgets",
     "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
-    "mcp_action_drafts", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
+    "mcp_action_drafts", "lead_replies", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
@@ -976,7 +1010,7 @@ TENANT_MODELS = {
     "visibility_experiments": VisibilityExperiment,
     "visibility_questions": VisibilityQuestion,
     "visibility_gsc_snapshots": VisibilityGscSnapshot,
-    "mcp_action_drafts": McpActionDraft, "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
+    "mcp_action_drafts": McpActionDraft, "lead_replies": LeadReply, "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
     "customers": Customer, "memory_items": MemoryItem, "documents": Document,
     "lesson_candidates": LessonCandidate, "assessment_reports": AssessmentReport,
     "improvements": Improvement, "site_events": SiteEvent, "site_versions": SiteVersion,

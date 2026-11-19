@@ -19,7 +19,7 @@ from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
 from ..models import (AssessmentReport, AuditEvent, Customer, DataRequest, Document, Improvement, Lead,
-                      LeadNote, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
+                      LeadNote, LeadReply, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
                       User, now)
 from ..security import ROLES, digest, new_token, valid_email
 from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
@@ -92,8 +92,13 @@ def inquiry(lead_id: str, request: Request, db: TenantSession = Depends(get_db),
     lead = _get(db, Lead, lead_id)
     notes = db.execute(select(LeadNote, User.name).outerjoin(User, User.id == LeadNote.author_id)
                        .where(LeadNote.lead_id == lead.id).order_by(LeadNote.created_at)).all()
+    replies = db.scalars(select(LeadReply).where(LeadReply.lead_id == lead.id)
+                         .order_by(LeadReply.created_at.desc()).limit(100)).all()
+    settings = get_settings()
+    provider_ready = bool(settings.email_provider == "resend" and settings.resend_api_key and settings.email_from)
     return _page(request, db, p, "app/inquiry.html", {
-        "lead": lead, "notes": notes, "members": _members(db), "statuses": LEAD_STATUSES,
+        "lead": lead, "notes": notes, "replies": replies, "provider_ready": provider_ready,
+        "members": _members(db), "statuses": LEAD_STATUSES,
         "timings": sitegen.TIMINGS})
 
 
@@ -144,6 +149,63 @@ def inquiry_note(lead_id: str, body: str = Form(""), db: TenantSession = Depends
     db.add(LeadNote(org_id=p.org.id, lead_id=lead.id, author_id=p.user.id, body=body))
     audit(db, p.org.id, p.user.id, "lead.note_added", "lead", lead.id)
     return back(f"/app/inquiries/{lead.id}", ok="Note added")
+
+
+@router.post("/app/inquiries/{lead_id}/reply/draft")
+def inquiry_reply_draft(
+    lead_id: str, subject: str = Form(""), body: str = Form(""),
+    db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("leads.write")),
+):
+    """Save a reply without contacting a customer."""
+    lead = _get(db, Lead, lead_id)
+    subject, body = subject.strip(), body.strip()
+    if (not 1 <= len(subject) <= 200 or "\n" in subject or "\r" in subject
+            or "\x00" in subject or not 1 <= len(body) <= 4000 or "\x00" in body):
+        return back(f"/app/inquiries/{lead.id}", err="Use a subject up to 200 characters and a message up to 4000.")
+    if not valid_email(lead.email):
+        return back(f"/app/inquiries/{lead.id}", err="This inquiry has no valid reply email address.")
+    reply = LeadReply(
+        org_id=p.org.id, lead_id=lead.id, created_by=p.user.id,
+        to_email=lead.email, subject=subject, body=body, status="draft",
+    )
+    db.add(reply)
+    db.flush()
+    audit(db, p.org.id, p.user.id, "lead.reply_drafted", "lead_reply", reply.id,
+          {"lead_id": str(lead.id)})
+    return back(f"/app/inquiries/{lead.id}", ok="Draft saved. Nothing has been sent.")
+
+
+@router.post("/app/inquiries/{lead_id}/reply/{reply_id}/approve")
+def inquiry_reply_approve(
+    lead_id: str, reply_id: str,
+    db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("leads.write")),
+):
+    """Only an owner/admin may explicitly approve queued customer contact."""
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator approval is required.")
+    lead = _get(db, Lead, lead_id)
+    reply = db.scalar(select(LeadReply).where(
+        LeadReply.id == parse_uuid(reply_id), LeadReply.org_id == p.org.id,
+        LeadReply.lead_id == lead.id).with_for_update())
+    if reply is None:
+        raise HTTPException(404, "Not found")
+    if reply.status != "draft":
+        return back(f"/app/inquiries/{lead.id}", err="This draft has already been handled.")
+    if reply.to_email != lead.email or not valid_email(lead.email):
+        return back(f"/app/inquiries/{lead.id}", err="The inquiry email changed; create a new draft.")
+    settings = get_settings()
+    if settings.email_provider != "resend" or not settings.resend_api_key or not settings.email_from:
+        return back(f"/app/inquiries/{lead.id}", err="Email is not configured. Draft preserved; nothing sent.")
+    reply.approved_by, reply.approved_at, reply.status = p.user.id, now(), "queued"
+    db.flush()
+    jobs.enqueue(db, "send_lead_reply", {"reply_id": str(reply.id)},
+                 key=f"lead_reply:{reply.id}", org_id=p.org.id)
+    audit(db, p.org.id, p.user.id, "lead.reply_approved", "lead_reply", reply.id,
+          {"lead_id": str(lead.id)})
+    return back(f"/app/inquiries/{lead.id}",
+                ok="Reply approved and queued. Delivery is not yet confirmed.")
 
 
 @router.post("/app/inquiries/{lead_id}/convert")

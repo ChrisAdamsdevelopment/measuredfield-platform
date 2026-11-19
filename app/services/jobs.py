@@ -17,7 +17,7 @@ from sqlalchemy import func, select, text, update
 
 from ..config import get_settings
 from ..db import session_scope
-from ..models import EmailMessage, Job, Lead, Membership, Organization, ServiceOrder, User, now
+from ..models import EmailMessage, Job, Lead, LeadReply, Membership, Organization, ServiceOrder, User, now
 
 log = logging.getLogger("mf.jobs")
 MAX_ATTEMPTS = 5
@@ -46,6 +46,68 @@ def _send_email(job: Job) -> None:
             deliver(db, message)
             if message.status == "failed":
                 raise RuntimeError("email delivery failed")
+
+
+def _send_lead_reply(job: Job) -> None:
+    """Deliver only owner-approved tenant replies, idempotently within provider limits.
+
+    Provider acceptance is recorded; final mailbox delivery is never inferred.
+    Past the provider's 24-hour key retention window, stop and require reconciliation
+    rather than risk duplicating a message after an unknown network result.
+    """
+    from .email import get_provider
+    from .audit import audit
+
+    failed = False
+    try:
+        reply_id = uuid.UUID(job.payload["reply_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("invalid lead reply job") from exc
+    with session_scope(org_id=job.org_id) as db:
+        reply = db.scalar(select(LeadReply).where(
+            LeadReply.id == reply_id, LeadReply.org_id == job.org_id).with_for_update())
+        if reply is None or reply.status not in ("queued", "failed"):
+            return
+        if reply.approved_at is None or reply.approved_by is None:
+            raise RuntimeError("unapproved reply cannot be sent")
+        if now() - reply.approved_at >= timedelta(hours=20):
+            reply.status = "failed"
+            reply.last_error = "manual_reconciliation_required"
+            audit(db, reply.org_id, None, "lead.reply_manual_reconciliation",
+                  "lead_reply", reply.id, {"lead_id": str(reply.lead_id)})
+            return
+        provider = get_provider()
+        if provider is None or provider.name != "resend":
+            reply.status = "not_configured"
+            reply.last_error = "email_provider_unavailable"
+            return
+        try:
+            result = provider.send(
+                to=reply.to_email, subject=reply.subject, body=reply.body,
+                idempotency_key=f"lead-reply/{reply.id}",
+            )
+            accepted = result.ok and bool(result.provider_message_id)
+        except Exception:  # noqa: BLE001 - provider exceptions can contain PII
+            accepted = False
+            result = None
+        if accepted:
+            reply.status = "accepted"
+            reply.provider_message_id = result.provider_message_id
+            reply.accepted_at = now()
+            reply.last_error = None
+            lead = db.scalar(select(Lead).where(
+                Lead.id == reply.lead_id, Lead.org_id == reply.org_id).with_for_update())
+            if lead is not None:
+                if lead.first_response_at is None:
+                    lead.first_response_at = reply.accepted_at
+                if lead.status == "new":
+                    lead.status = "contacted"
+        else:
+            reply.status = "failed"
+            reply.last_error = "provider_not_accepted"
+            failed = True
+    if failed:
+        raise RuntimeError("lead_reply_provider_failure")
 
 
 def _provision_order(job: Job) -> None:
@@ -116,6 +178,7 @@ def _auth_cleanup(job: Job) -> None:  # noqa: ARG001
 HANDLERS = {
     "auth_cleanup": _auth_cleanup,
     "send_email": _send_email,
+    "send_lead_reply": _send_lead_reply,
     "provision_order": _provision_order,
     "notify_new_lead": _notify_new_lead,
     "delete_org": _delete_org,
