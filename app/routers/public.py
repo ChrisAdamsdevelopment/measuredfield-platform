@@ -333,8 +333,16 @@ def order_create(token: str, request: Request, db: TenantSession = Depends(get_d
         except payments.PaymentError:
             # Approval stays recorded; the status page explains that payment is still open.
             return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
+        # Never send a prospect to a look-alike host, even if a provider
+        # adapter or a synthetic transport is misconfigured. Approval remains
+        # recorded, but no payment is presumed and no subscription is created.
+        if not payments.hosted_checkout_session_valid(checkout):
+            return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
         order.provider_ref, order.payment_provider, order.status = checkout["id"], "stripe", "payment_pending"
-        return RedirectResponse(checkout["url"], status_code=303)
+        redirect = RedirectResponse(checkout["url"], status_code=303)
+        redirect.headers["Referrer-Policy"] = "no-referrer"
+        redirect.headers["Cache-Control"] = "no-store"
+        return redirect
     return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
 
 

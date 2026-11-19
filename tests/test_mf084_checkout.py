@@ -34,7 +34,7 @@ def test_recurring_checkout_has_real_price_and_order_correlation():
     def transport(req):
         observed.append(parse_qs(req.content.decode()))
         return httpx.Response(200, json={
-            "id": "cs_test_price_validation", "url": "https://checkout.stripe.com/synthetic",
+            "id": "cs_test_price_validation", "url": "https://checkout.stripe.com/c/pay/cs_test_price_validation",
         })
 
     provider = StripeProvider(
