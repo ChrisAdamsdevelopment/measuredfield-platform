@@ -1,0 +1,101 @@
+{% extends "public/base.html" %}
+{% block title %}Free website improvement example | {{ brand }}{% endblock %}
+{% block description %}Try a free, illustrative website copy improvement example. No account, live site scan, rankings or AI provider calls.{% endblock %}
+{% macro err(name) %}{% if errors.get(name) %}<div class="error" id="{{ name }}-error" role="alert">{{ errors[name] }}</div>{% endif %}{% endmacro %}
+{% block content %}
+<section class="flow">
+  <div class="wrap">
+    <div class="narrow">
+      <div class="eyebrow"><span class="eyebrow-line"></span> A useful place to start</div>
+      <h1>See how your website message could improve.</h1>
+      <p class="lead">Try a short writing example for your type of business. No account is needed, and no one connects to your computer or visits your website.</p>
+      <p class="hint"><strong>Example, not a website audit.</strong> We use only what you type and an existing copy template. The “before” text is generic, not copied from your site; the “after” is a possible direction, not a performance guarantee.</p>
+    </div>
+
+    <div class="step-card" style="max-width:860px;margin:24px auto">
+      <h2>Tell us what kind of business you run</h2>
+      {% if errors.get('form') %}<div class="alert err" role="alert">{{ errors.form }}</div>{% endif %}
+      <form method="post" action="/visibility-preview" novalidate>
+        <div class="two">
+          <div class="field{% if errors.get('business_name') %} has-error{% endif %}">
+            <label for="business_name">Business name</label>
+            <input id="business_name" name="business_name" maxlength="90" autocomplete="organization" required value="{{ values.get('business_name', '') }}" {% if errors.get('business_name') %}aria-describedby="business_name-error" aria-invalid="true"{% endif %}>
+            {{ err('business_name') }}
+          </div>
+          <div class="field{% if errors.get('city') %} has-error{% endif %}">
+            <label for="city">City or service area</label>
+            <input id="city" name="city" maxlength="100" autocomplete="address-level2" required placeholder="Prescott Valley, AZ" value="{{ values.get('city', '') }}" {% if errors.get('city') %}aria-describedby="city-error" aria-invalid="true"{% endif %}>
+            {{ err('city') }}
+          </div>
+          <div class="field{% if errors.get('industry') %} has-error{% endif %}">
+            <label for="industry">Type of business</label>
+            <select id="industry" name="industry" {% if errors.get('industry') %}aria-describedby="industry-error" aria-invalid="true"{% endif %}>
+              {% for key, label in [('cleaning','Cleaning'),('construction','Construction or remodeling'),('landscaping','Landscaping or grounds'),('food','Food or hospitality'),('wellness','Health or wellness'),('professional','Professional services'),('retail','Retail or shop'),('other','Something else')] %}
+              <option value="{{ key }}" {% if values.get('industry', 'other') == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {{ err('industry') }}
+          </div>
+          <div class="field{% if errors.get('website') %} has-error{% endif %}">
+            <label for="website">Your website <span class="optional">(optional)</span></label>
+            <input id="website" name="website" maxlength="250" autocomplete="url" placeholder="example.com" value="{{ values.get('website', '') }}" {% if errors.get('website') %}aria-describedby="website-error" aria-invalid="true"{% endif %}>
+            {{ err('website') }}
+            <p class="hint">Enter only your homepage domain (for example, example.com), not a specific page. Used only as a label. We do not visit, verify ownership of, or scan it.</p>
+          </div>
+        </div>
+        <div class="trap" aria-hidden="true"><label for="company_site">Leave empty</label><input id="company_site" name="company_site" tabindex="-1" autocomplete="off"></div>
+        <label class="check"><input name="sample_acknowledged" type="checkbox" value="yes" required {% if errors.get('sample_acknowledged') %}aria-describedby="sample_acknowledged-error" aria-invalid="true"{% endif %}><span>I understand the result is an illustrative writing example, not a scan or verified measurement of my business.</span></label>
+        {{ err('sample_acknowledged') }}
+        <div class="field"><button class="btn primary" type="submit">Show my free example</button></div>
+      </form>
+    </div>
+
+    {% if sample %}
+    <div class="narrow" id="example-results" tabindex="-1" aria-live="polite">
+      <div class="step-no">Example created for {{ sample.business_name }}</div>
+      <h2>Compare a generic message with a clearer one</h2>
+      <p>These are <strong>two illustrative messages</strong>, not an image, screenshot, copy of your current website or a tested redesign.</p>
+    </div>
+    <div class="examples" style="max-width:960px;margin:20px auto 32px">
+      <article class="case">
+        <div class="tag">Before — generic sample</div>
+        <h3>{{ sample.generic_before_headline }}</h3>
+        <p>{{ sample.generic_before_intro }}</p>
+        <p class="hint">This is invented placeholder copy. We have not read your real website.</p>
+      </article>
+      <article class="case">
+        <div class="tag">After — illustrative alternative</div>
+        <h3>{{ sample.illustrative_after_headline }}</h3>
+        <p>{{ sample.illustrative_after_intro }}</p>
+        <p class="hint">Possible copy direction based only on your selected business type and service area.</p>
+      </article>
+    </div>
+    <div class="step-card" style="max-width:960px;margin:0 auto 24px">
+      <h2>What you could research next</h2>
+      <p>Here are example customer searches worth investigating in {{ sample.city }}. These are <strong>suggested phrases</strong>, not measured Google queries or verified demand.</p>
+      <ul class="plain-list">{% for phrase in sample.example_phrases %}<li>{{ phrase }}</li>{% endfor %}</ul>
+      <h3>What this sample actually knows</h3>
+      <dl class="kv">
+        <dt>Business</dt><dd>{{ sample.business_name }}</dd>
+        <dt>Entered website</dt><dd>{{ sample.submitted_host or 'Not provided' }}</dd>
+        <dt>Source</dt><dd>{{ sample.source }}</dd>
+        <dt>Created (UTC)</dt><dd>{{ sample.generated_at }}</dd>
+        <dt>Website content</dt><dd>{{ sample.website_access }}</dd>
+        <dt>Google position</dt><dd>{{ sample.search_position }}</dd>
+        <dt>AI citations</dt><dd>{{ sample.ai_mentions }}</dd>
+        <dt>Confidence</dt><dd>{{ sample.confidence }}</dd>
+      </dl>
+      <p class="hint">Nothing was published. No change was made to your website. No personal account or computer connection was created.</p>
+      <a class="btn primary" href="/assessment">Tell us what you'd like to improve</a>
+      <a class="btn" href="/visibility-preview">Try another example</a>
+    </div>
+    {% else %}
+    <div class="step-card" style="max-width:860px;margin:0 auto">
+      <h2>What happens after the example?</h2>
+      <p>With your permission, the full MeasuredField workflow can go further: examine authorized website content, separate local search evidence from AI citations, and propose improvements for you to review.</p>
+      <p class="hint">Actual diagnostics, connected files and live provider checks require separate permission and supported integrations.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "app/base.html" %}
+{% block title %}Computers{% endblock %}
+{% block content %}
+<header><div><h1>Computers</h1><p>Computers you have connected to {{ org.name }}, and what each one is allowed to do.</p></div></header>
+
+{% if issued %}
+<section class="card" aria-labelledby="code-heading">
+<h2 id="code-heading">Your connection code</h2>
+<p>On the computer you want to connect, open MeasuredField, choose <strong>Connect this computer</strong> and type this code:</p>
+<p class="copy-box" role="status" aria-live="polite"><strong>{{ issued.code }}</strong></p>
+<p class="small muted">It works once and expires at {{ issued.expires_at.strftime('%H:%M UTC') }}. We show it only now. After you type it, the computer shows a six-digit number; come back to this page and enter that number to finish.</p>
+<p><a class="btn ghost" href="/app/computers">I've typed the code</a></p>
+</section>
+{% endif %}
+
+<div class="grid g-side actions">
+<div>
+<section class="card" aria-labelledby="list-heading">
+<h2 id="list-heading">Connected computers</h2>
+{% if devices %}<div class="scroll"><table><thead><tr><th scope="col">Computer</th><th scope="col">Allowed to</th><th scope="col">Status</th><th scope="col">Last seen</th><th scope="col"><span class="muted">Actions</span></th></tr></thead><tbody>
+{% for d in devices %}<tr>
+<td><strong>{{ d.name }}</strong><div class="small muted">{% if d.reported_name %}Calls itself &ldquo;{{ d.reported_name }}&rdquo; &middot; {% endif %}{{ d.platform|capitalize }} &middot; connected by {{ people.get(d.user_id, 'a team member') }}</div></td>
+<td>{{ access_levels[d.access] }}</td>
+<td>{% if d.status == 'active' %}<span class="badge live">Connected</span>
+{% elif d.status == 'pending' %}<span class="badge pending">Waiting for you</span>
+{% elif d.status == 'revoked' %}<span class="badge revoked">Disconnected</span><div class="small muted">{{ d.revoked_at.strftime('%b %d, %H:%M') if d.revoked_at else '' }}</div>
+{% else %}<span class="badge draft">Not finished</span>{% endif %}</td>
+<td>{% if d.last_seen_at %}{{ d.last_seen_at.strftime('%b %d, %H:%M') }}{% else %}<span class="muted">Never</span>{% endif %}</td>
+<td>{% if can_manage and d.status == 'pending' %}
+<form method="post" action="/app/computers/{{ d.id }}/confirm"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="check-{{ d.id }}">Number shown on that computer</label>
+<div class="row"><input id="check-{{ d.id }}" name="check_number" inputmode="numeric" autocomplete="off" maxlength="7" required aria-describedby="check-help-{{ d.id }}">
+<button class="btn small" type="submit">Connect</button></div>
+<p class="small muted" id="check-help-{{ d.id }}">Only enter it if you are at that computer and started this yourself.</p></form>
+{% endif %}
+{% if can_manage and d.status in ('active', 'pending') %}
+<form method="post" action="/app/computers/{{ d.id }}/disconnect"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn danger small" type="submit">{{ 'Disconnect now' if d.status == 'active' else 'Cancel' }}</button></form>
+{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<p class="empty">No computers are connected.</p>{% endif %}
+</section>
+
+<section class="card actions" aria-labelledby="work-heading">
+<h2 id="work-heading">Pending computer work</h2>
+<p class="small muted">Only authorized Work-mode projects can change files. A queued request can be cancelled before the computer claims it. To stop already-running work, disconnect that computer.</p>
+{% if pending_work %}
+<div class="scroll"><table><thead><tr><th scope="col">Requested</th><th scope="col">Operation</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>
+{% for job in pending_work %}
+<tr><td>{{ job.created_at.strftime('%b %d, %H:%M UTC') }}</td><td>{{ 'Create or edit file' if job.action == 'write_file' else 'Create folder' }}</td><td>{{ job.status|capitalize }}</td>
+<td>{% if job.status == 'queued' %}
+<form method="post" action="/app/computers/work/{{ job.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="btn danger small" type="submit">Cancel queued work</button></form>
+{% else %}<span class="small muted">Disconnect computer to stop further work</span>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">No pending computer work.</p>{% endif %}
+</section>
+
+<section class="card actions" aria-labelledby="activity-heading">
+<h2 id="activity-heading">What happened on your computers</h2>
+<p class="small muted">Reported by each connected computer. This summary never includes file contents or full paths. Suggest mode requires approval for each change; Work mode can save actual files only during an owner-approved project session.</p>
+{% if activity %}<div class="scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Computer</th><th scope="col">What</th><th scope="col">Project</th><th scope="col">Result</th></tr></thead><tbody>
+{% for e, name in activity %}<tr><td>{{ e.occurred_at.strftime('%b %d, %H:%M') }}</td><td>{{ name }}</td>
+<td>{{ {'connection_started':'Connection started','connection_ended':'Connection ended','folder_shared':'Folder shared','folder_unshared':'Folder no longer shared','file_read':'Files read','change_proposed':'Change suggested','change_approved':'Change approved by you','change_rejected':'Change declined','file_written':'File created or updated','directory_created':'Folder created'}[e.action] }}{% if e.count > 1 %} &times; {{ e.count }}{% endif %}</td>
+<td>{{ e.project_label or '' }}</td><td><span class="badge {{ 'done' if e.result == 'ok' else 'failed' }}">{{ {'ok':'Done','denied':'Not allowed','error':'Problem'}[e.result] }}</span></td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">Nothing reported yet.</p>{% endif %}
+</section>
+</div>
+
+<div>
+{% if can_manage %}
+<section class="card" aria-labelledby="connect-heading">
+<h2 id="connect-heading">Connect this computer</h2>
+<form method="post" action="/app/computers/codes"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="device_name">What should we call it?</label>
+<input id="device_name" name="device_name" maxlength="80" required placeholder="Front office PC">
+<fieldset><legend>What may an assistant do on it?</legend>
+<label><input type="radio" name="access" value="read" checked> <strong>Read only</strong> &mdash; look at the folders you choose. It cannot change anything.</label>
+<label><input type="radio" name="access" value="suggest"> <strong>Suggest changes</strong> &mdash; also prepare changes for you to review. Nothing changes until you approve it on that computer.</label>
+<label><input type="radio" name="access" value="work"> <strong>Work in approved projects</strong> &mdash; with a separately granted writable folder and time-limited work session, the assistant can create and edit actual files without approving every routine change. No whole-drive or automatic shell access.</label>
+</fieldset>
+<div class="actions"><button class="btn" type="submit">Get a connection code</button></div>
+</form>
+<p class="small muted">You choose which folders to share on the computer itself. Connecting here never shares a whole drive.</p>
+</section>
+{% if codes %}
+<section class="card actions" aria-labelledby="codes-heading">
+<h2 id="codes-heading">Codes waiting to be used</h2>
+{% for c in codes %}<div class="note-item"><strong>{{ c.device_name }}</strong> &middot; {{ access_levels[c.access] }}<div class="small muted">Expires {{ c.expires_at.strftime('%H:%M UTC') }}</div>
+<form method="post" action="/app/computers/codes/{{ c.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost small" type="submit">Cancel this code</button></form></div>{% endfor %}
+</section>
+{% endif %}
+{% else %}
+<section class="card"><h2>Connecting a computer</h2><p class="muted">Only an owner or admin can connect or disconnect a computer.</p></section>
+{% endif %}
+<section class="card actions" aria-labelledby="how-heading">
+<h2 id="how-heading">How this keeps you in control</h2>
+<ul class="small"><li>A code works once and for ten minutes.</li><li>A computer is not connected until you enter the number it shows.</li><li><strong>Disconnect now</strong> takes effect immediately.</li><li>Only the business and people you see here can use a connected computer.</li></ul>
+</section>
+</div>
+</div>
+{% endblock %}

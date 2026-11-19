@@ -1,0 +1,30 @@
+{% extends "public/base.html" %}
+{% block title %}Beta feedback | MeasuredField{% endblock %}
+{% block content %}
+<section class="section"><div class="wrap">
+<h1>Beta tester feedback</h1>
+<p>Only platform operators can read these voluntary support submissions. Feedback can contain sensitive information entered by testers; do not copy it to public reports.</p>
+<p><a href="/operator">Return to operator console</a></p>
+{% if flash %}<p role="status">{{ flash }}</p>{% endif %}
+{% if items %}
+{% for row, email in items %}
+<article class="card" style="padding:1.5rem;margin:1rem 0;max-width:950px">
+<h2>{{ row.kind|capitalize }} · {{ row.status|capitalize }}</h2>
+<p><strong>Workspace:</strong> {{ row.workspace_name }} · <strong>Submitted by:</strong> {{ email }}</p>
+<p class="small">{{ row.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+<p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.message }}</p>
+<form method="post" action="/operator/feedback/{{ row.id }}/status">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="status-{{ row.id }}">Review status</label>
+<select id="status-{{ row.id }}" name="status">
+{% for state in statuses %}<option value="{{ state }}" {% if row.status == state %}selected{% endif %}>{{ state|capitalize }}</option>{% endfor %}
+</select>
+<button type="submit">Save status</button>
+</form>
+</article>
+{% endfor %}
+{% else %}
+<p>There is no tester feedback yet.</p>
+{% endif %}
+</div></section>
+{% endblock %}

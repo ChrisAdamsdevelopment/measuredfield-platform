@@ -1,0 +1,12 @@
+{% extends "public/base.html" %}
+{% block title %}Connect your MeasuredField purchase{% endblock %}
+{% block content %}
+<section class="section"><div class="container prose">
+<h1>Connect your purchase to your business</h1>
+<p>Already completed Stripe Checkout? Sign in to your MeasuredField account, choose your business, and open the purchase claim page. We verify the Stripe purchase and your email before activating a subscription.</p>
+<p>No account yet? Create a free verified workspace using the same email you entered at Stripe Checkout. You will verify your address from an email before claiming the purchase. Your purchase does not grant access just by visiting this page.</p>
+<p><a class="btn" href="/login?next=/app/billing/claim">Sign in to claim</a>
+<a class="btn ghost" href="/signup">Create a verified workspace</a></p>
+<p>If you used a different email at checkout, contact support; do not create another Stripe subscription.</p>
+</div></section>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "app/base.html" %}
+{% block title %}ChatGPT draft approvals{% endblock %}
+{% block content %}
+<header><div><h1>ChatGPT drafts and approvals</h1>
+<p>Review proposed customer replies saved through a connected OAuth account. A draft never sends a message, changes a customer record, or publishes a page automatically.</p></div></header>
+{% if entries %}
+{% for d, lead in entries %}
+<div class="card" style="margin-bottom:1.1rem">
+<h2>Reply to {{ lead.name }}</h2>
+<p><a href="/app/inquiries/{{ lead.id }}">Open original inquiry</a> · {{ lead.service or 'General inquiry' }} · <strong>{{ d.status|replace('_',' ')|capitalize }}</strong></p>
+<p class="small muted">Review names, links and message content carefully for AI mistakes and misleading lookalike characters. Invisible formatting controls are rejected during draft creation.</p>
+<p class="small muted">Proposed {{ d.created_at.strftime('%Y-%m-%d %H:%M UTC') }} · Record {{ d.id }}</p>
+<label for="draft-{{ d.id }}">Review the exact proposed message</label>
+<textarea id="draft-{{ d.id }}" readonly rows="7">{{ d.body }}</textarea>
+{% if d.status == 'pending_review' %}
+<p class="small muted">Approving records your review, but it does not email anyone. Once approved, copy the text and send it yourself through your own email.</p>
+<form method="post" action="/app/mcp/approvals/{{ d.id }}/decide">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label><input type="checkbox" name="confirm" value="yes" required>
+I have read this exact message and approve it for my own use.</label>
+<input type="hidden" name="decision" value="approved">
+<button class="btn" type="submit">Approve draft (do not send)</button></form>
+<form method="post" action="/app/mcp/approvals/{{ d.id }}/decide">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="decision" value="declined">
+<input type="hidden" name="confirm" value="yes">
+<button class="btn ghost" type="submit">Decline draft</button></form>
+{% elif d.status == 'approved' %}
+<p class="small muted">Approved by a business owner. Copy the text above to send it manually from your own email; MeasuredField has not sent it.</p>
+{% else %}
+<p class="small muted">Declined. This proposal is retained in your workspace audit history and was not sent.</p>
+{% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div class="card"><h2>No saved ChatGPT reply drafts</h2>
+<p>Read-only ChatGPT previews are not stored. Once an explicitly authorized write-enabled connection creates a draft, it will appear here for approval.</p></div>
+{% endif %}
+{% endblock %}

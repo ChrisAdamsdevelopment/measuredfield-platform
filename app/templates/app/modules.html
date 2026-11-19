@@ -1,0 +1,95 @@
+{% extends "app/base.html" %}
+{% block title %}Modules{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/module_lab.css">
+<div class="ml-page">
+  <div class="ml-hero">
+    <div class="ml-eyebrow">MEASUREDFIELD / OWNER WORKSPACE</div>
+    <h1>Your business tools, working together.</h1>
+    <p>Choose the capability that solves today's business problem. Each module has its own purpose; all share the same strict tenant isolation and evidence provenance rules.</p>
+    <div class="ml-tags">
+      <span>Local architecture preview</span>
+      <span>No new subscription charges</span>
+      <span>No live service actions</span>
+      <span>Zero fake results</span>
+    </div>
+  </div>
+
+  <section class="ml-workflow-banner" aria-label="MeasuredField evidence to action workflow">
+    <div class="ml-workflow-banner-head"><div><div class="ml-eyebrow">START HERE · LOCAL SEARCH &amp; STRATEGY</div><h2>Compare your towns, understand competitors, decide what to improve.</h2></div><a class="ml-primary ml-link" href="/app/modules/local-search">Open Local Search Map <span aria-hidden="true">↗</span></a></div>
+    <ol class="ml-workflow-pillars"><li><strong>01 · Import observations</strong><span>Bring a geographic rank report with real query, source, time and coordinate fields.</span></li><li><strong>02 · See the differences</strong><span>Compare city-level search observations without inventing rankings or treating missing data as failure.</span></li><li><strong>03 · Review competitors</strong><span>See where a reported competitor is ahead at exactly comparable samples.</span></li><li><strong>04 · Choose an action</strong><span>Readable priorities explain the source observations and what you should check next.</span></li></ol>
+  </section>
+
+  <section class="ml-workflow-banner" aria-label="AI Visibility Lab workflow">
+    <div class="ml-workflow-banner-head">
+      <div>
+        <div class="ml-eyebrow">START HERE · AI EVIDENCE CHECK &amp; ADVANCED RESEARCH</div>
+        <h2>See plain-English verified AI answers first, or open Advanced research to plan experiments</h2>
+      </div>
+      <div class="ml-row ml-actions-wrap">
+        <a class="ml-primary ml-link" href="/app/modules/visibility/evidence-health">Open AI Evidence Check (Default) <span aria-hidden="true">↗</span></a>
+        <a class="ml-secondary ml-link" href="/app/modules/visibility">Advanced research · Launch AI Visibility Lab <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+    <ol class="ml-workflow-pillars">
+      <li><strong>01 · Plain-English Evidence Check</strong><span>Default owner view: see verified AI answer mentions separately from unverified or practice records.</span></li>
+      <li><strong>02 · GSC Import &amp; Summary</strong><span>In Advanced research, import Google Search Console rows and inspect query, impression, click and status breakdowns.</span></li>
+      <li><strong>03 · Explicit Question Approval</strong><span>Review source-linked draft homeowner questions, explicitly approve each one, or select any of your business's 22 benchmark questions.</span></li>
+      <li><strong>04 · Multi-Market × 3 Methods</strong><span>Combine your configured target markets and all three prompt methods with exact request counts, provenance counts and safe JSON export.</span></li>
+    </ol>
+  </section>
+
+  <section aria-label="Available and planned tools">
+    <div class="ml-section-heading">
+      <div>
+        <h2>Module collection</h2>
+        <p>One platform. Independent business value. Evidence before automation.</p>
+      </div>
+      <span>{{ modules|length }} module concepts</span>
+    </div>
+    <div class="ml-module-grid">
+    {% for m in modules %}
+      <article class="ml-module-card" data-module-id="{{ m.id }}">
+        <div class="ml-module-top">
+          <span class="ml-module-mark">{{ '%02d'|format(loop.index) }}</span>
+          <span class="ml-stage">{{ 'Local preview' if m.stage == 'local_preview' else 'Workspace foundation' if m.stage == 'existing_platform' else 'Owner private pilot' if m.stage == 'private_pilot' else 'Design only' }}</span>
+        </div>
+        <p class="ml-category">{{ m.subtitle }}</p>
+        <h3>{{ m.name }}</h3>
+        <p>{{ m.description }}</p>
+        <strong>{{ m.outcome }}</strong>
+        <div class="ml-feature-list">
+          {% for c in m.capabilities %}<span>{{ c }}</span>{% endfor %}
+        </div>
+        {% if m.path %}
+          <a class="ml-primary ml-link" href="{{ m.path }}">{{ "Open owner controls" if m.stage == "private_pilot" else "Explore tool" }} <span aria-hidden="true">↗</span></a>
+        {% else %}
+          <span class="ml-disabled">Not implemented yet · local design contract only</span>
+        {% endif %}
+      </article>
+    {% endfor %}
+    </div>
+  </section>
+
+  <section class="ml-roadmap" aria-labelledby="cc-security-title">
+    <div>
+      <div class="ml-eyebrow">SECURITY MODEL</div>
+      <h2 id="cc-security-title">Computer Connect is permission-first.</h2>
+      <p>Connecting a user's computer will require an explicitly installed companion, narrowly scoped grants, per-action approvals, an append-only audit trail and immediate revocation. It cannot execute commands or access devices in this preview.</p>
+      {% if connection.requirements %}
+      <ul class="ml-req-list">
+        {% for req in connection.requirements %}
+        <li>{{ req }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    <div class="ml-security">
+      <span class="ml-led"></span> {{ connection.status|replace('_',' ')|title }}
+      <div>Remote access enabled: <strong>No</strong></div>
+      <div>Default permissions: <strong>Deny</strong></div>
+      <div>Grant scope: <strong>{{ connection.grant_scope|default('per_device_per_app_per_action')|replace('_',' ') }}</strong></div>
+    </div>
+  </section>
+</div>
+{% endblock %}

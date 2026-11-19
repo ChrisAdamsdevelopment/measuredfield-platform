@@ -36,7 +36,9 @@ PERMISSIONS: dict[str, set[str]] = {
               "memory.write", "improvements.write"},
     "admin": {"read", "leads.write", "customers.write", "documents.write", "site.edit",
               "memory.write", "improvements.write", "site.publish", "team.manage",
-              "settings.write", "learning.manage", "documents.delete"},
+              "settings.write", "learning.manage", "documents.delete",
+              # Connect, confirm and disconnect a computer (app/services/devices.py).
+              "devices.manage"},
 }
 PERMISSIONS["owner"] = PERMISSIONS["admin"] | {"billing.read", "data.manage", "team.owners"}
 

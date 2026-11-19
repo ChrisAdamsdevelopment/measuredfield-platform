@@ -1,0 +1,54 @@
+{% extends "public/base.html" %}
+{% block title %}Start your free workspace | {{ brand }}{% endblock %}
+{% block description %}Create a no-card MeasuredField founding beta workspace for your business. Verify your email and explore the tools available today.{% endblock %}
+{% block social_meta %}
+{% if settings.public_base_url %}<link rel="canonical" href="{{ settings.public_base_url.rstrip('/') }}/signup">{% endif %}
+{% endblock %}
+{% block content %}
+<div class="flow"><div class="narrow">
+  <div class="eyebrow"><span class="eyebrow-line"></span> Founding beta</div>
+  <h1>Start a free business workspace.</h1>
+  <p class="lead">No card required. Create a separate private workspace for your own business. We'll email you a verification link before you can sign in.</p>
+  <p class="hint">The beta includes working features as they are released. AI and external account connections need their own authorization; this is not a paid plan or a promise that every planned tool is live.</p>
+  {% if not available %}<div class="alert err" role="alert">Email invitations are temporarily unavailable. Please check back shortly.</div>{% endif %}
+  {% if errors.get("form") %}<div class="alert err" role="alert">{{ errors.form }}</div>{% endif %}
+  <form action="/signup" method="post" novalidate>
+    <div class="step-card">
+      <h2>About your business</h2>
+      <div class="field{% if errors.get('business_name') %} has-error{% endif %}">
+        <label for="business_name">Business name</label>
+        <input id="business_name" name="business_name" maxlength="120" required autocomplete="organization" value="{{ values.get('business_name','') }}" {% if not available %}disabled{% endif %}>
+        {% if errors.get('business_name') %}<div class="error" role="alert">{{ errors.business_name }}</div>{% endif %}
+      </div>
+      <div class="field{% if errors.get('industry') %} has-error{% endif %}">
+        <label for="industry">Business type</label>
+        <select id="industry" name="industry" {% if not available %}disabled{% endif %}>
+          {% for code, name in [('construction','Construction / remodeling'),('cleaning','Cleaning'),('landscaping','Landscaping'),('food','Food / hospitality'),('wellness','Health / wellness'),('professional','Professional services'),('retail','Retail / shop'),('other','Something else')] %}
+          <option value="{{ code }}" {% if values.get('industry','other') == code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.get('industry') %}<div class="error" role="alert">{{ errors.industry }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="step-card">
+      <h2>Where to send your invitation</h2>
+      <div class="field{% if errors.get('contact_name') %} has-error{% endif %}">
+        <label for="contact_name">Your name</label>
+        <input id="contact_name" name="contact_name" maxlength="120" required autocomplete="name" value="{{ values.get('contact_name','') }}" {% if not available %}disabled{% endif %}>
+        {% if errors.get('contact_name') %}<div class="error" role="alert">{{ errors.contact_name }}</div>{% endif %}
+      </div>
+      <div class="field{% if errors.get('email') %} has-error{% endif %}">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" maxlength="254" required autocomplete="email" value="{{ values.get('email','') }}" {% if not available %}disabled{% endif %}>
+        {% if errors.get('email') %}<div class="error" role="alert">{{ errors.email }}</div>{% endif %}
+      </div>
+      <div class="trap" aria-hidden="true"><label for="company_site">Leave this empty</label><input id="company_site" name="company_site" tabindex="-1" autocomplete="off"></div>
+      <label class="check"><input type="checkbox" name="consent" value="yes" required {% if not available %}disabled{% endif %}>
+      <span>I agree to the <a href="/terms">terms</a> and <a href="/privacy">privacy information</a> and may receive an account verification email. No purchase is required.</span></label>
+      {% if errors.get('consent') %}<div class="error" role="alert">{{ errors.consent }}</div>{% endif %}
+      <div class="field"><button type="submit" class="btn primary block" {% if not available %}disabled{% endif %}>Email my free invitation</button></div>
+    </div>
+  </form>
+  <p class="hint">Already have an account? <a href="/login">Sign in</a>. Existing members can use the same password when accepting a new business invitation.</p>
+</div></div>
+{% endblock %}

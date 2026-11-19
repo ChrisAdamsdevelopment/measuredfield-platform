@@ -1,0 +1,148 @@
+{% extends "app/base.html" %}
+{% block title %}Market intelligence{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/census_market.css">
+<div class="cm-root">
+  <header class="cm-hero">
+    <div class="cm-hero-content">
+      <p class="cm-eyebrow">MeasuredField / Market intelligence</p>
+      <h1>Know your market. Find your next move.</h1>
+      <p class="cm-lead">Understand the people, households, and business activity around your service area, with every number traced to official U.S. Census data.</p>
+      <div class="cm-proof-row" aria-label="Data quality">
+        <span>Official public data</span><span>Source and year attached</span><span>Nothing changes automatically</span>
+      </div>
+    </div>
+    <div class="cm-hero-art" aria-hidden="true">
+      <div class="cm-orbit cm-orbit-one"></div><div class="cm-orbit cm-orbit-two"></div>
+      <div class="cm-orbit cm-orbit-three"></div>
+      <div class="cm-grid-dot cm-grid-dot-a"></div><div class="cm-grid-dot cm-grid-dot-b"></div>
+      <div class="cm-grid-dot cm-grid-dot-c"></div>
+      <div class="cm-place-marker">AZ</div>
+      <div class="cm-art-caption">Measured context.<br>Better decisions.</div>
+    </div>
+  </header>
+
+  <section class="cm-shell" aria-labelledby="cm-heading">
+    <div class="cm-section-top">
+      <div><p class="cm-eyebrow">01 / Explore a service area</p><h2 id="cm-heading">Choose your market</h2></div>
+      <span class="cm-privacy-pill">Read-only request</span>
+    </div>
+    <p class="cm-help">This early local pilot covers three places in the Prescott region. We show town, ZIP-area, and county statistics separately because their boundaries are different.</p>
+    <form method="post" action="/app/market-intelligence/run" class="cm-market-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="confirm" value="LOAD PUBLIC CENSUS DATA">
+      <div class="cm-form-select">
+        <label for="market-area">Select a market</label>
+        <select id="market-area" name="area" required>
+          {% for slug, area in market_areas.items() %}
+          <option value="{{ slug }}"{% if slug == market_selected %} selected{% endif %}>{{ area.title }} · Arizona</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="cm-button">Load official market data <span aria-hidden="true">→</span></button>
+    </form>
+    <div class="cm-form-note">The page doesn't make Census requests until you select the button. Public market data only; no customer or Google account information is shared.</div>
+    {% if market_error %}
+    <div class="cm-error" role="alert"><strong>Market data isn't available yet.</strong><p>{{ market_error }}</p></div>
+    {% endif %}
+  </section>
+
+  {% if market_snapshot %}
+  <section aria-labelledby="cm-overview-heading" class="cm-results">
+    <div class="cm-section-top cm-result-heading">
+      <div>
+        <p class="cm-eyebrow">02 / Latest available official statistics</p>
+        <h2 id="cm-overview-heading">{{ market_snapshot.area.title }} market snapshot</h2>
+        <p class="cm-help">Town indicators describe a Census-defined place. Business indicators describe the wider county unless a ZIP is explicitly named.</p>
+      </div>
+      <span class="cm-ref-badge">Historic evidence, not live competitor tracking</span>
+    </div>
+
+    <div class="cm-stat-grid">
+    {% for card in market_snapshot.cards %}
+      <article class="cm-stat-card">
+        <p class="cm-stat-label">{{ card.label }}</p>
+        <p class="cm-stat-value">{% if card.stat.value is not none %}{{ "{:,}".format(card.stat.value) }}{% else %}<span class="cm-stat-unavailable">Not available</span>{% endif %}</p>
+        <p class="cm-stat-unit">{% if card.stat.value is not none %}{{ card.stat.unit|replace('_', ' ') }}{% else %}Census did not report a usable figure{% endif %}</p>
+        <div class="cm-stat-meta">
+          <span>{{ card.geography }}</span><span>{{ card.detail }}</span>
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+
+    <div class="cm-section-top cm-detail-heading">
+      <div><p class="cm-eyebrow">03 / The local picture</p><h2>Understand the boundaries</h2></div>
+    </div>
+    <div class="cm-boundaries">
+      <article class="cm-boundary-card"><span class="cm-boundary-symbol cm-boundary-place" aria-hidden="true">◎</span>
+        <div><h3>Town</h3><p>{{ market_snapshot.area.title }} is a Census place with its own municipal/statistical boundary.</p></div>
+      </article>
+      <article class="cm-boundary-card"><span class="cm-boundary-symbol cm-boundary-zip" aria-hidden="true">⌗</span>
+        <div><h3>ZIP vs. Census ZIP area</h3><p>Business ZIP {{ market_snapshot.area.business_zip }} and the corresponding Census ZIP Code Tabulation Area are <strong>not identical</strong> and should not be compared as the same boundary.</p></div>
+      </article>
+      <article class="cm-boundary-card"><span class="cm-boundary-symbol cm-boundary-county" aria-hidden="true">▧</span>
+        <div><h3>County</h3><p>{{ market_snapshot.area.county_name }} is broader than a town or ZIP area; county business counts are not town-only counts.</p></div>
+      </article>
+    </div>
+
+    <div class="cm-two-column">
+      <section class="cm-detail-panel" aria-labelledby="cm-details-table">
+        <div class="cm-panel-heading"><p class="cm-eyebrow">Deeper signals</p><h3 id="cm-details-table">Business and population details</h3></div>
+        <div class="cm-table-outer">
+          <table class="cm-table">
+          <thead><tr><th scope="col">Measure</th><th scope="col">Area &amp; source</th><th scope="col" class="cm-table-right">Result</th></tr></thead>
+          <tbody>
+          {% for item in market_snapshot.details %}
+          <tr>
+            <td><strong>{{ item.label }}</strong></td>
+            <td class="cm-muted">{{ item.scope }}<span class="cm-table-subtitle">{{ item.dataset }}</span></td>
+            <td class="cm-table-right">
+              {% if item.stat.value is not none %}
+              <strong>{{ "{:,}".format(item.stat.value) }}</strong>
+              <span class="cm-table-subtitle">{{ item.stat.unit|replace('_',' ') }}</span>
+              {% else %}
+              <span class="cm-missing">Not reported</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+          </table>
+        </div>
+      </section>
+      <aside class="cm-explanation" aria-labelledby="cm-reading-heading">
+        <p class="cm-eyebrow">How to read these figures</p>
+        <h3 id="cm-reading-heading">A clearer picture, not a prediction.</h3>
+        <p><strong>Employer establishments</strong> are workplaces with employees, not necessarily distinct companies. <strong>Nonemployer establishments</strong> have no paid employees.</p>
+        <p>These datasets cover different years and industry-code versions. We keep the figures separate rather than claim they represent a current total of competitors.</p>
+        <p>Payroll and gross receipts in Census source data are recorded in <strong>thousands of dollars</strong>. The table keeps those original units visible.</p>
+        <div class="cm-explanation-bottom">Next: combine these market signals with verified Google search rankings, leads and actual business outcomes as those modules are independently approved.</div>
+      </aside>
+    </div>
+
+    <section class="cm-sources" aria-labelledby="cm-sources-heading">
+      <div><p class="cm-eyebrow">Evidence trail</p><h3 id="cm-sources-heading">Where the numbers came from</h3><p class="cm-help">Official Census public datasets. Source links exclude your API key. Dataset years are reference periods, not the date of today's search.</p></div>
+      <div class="cm-source-grid">
+      {% for label, record in market_snapshot.sources %}
+        <div class="cm-source-item">
+          <div><strong>{{ record.dataset }}</strong><span>{{ record.reference_year }} · {{ record.name }}</span><span>Retrieved {{ record.fetched_at_utc[:10] }} UTC</span></div>
+          <a href="{{ record.source_url }}" target="_blank" rel="noopener noreferrer" aria-label="Open Census source for {{ label }}">Source <span aria-hidden="true">↗</span></a>
+        </div>
+      {% endfor %}
+      </div>
+      {% if market_unavailable %}
+      <p class="cm-partial" role="status">Some Census categories could not be loaded: {{ market_unavailable|join(', ') }}. Missing data is not counted as zero.</p>
+      {% endif %}
+    </section>
+  </section>
+  {% else %}
+  <section class="cm-empty" aria-labelledby="cm-empty-heading">
+    <div class="cm-empty-art" aria-hidden="true"><span class="cm-empty-ring"></span><span class="cm-empty-pin">⌖</span></div>
+    <div><p class="cm-eyebrow">Ready when you are</p><h2 id="cm-empty-heading">A market is more than a map pin.</h2><p>Choose a place and load official Census statistics to see the people, households and business activity behind its name. Each result will show the boundary and year it actually measures.</p></div>
+  </section>
+  {% endif %}
+
+  <footer class="cm-footer">MeasuredField Market Intelligence · U.S. Census Bureau public aggregate data · No identified businesses or live rankings are supplied by Census.</footer>
+</div>
+{% endblock %}

@@ -1,0 +1,218 @@
+{% extends "app/base.html" %}
+{% block title %}AI Visibility Lab · Advanced Research{% endblock %}
+{% block content %}
+{% set ev = evidence_counts if evidence_counts is defined and evidence_counts else {} %}
+{% set workspace_label = org.name if org and org.name else 'this workspace' %}
+{% set primary_city = (markets[0].split(',')[0]|trim|lower) if markets else 'local' %}
+<link rel="stylesheet" href="/static/module_lab.css">
+<div id="mf-lab" data-csrf="{{ csrf }}" data-org-name="{{ workspace_label }}" data-primary-market="{{ markets[0] if markets else 'Primary Service Area' }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan" data-evidence-api="/api/v1/modules/visibility/evidence/classify" data-storage-api="/api/v1/modules/visibility/storage" data-write-enabled="{{ 'true' if role in ('owner', 'admin', 'staff') else 'false' }}">
+  <div class="ml-hero ml-hero-compact">
+    <div class="ml-eyebrow"><a href="/app/modules">MODULES</a> / <a href="/app/modules/visibility/evidence-health">AI EVIDENCE CHECK</a> / ADVANCED RESEARCH · AI VISIBILITY LAB</div>
+    <h1>Understand how customers find you.</h1>
+    <p>Looking for the everyday owner summary? <a href="/app/modules/visibility/evidence-health"><strong>Open AI Evidence Check (default owner view)</strong></a> for a plain-English report. Use this <strong>Advanced research</strong> workbench to import Google Search Console queries, inspect source query lineage, approve draft questions, plan multi-market prompts across your configured service areas, and export a research plan. Zero live AI calls are sent in this local foundation.</p>
+    <div class="ml-tags">
+      <span>Advanced research console</span>
+      <span>{{ questions|length }} business benchmark questions</span>
+      <span>0 AI calls made · 0 fake results</span>
+      <span>No automatic localStorage</span>
+    </div>
+  </div>
+
+  <section class="ml-workflow-card" id="mf-saved-workspace" aria-labelledby="mf-saved-title">
+    <div class="ml-step-heading"><span>●</span><div>
+      <h2 id="mf-saved-title">Your saved visibility workspace</h2>
+      <p>Store research and review previous work securely for this business. Saved does not mean published, searched, or independently verified.</p>
+    </div></div>
+    <div id="mf-save-stats" class="ml-metrics" role="status" aria-live="polite">Loading saved workspace records…</div>
+    <p id="mf-save-status" role="status" aria-live="polite">No provider searches have been executed by this module.</p>
+    <div class="ml-action-row ml-actions-wrap">
+      <button id="mf-refresh-saved" class="ml-secondary" type="button">Refresh saved work</button>
+      <button id="mf-save-gsc" class="ml-secondary" type="button" disabled>Save analyzed GSC source</button>
+      <button id="mf-save-questions" class="ml-secondary" type="button" disabled>Save explicitly approved questions</button>
+      <button id="mf-save-plan" class="ml-secondary" type="button" disabled>Save research plan (no execution)</button>
+    </div>
+    <div class="ml-plan-numbers">
+      <div><label class="ml-label" for="mf-source-start">GSC reporting period start (optional)</label><input id="mf-source-start" type="date"></div>
+      <div><label class="ml-label" for="mf-source-end">GSC reporting period end (optional)</label><input id="mf-source-end" type="date"></div>
+      <div><label class="ml-label" for="mf-plan-title">Saved research plan name</label><input id="mf-plan-title" type="text" maxlength="160" value="Local visibility baseline"></div>
+    </div>
+    <p class="ml-muted">Use both reporting dates only when you know them. Leaving both blank preserves an unknown window. Saving or approving requires write access; read-only members can inspect saved records.</p>
+    <details><summary>Browse saved sources, approvals, and research plans</summary>
+      <div id="mf-saved-list" class="ml-results" aria-live="polite">Select Refresh saved work to inspect this business's saved records.</div>
+    </details>
+  </section>
+  <div class="ml-steps" aria-label="Workflow steps">
+    <span id="ml-step-1" class="ml-step-active">01 · Import demand</span>
+    <span id="ml-step-2">02 · Review &amp; approve questions</span>
+    <span id="ml-step-3">03 · Plan multi-market research</span>
+    <span id="ml-step-4">04 · Evidence &amp; JSON draft</span>
+  </div>
+
+  <section class="ml-workflow-card" aria-labelledby="gsc-title">
+    <div class="ml-step-heading">
+      <span>01</span>
+      <div>
+        <h2 id="gsc-title">Start with the searches people actually make</h2>
+        <p>Paste or choose a Google Search Console CSV/TSV. See exact imported row counts, impressions, clicks, eligibility classifications and what question suggestions they produced.</p>
+      </div>
+    </div>
+    <div class="ml-row ml-actions-wrap">
+      <label class="ml-file">Choose GSC CSV <input id="ml-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"></label>
+      <button id="ml-sample-csv" class="ml-chip-btn" type="button">Load synthetic sample rows</button>
+      <button id="ml-clear-gsc" class="ml-chip-btn" type="button">Clear GSC import</button>
+      <span class="ml-muted">Or paste rows below. No Google account connection is used.</span>
+    </div>
+    <label for="ml-csv" class="ml-label">Google Search Console rows</label>
+    <textarea id="ml-csv" rows="5" spellcheck="false" placeholder="Query,Clicks,Impressions,Position&#10;{{ primary_city }} general contractors,0,25,7.1&#10;{{ primary_city }} kitchen contractor,0,8,28.8"></textarea>
+    <div class="ml-action-row ml-actions-wrap">
+      <button id="ml-analyze" class="ml-primary" type="button">Analyze GSC rows</button>
+      <span id="ml-gsc-message" role="status">No file analyzed. The example shown above is placeholder text, not loaded data.</span>
+    </div>
+    <div id="ml-gsc-results" class="ml-results" hidden></div>
+  </section>
+
+  <section class="ml-workflow-card" aria-labelledby="questions-title">
+    <div class="ml-step-heading">
+      <span>02</span>
+      <div>
+        <h2 id="questions-title">Choose and explicitly approve what the research should ask</h2>
+        <p>The original 22 benchmark questions remain available independently of new GSC-derived suggestions. Draft GSC questions show full source query lineage and require explicit owner approval—shortcuts never auto-approve them.</p>
+      </div>
+    </div>
+    <div class="ml-action-row ml-actions-wrap">
+      <button class="ml-secondary" type="button" id="ml-all">Select all benchmark (22)</button>
+      <button class="ml-secondary" type="button" id="ml-approved-only">Use approved GSC questions</button>
+      <button class="ml-secondary" type="button" id="ml-none">Clear selection</button>
+      <strong id="ml-selected" aria-live="polite">22 benchmark + 0 GSC approved = 22 selected</strong>
+    </div>
+    <details class="ml-question-details" open>
+      <summary>View and change the 22 benchmark questions</summary>
+      <div class="ml-questions">{% for q in questions %}
+        <label class="ml-question"><input class="ml-benchmark" type="checkbox" value="{{ q.id }}" data-text="{{ q.text }}" checked><span class="ml-q-num">{{ '%02d'|format(loop.index) }}</span><span>{{ q.text }}</span></label>
+      {% endfor %}</div>
+    </details>
+    <div id="ml-suggestions" class="ml-suggestions" aria-live="polite">
+      <p class="ml-muted">GSC question proposals will appear here after step 1. Review and explicitly approve each one before including it in a research plan.</p>
+    </div>
+    <div id="ml-selected-summary" class="ml-selected-preview" aria-live="polite">
+      <strong>Selected questions ready for planning:</strong> <span id="ml-selected-detail">22 benchmark questions selected (0 approved GSC).</span>
+    </div>
+  </section>
+
+  <section class="ml-workflow-card" aria-labelledby="plan-title">
+    <div class="ml-step-heading">
+      <span>03</span>
+      <div>
+        <h2 id="plan-title">Plan the complete research run</h2>
+        <p>Select multiple target markets and any combination of the three search methods. A processing chunk is strictly a rate-pacing batch—never a hidden 10-search cap on questions or requests.</p>
+      </div>
+    </div>
+    <div class="ml-config">
+      <fieldset id="ml-modes-group">
+        <legend>Search methods (all 3 supported)</legend>
+        <label><input class="ml-mode" type="checkbox" name="ml-mode" value="as_written" checked> As written (exact question text)</label>
+        <label><input class="ml-mode" type="checkbox" name="ml-mode" value="controlled_substitution"> Controlled city substitution (protects brand names)</label>
+        <label><input class="ml-mode" type="checkbox" name="ml-mode" value="persona_context"> Homeowner location context (perspective prefix)</label>
+        <div class="ml-subactions">
+          <button id="ml-all-modes" class="ml-chip-btn" type="button">Select all 3 methods</button>
+          <button id="ml-one-mode" class="ml-chip-btn" type="button">As written only</button>
+        </div>
+      </fieldset>
+
+      <fieldset id="ml-markets">
+        <legend>Target markets (select one or more)</legend>
+        {% for m in markets %}
+        <label><input class="ml-market" type="checkbox" name="ml-market" value="{{ m }}"{% if loop.first %} checked{% endif %}> {{ m }}</label>
+        {% endfor %}
+        <div class="ml-subactions">
+          <button id="ml-all-markets" class="ml-chip-btn" type="button">Select all markets ({{ markets|length }})</button>
+          <button id="ml-one-market" class="ml-chip-btn" type="button">First market only</button>
+        </div>
+        <p class="ml-muted">Location controls change prompt wording; they do not spoof a physical location.</p>
+      </fieldset>
+
+      <div class="ml-plan-numbers">
+        <div>
+          <label for="ml-repeats" class="ml-label">Repeat each combination (1–10)</label>
+          <input id="ml-repeats" type="number" min="1" max="10" value="1">
+        </div>
+        <div>
+          <label for="ml-chunk" class="ml-label">Processing chunk size (1–10, pacing only)</label>
+          <input id="ml-chunk" type="number" min="1" max="10" value="5">
+        </div>
+        <div>
+          <label for="ml-budget" class="ml-label">Maximum total AI requests (1–500)</label>
+          <input id="ml-budget" type="number" min="1" max="500" value="250">
+        </div>
+      </div>
+    </div>
+
+    <div id="ml-live-math" class="ml-formula-bar" role="status" aria-live="polite">
+      <div>
+        <strong>Exact request count:</strong>
+        <span id="ml-formula-text">22 questions × 1 market × 1 method × 1 repeat = 22 planned AI requests across 5 processing chunks (chunk size 5)</span>
+      </div>
+      <span class="ml-badge">0 provider calls executed</span>
+    </div>
+
+    <div class="ml-action-row ml-actions-wrap">
+      <button id="ml-plan" class="ml-primary" type="button">Build complete research plan</button>
+      <button id="ml-export" class="ml-secondary" type="button" disabled>Export plan as JSON</button>
+      <span id="ml-plan-message" role="status">No plan created yet.</span>
+    </div>
+    <div id="ml-plan-results" class="ml-results" hidden></div>
+  </section>
+
+  <section class="ml-workflow-card" aria-labelledby="evidence-title">
+    <div class="ml-step-heading">
+      <span>04</span>
+      <div>
+        <h2 id="evidence-title">Inspect evidence provenance &amp; manage local draft state</h2>
+        <p>Readable evidence labels keep historical, quarantined and synthetic cohorts separate from verified provider receipts. Save or restore your local draft explicitly via JSON file—no automatic sensitive browser localStorage is used.</p>
+        <p><strong>Want the simple version?</strong> <a href="/app/modules/visibility/evidence-health">Check which AI results are really verified</a>. This private page explains what is proven, unverified or just practice material without search jargon.</p>
+      </div>
+    </div>
+
+    <div class="ml-evidence-grid" aria-label="Readable evidence provenance labels">
+      <div class="ml-evidence-card">
+        <span class="ml-badge">Eligible for live metrics</span>
+        <strong>Verified provider receipt</strong>
+        <p><strong>{{ ev.get('verified_provider', 0) }} stored for {{ workspace_label }}.</strong> Authenticated provider response with a server-verified receipt and grounded metadata (0 executed in this local preview).</p>
+      </div>
+      <div class="ml-evidence-card">
+        <span class="ml-badge ml-badge-warn">Needs receipt verification</span>
+        <strong>Captured run (unverified receipt)</strong>
+        <p><strong>{{ ev.get('captured_unverified', 0) }} stored for {{ workspace_label }}.</strong> Timestamped runtime observations recorded without an independently authenticated provider receipt.</p>
+      </div>
+      <div class="ml-evidence-card">
+        <span class="ml-badge">Baseline reference only</span>
+        <strong>Historical imported baseline</strong>
+        <p><strong>{{ ev.get('historical_import', 0) }} stored for {{ workspace_label }}.</strong> Prior imported baseline records preserved as historical reference, kept distinct from fresh controlled runs.</p>
+      </div>
+      <div class="ml-evidence-card">
+        <span class="ml-badge ml-badge-quarantine">Quarantined · Excluded from metrics</span>
+        <strong>Quarantined &amp; synthetic cohorts</strong>
+        <p><strong>{{ ev.get('quarantined_reconstruction', 0) }} quarantined · {{ ev.get('synthetic_fixture', 0) }} synthetic stored for {{ workspace_label }}.</strong> Reconstructed records and synthetic test examples never enter live visibility denominators.</p>
+      </div>
+    </div>
+
+    <div class="ml-draft-controls">
+      <div class="ml-row ml-actions-wrap">
+        <label class="ml-file">Import previous JSON draft <input id="ml-import-file" type="file" accept=".json,application/json"></label>
+        <button id="ml-export-draft" class="ml-secondary" type="button">Export current draft state JSON</button>
+        <span id="ml-draft-message" class="ml-muted" role="status">No automatic localStorage is used. Export or import JSON explicitly.</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="ml-next">
+    <div>
+      <h3>What happens next?</h3>
+      <p>The full version will use a secure, metered server-side Gemini adapter, a persisted queue and tenant-isolated results. Those are release-gated work—not connected or enabled in this prototype.</p>
+    </div>
+    <span>Evidence first. Automations later.</span>
+  </div>
+</div>
+<script defer src="/static/module_lab.js"></script>
+<script defer src="/static/module_persist.js"></script>
+{% endblock %}

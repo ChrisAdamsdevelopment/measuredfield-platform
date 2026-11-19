@@ -1,6 +1,11 @@
 {% extends "app/base.html" %}
 {% block title %}Improvements{% endblock %}
-{% macro evidence(code) %}{% if code == 'measured' %}<span class="badge measured">Measured</span>{% elif code == 'system_recorded' %}<span class="badge recorded">Recorded by the platform</span>{% elif code == 'owner_stated' %}<span class="badge stated">You told us &middot; not verified</span>{% else %}<span class="badge unknown">No evidence yet</span>{% endif %}{% endmacro %}
+{% macro evidence(code) %}
+{% if code == 'measured' %}<span class="badge measured" aria-label="Observed from measured records">Observed &middot; measured</span>
+{% elif code == 'system_recorded' %}<span class="badge recorded" aria-label="Platform activity recorded; outcome not verified">Observed &middot; platform record</span>
+{% elif code == 'owner_stated' %}<span class="badge stated" aria-label="Owner stated; not independently verified">You told us &middot; not verified</span>
+{% else %}<span class="badge unknown" aria-label="Evidence unknown">Unknown &middot; no evidence yet</span>{% endif %}
+{% endmacro %}
 {% block content %}
 <header><div><h1>Improvements</h1><p>What we set out to improve, what's done, and what the evidence actually is.</p></div></header>
 
@@ -10,20 +15,59 @@
 <p class="small muted actions">{{ report.result.method }}</p></div>
 {% endif %}
 
-<div class="card actions"><h2>Improvement list</h2>
-{% if items %}<div class="scroll"><table><thead><tr><th scope="col">Improvement</th><th scope="col">Status</th><th scope="col">Evidence</th><th scope="col">How we'd measure it</th></tr></thead><tbody>
-{% for item in items %}<tr>
-<td><strong>{{ item.title }}</strong><div class="small muted">{{ item.detail }}</div></td>
-<td><span class="badge {{ item.status }}">{{ item.status }}</span>{% if item.implemented_at %}<div class="small muted">{{ item.implemented_at.strftime('%b %d, %Y') }}</div>{% endif %}
-{% if can('improvements.write') %}<details class="box"><summary class="small">Change</summary><form method="post" action="/app/improvements/{{ item.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label for="st-{{ item.id }}">Status</label><select id="st-{{ item.id }}" name="status">{% for s in statuses %}<option value="{{ s }}"{% if s == item.status %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}</select>
-<label for="ev-{{ item.id }}">Your note on the evidence <span class="muted">(optional)</span></label><textarea id="ev-{{ item.id }}" name="evidence_note" maxlength="2000"></textarea>
-<button class="btn small" type="submit">Save</button></form></details>{% endif %}</td>
-<td>{{ evidence(item.evidence_status) }}<div class="small muted">{{ item.evidence_note }}</div></td>
-<td class="small">{{ item.metric or 'Not defined yet' }}</td></tr>{% endfor %}
+<section class="card actions" aria-labelledby="review-heading" id="improvement-review">
+<h2 id="review-heading">Review and decide on improvements</h2>
+<p>Suggestions from the assessment or insights are <strong>proposals</strong>, not proof of a business problem or promised outcome. You decide what to investigate, approve or dismiss.</p>
+<p class="small muted">Evidence key: {{ evidence('measured') }} counted events, not business results; {{ evidence('owner_stated') }} statements from your team; <span class="badge unknown">Inferred &middot; proposed</span> a possible next step; {{ evidence('unknown') }} anything not yet checked.</p>
+<p class="small muted"><strong>Approval means planning only.</strong> Approving here never sends messages, publishes a website, accesses files, purchases services, spends AI tokens or starts an automated task. Those require separate authorized actions.</p>
+{% if items %}
+<div class="scroll"><table>
+<caption class="sr-only">Improvement proposals, evidence status, measurement and owner review controls</caption>
+<thead><tr><th scope="col">Improvement and proposal</th><th scope="col">Review status</th><th scope="col">Evidence and gaps</th><th scope="col">How to measure</th></tr></thead><tbody>
+{% for item in items %}
+<tr>
+<td><strong>{{ item.title }}</strong><p class="small">{{ item.detail }}</p>
+{% if item.source == 'assessment' %}<p class="small muted">Suggested from your initial answers. An inference, not an independently observed cause.</p>
+{% elif item.source == 'team' %}<p class="small muted">Added to the review list by your team.</p>
+{% else %}<p class="small muted">Source: {{ item.source }}</p>{% endif %}
+<p class="small muted">Implementation time, fees and expected benefit: <strong>Unknown until reviewed and scoped.</strong></p>
+</td>
+<td><span class="badge {{ item.status }}" aria-label="Current review status: {{ item.status }}">{{ item.status|capitalize }}</span>
+{% if item.status == 'proposed' %}<p class="small muted">Awaiting a human decision. No changes have been authorized.</p>
+{% elif item.status == 'approved' %}<p class="small muted">The proposal has been reviewed for planning. Nothing has been executed.</p>
+{% elif item.status == 'implemented' %}<p class="small muted">Your team marked this implemented; verify the result separately.</p>
+{% elif item.status == 'dismissed' %}<p class="small muted">Dismissed; no follow-up is scheduled by this review list.</p>{% endif %}
+{% if item.implemented_at %}<p class="small muted">Recorded date: {{ item.implemented_at.strftime('%b %d, %Y') }}</p>{% endif %}
+{% if can('improvements.write') %}
+<details class="box"><summary class="small">Review this improvement</summary>
+<form method="post" action="/app/improvements/{{ item.id }}/status">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<p class="small muted" id="decision-help-{{ item.id }}">Choose a review status. This updates only this improvement record. Publishing, outreach, spending and file access remain separate actions.</p>
+<label for="ev-{{ item.id }}">Decision note or evidence to verify <span class="muted">(optional)</span></label>
+<textarea id="ev-{{ item.id }}" name="evidence_note" maxlength="2000" aria-describedby="decision-help-{{ item.id }}"></textarea>
+<div class="actions" role="group" aria-label="Decide status for {{ item.title }}">
+{% if item.status == 'proposed' %}
+<button class="btn small" name="status" value="approved" type="submit">Approve plan only</button>
+<button class="btn ghost small" name="status" value="dismissed" type="submit">Dismiss proposal</button>
+{% elif item.status == 'approved' %}
+<button class="btn small" name="status" value="implemented" type="submit">Record as implemented</button>
+<button class="btn ghost small" name="status" value="dismissed" type="submit">Dismiss plan</button>
+{% else %}
+<button class="btn ghost small" name="status" value="proposed" type="submit">Return to proposed</button>
+{% endif %}
+</div></form></details>
+{% else %}<p class="small muted">Read-only access. Ask a workspace owner or authorized team member to decide.</p>{% endif %}
+</td>
+<td>{{ evidence(item.evidence_status) }}
+{% if item.evidence_note %}<p class="small muted">{{ item.evidence_note }}</p>{% else %}<p class="small muted">No supporting note recorded yet.</p>{% endif %}
+{% if item.evidence_status == 'owner_stated' %}<p class="small muted">Please validate this statement before treating it as a result.</p>{% endif %}
+</td>
+<td><span class="small">{{ item.metric or 'Measurement method unknown until defined.' }}</span></td>
+</tr>
+{% endfor %}
 </tbody></table></div>
-{% else %}<p class="empty">No improvements listed yet.</p>{% endif %}
-</div>
+{% else %}<p class="empty">No improvements listed yet. Suggestions from Insights can be saved as proposed items without authorizing execution.</p>{% endif %}
+</section>
 
 <div class="grid g2 actions">
 <div class="card"><h2>What is measurable right now</h2>

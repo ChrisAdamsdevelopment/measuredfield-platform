@@ -148,7 +148,8 @@ def stripe(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        return httpx.Response(200, json={"id": "cs_test_" + uuid.uuid4().hex, "url": "https://checkout.stripe.com/c/pay/test"})
+        sid = "cs_test_" + uuid.uuid4().hex
+        return httpx.Response(200, json={"id": sid, "url": "https://checkout.stripe.com/c/pay/" + sid})
 
     provider = payments.StripeProvider("sk_test_fictional", WEBHOOK_SECRET,
                                        client=httpx.Client(transport=httpx.MockTransport(handler)))

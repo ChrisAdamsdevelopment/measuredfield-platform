@@ -1,0 +1,49 @@
+/* MF-090 — Prescott-area acquisition page; designed for mobile, keyboard and reduced motion. */
+.local-hero{background:linear-gradient(132deg,#e8f3ea,#f6f8f2 62%,#d8e9e0);padding:86px 0 80px}
+.local-hero-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(330px,.85fr);gap:clamp(25px,5vw,75px);align-items:center}
+.local-hero h1{font-size:clamp(2.8rem,5vw,5.2rem);letter-spacing:-.055em;line-height:1.08;margin:14px 0 20px}
+.local-hero h1 em{color:#19775f}
+.local-eyebrow{font-size:.76rem;letter-spacing:.09em;font-weight:800;color:#276d5a}
+.local-lead{max-width:680px;font-size:1.06rem;line-height:1.76;color:#37564d}
+.local-explainer{font-size:.82rem;line-height:1.65;color:#557369;max-width:670px;margin-top:15px}
+.local-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.local-tags span{font-weight:700;font-size:.73rem;padding:7px 11px;border-radius:99px;color:#27634f;background:#fff;border:1px solid #ceded5}
+.local-panel{border-radius:18px;background:#11363b;color:#eaf7f1;border:1px solid #1f534f;box-shadow:0 22px 55px #143a3125;overflow:hidden}
+.local-panel-top{display:flex;align-items:center;gap:10px;padding:18px 21px;border-bottom:1px solid #ffffff24}
+.local-dot{background:#6fcba4;border-radius:50%;height:9px;width:9px;flex-shrink:0}
+.local-panel ol{list-style:none;counter-reset:step;padding:15px 22px 0;margin:0}
+.local-panel li{counter-increment:step;display:grid;grid-template-columns:34px 1fr;gap:3px 13px;padding:14px 0;border-bottom:1px solid #ffffff1e}
+.local-panel li:before{content:counter(step,decimal-leading-zero);grid-row:span 2;color:#96dfba;font-size:.77rem;font-weight:850}
+.local-panel li b{font-size:.95rem}
+.local-panel li small{color:#b7d1c8;font-size:.8rem;line-height:1.5}
+.local-panel-note{padding:0 22px 20px;font-size:.69rem;color:#b5ccc5}
+.local-section .section-head{margin-bottom:35px}
+.local-services{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.local-card{background:#fff;border:1px solid #dce6e0;border-radius:16px;padding:29px;box-shadow:0 8px 24px #183b310b}
+.local-card>span{font-size:.74rem;color:#17745b;font-weight:850;letter-spacing:.08em}
+.local-card h3{font-size:1.55rem;line-height:1.25;margin:15px 0}
+.local-card p{font-size:.94rem;line-height:1.8;color:#4d635e}
+.local-card small{display:block;border-top:1px solid #e3ebe5;padding-top:15px;margin-top:19px;color:#647d74}
+.local-proof-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:clamp(25px,5vw,72px);align-items:center}
+.local-proof-grid h2{font-size:clamp(2rem,3.5vw,3.2rem);line-height:1.12}
+.local-proof-grid p{font-size:.95rem;line-height:1.85;color:#425c51}
+.local-proof-media{margin:0;background:white;padding:12px;border:1px solid #d8e6dc;border-radius:15px;box-shadow:0 14px 30px #163e3210}
+.local-proof-media img{display:block;width:100%;height:auto;border-radius:9px}
+.local-proof-media figcaption{margin-top:9px;color:#61756e;font-size:.73rem;line-height:1.5}
+.local-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.local-steps>div{padding:23px;border-left:3px solid #2a876b;background:#f1f7f1}
+.local-steps strong{display:block;font-size:1.05rem}
+.local-steps p{font-size:.9rem;line-height:1.75;color:#4e6860}
+.local-cta-strip{margin-top:35px;background:#153d3d;border-radius:20px;color:#eaf7f0;padding:28px 30px;display:flex;justify-content:space-between;gap:20px;align-items:center}
+.local-cta-strip h3{margin:0 0 6px;font-size:1.5rem}
+.local-cta-strip p{margin:0;color:#c5ddd3;font-size:.88rem}
+.local-cta-strip .actions{display:flex;flex-wrap:wrap;margin:0;gap:10px}
+.local-cta-strip .btn.secondary{border-color:#b9d9c8;color:#fff;background:transparent}
+.local-faq{max-width:1000px}
+.local-faq details{margin:10px 0;background:#fff;border:1px solid #d6e5da;padding:18px 22px;border-radius:12px}
+.local-faq summary{font-size:1.02rem;font-weight:800;cursor:pointer;color:#20483e}
+.local-faq details p{line-height:1.8;color:#526b61}
+.local-faq a{color:#15725a}
+@media(max-width:950px){.local-hero-grid,.local-proof-grid{grid-template-columns:1fr}.local-panel{max-width:720px}.local-cta-strip{align-items:flex-start;flex-direction:column}}
+@media(max-width:640px){.local-hero{padding:52px 0}.local-hero h1{font-size:clamp(2.5rem,9.1vw,3.8rem)}.local-services,.local-steps{grid-template-columns:1fr}.local-card{padding:23px}.local-cta-strip{padding:24px}.local-cta-strip .actions{width:100%}.local-cta-strip .actions a{width:100%;text-align:center}}
+@media(prefers-reduced-motion:reduce){.local-panel *{scroll-behavior:auto}}

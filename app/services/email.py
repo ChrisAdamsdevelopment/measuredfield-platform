@@ -48,7 +48,7 @@ class SendResult:
 class EmailProvider:
     name = "none"
 
-    def send(self, *, to: str, subject: str, body: str) -> SendResult:  # pragma: no cover - interface
+    def send(self, *, to: str, subject: str, body: str, idempotency_key: str | None = None) -> SendResult:  # pragma: no cover - interface
         raise NotImplementedError
 
 
@@ -60,11 +60,14 @@ class ResendProvider(EmailProvider):
         self.api_key, self.sender = api_key, sender
         self.client = client or httpx.Client(timeout=10)
 
-    def send(self, *, to: str, subject: str, body: str) -> SendResult:
+    def send(self, *, to: str, subject: str, body: str, idempotency_key: str | None = None) -> SendResult:
+        headers = {"Authorization": "Bearer " + self.api_key}
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
         try:
             response = self.client.post(
                 "https://api.resend.com/emails",
-                headers={"Authorization": "Bearer " + self.api_key},
+                headers=headers,
                 json={"from": self.sender, "to": [to], "subject": subject, "text": body})
         except httpx.HTTPError as exc:
             return SendResult(False, error=type(exc).__name__)

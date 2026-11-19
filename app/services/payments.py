@@ -17,7 +17,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -28,12 +30,39 @@ class PaymentError(RuntimeError):
     pass
 
 
+_CHECKOUT_ID = re.compile(r"^cs_[A-Za-z0-9_-]{8,220}$")
+
+
+def hosted_checkout_session_valid(value: object) -> bool:
+    """Validate the exact Stripe-hosted Checkout origin and opaque session id.
+
+    This is both a payment-adapter response guard and a second line of defense
+    in public paid routes with pluggable/mocked providers.
+    """
+    if not isinstance(value, dict):
+        return False
+    session_id, target = value.get("id"), value.get("url")
+    if not isinstance(session_id, str) or not _CHECKOUT_ID.fullmatch(session_id):
+        return False
+    if not isinstance(target, str) or target != target.strip():
+        return False
+    try:
+        parsed = urlsplit(target)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https" and parsed.netloc == "checkout.stripe.com"
+        and parsed.path == "/c/pay/" + session_id and not parsed.query
+        and not parsed.username and not parsed.password
+    )
+
+
 class StripeProvider:
     name = "stripe"
 
     def __init__(self, secret_key: str, webhook_secret: str, client: httpx.Client | None = None):
         self.secret_key, self.webhook_secret = secret_key, webhook_secret
-        self.client = client or httpx.Client(timeout=15)
+        self.client = client if client is not None else httpx.Client(timeout=15, trust_env=False)
 
     def create_checkout(self, *, order_id: str, offer: dict, customer_email: str,
                         success_url: str, cancel_url: str) -> dict:
@@ -46,12 +75,29 @@ class StripeProvider:
             "cancel_url": cancel_url,
             "metadata[order_id]": order_id,
             "line_items[0][quantity]": "1",
-            "line_items[0][price_data][currency]": "usd",
-            "line_items[0][price_data][unit_amount]": str(int(offer["price_cents"])),
-            "line_items[0][price_data][product_data][name]": offer["name"],
         }
+        # Real Stripe Price objects are required for product-restricted coupons and
+        # stable subscriptions. Existing non-promotional one-time test offers retain
+        # the legacy inline price_data integration until catalog prices are approved.
+        price_id = str(offer.get("stripe_price_id") or "")
+        if price_id:
+            if not price_id.startswith("price_") or not price_id[6:].isalnum():
+                raise PaymentError("Invalid configured Stripe Price ID")
+            form["line_items[0][price]"] = price_id
+        else:
+            form["line_items[0][price_data][currency]"] = "usd"
+            form["line_items[0][price_data][unit_amount]"] = str(int(offer["price_cents"]))
+            form["line_items[0][price_data][product_data][name]"] = offer["name"]
+            if recurring:
+                form["line_items[0][price_data][recurring][interval]"] = "month"
         if recurring:
-            form["line_items[0][price_data][recurring][interval]"] = "month"
+            # Included on subscription and invoice events so events arriving before
+            # checkout.session.completed can be safely correlated, without an email.
+            form["subscription_data[metadata][order_id]"] = order_id
+        if offer.get("allow_promotion_codes") is True:
+            if not price_id:
+                raise PaymentError("Promotion codes require a configured Stripe Price ID")
+            form["allow_promotion_codes"] = "true"
         try:
             response = self.client.post(
                 "https://api.stripe.com/v1/checkout/sessions", data=form,
@@ -60,9 +106,12 @@ class StripeProvider:
             raise PaymentError("Payment provider unreachable") from exc
         if response.status_code >= 300:
             raise PaymentError(f"Payment provider rejected the request (HTTP {response.status_code})")
-        body = response.json()
-        if not body.get("id") or not body.get("url"):
-            raise PaymentError("Payment provider returned an incomplete session")
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise PaymentError("Payment provider returned invalid session data") from exc
+        if not hosted_checkout_session_valid(body):
+            raise PaymentError("Payment provider returned an invalid Checkout session")
         return {"id": body["id"], "url": body["url"]}
 
     def verify_webhook(self, payload: bytes, signature_header: str, *, tolerance: int = 300,
