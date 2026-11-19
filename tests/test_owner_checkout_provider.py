@@ -60,6 +60,8 @@ def test_checkout_recovery_requires_exact_stripe_session_and_server_order():
     assert _inspect_stripe_checkout(provider, order) == {
         "status": "open", "url": state["url"]}
     assert calls == ["/v1/checkout/sessions/cs_test_synthetic_valid"]
+    state["payment_status"] = "no_payment_required"
+    assert _inspect_stripe_checkout(provider, order) is None  # not a valid OPEN state
     state.update({"status": "expired", "payment_status": "unpaid"})
     assert _inspect_stripe_checkout(provider, order) == {"status": "expired"}
     state["status"] = "complete"

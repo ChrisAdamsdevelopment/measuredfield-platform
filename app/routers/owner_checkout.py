@@ -74,7 +74,7 @@ def _inspect_stripe_checkout(provider: payments.StripeProvider,
         return {"status": "expired"}
     if status == "complete":
         return {"status": "complete"}
-    if (status == "open" and info.get("payment_status") in ("unpaid", "no_payment_required")
+    if (status == "open" and info.get("payment_status") == "unpaid"
             and _stripe_url(info.get("url"))):
         return {"status": "open", "url": info["url"]}
     return None
