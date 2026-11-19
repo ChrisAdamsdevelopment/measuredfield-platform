@@ -68,8 +68,8 @@ def main() -> int:
             if "--device-work" in sys.argv[1:]:
                 print("Running focused Work-mode PostgreSQL security tests.", flush=True)
                 result = run([sys.executable, "-B", "-m", "pytest", "-q",
-                              "tests/test_pg_devices.py", "-k",
-                              "work_mode or suggest_device_cannot"],
+                              "tests/test_pg_devices.py", "tests/test_pg_device_work.py",
+                              "-k", "work_mode or suggest_device_cannot or pg_device_work"],
                              cwd=str(ROOT), env=env)
                 print("DEVICE_WORK_TEST_EXIT=" + str(result.returncode), flush=True)
             else:

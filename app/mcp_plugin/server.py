@@ -77,6 +77,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         issuer=settings.issuer, resource_audience=settings.resource_url,
         resolve_subject=linked_subject_user_id)
     from app.mcp_actions.drafts import OwnerDraftGateway
+    from app.services import device_work
     draft_gateway = OwnerDraftGateway(
         issuer=settings.issuer, audience=settings.resource_url,
         read_scope=settings.read_scope, write_scope=settings.write_scope)
@@ -106,13 +107,15 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         ),
     )
 
-    def checked_bearer(*, require_write: bool = False):
+    def checked_bearer(*, require_write: bool = False,
+                       extra_scope: str | None = None):
         verified = get_access_token()
         # A direct/in-memory/stdio tool invocation must never bypass HTTP auth.
         if (verified is None or not isinstance(verified.subject, str) or
                 not verified.subject or not isinstance(verified.token, str) or
                 settings.read_scope not in verified.scopes or
                 (require_write and settings.write_scope not in verified.scopes) or
+                (extra_scope is not None and extra_scope not in verified.scopes) or
                 verified.resource != settings.resource_url):
             raise ConnectorAccessDenied("Verified HTTP OAuth identity is required")
         # Defense in depth: the MCP SDK's stdio/in-memory contexts can bypass
@@ -125,7 +128,8 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             raise ConnectorAccessDenied("OAuth identity is not authorized") from None
         if (bearer.identity.subject != verified.subject or
                 bearer.client_id != verified.client_id or
-                (require_write and settings.write_scope not in bearer.identity.scopes)):
+                (require_write and settings.write_scope not in bearer.identity.scopes) or
+                (extra_scope is not None and extra_scope not in bearer.identity.scopes)):
             raise ConnectorAccessDenied("OAuth session identity changed")
         return bearer
 
@@ -244,6 +248,81 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             return oauth_write_scope_challenge(settings)
         return draft_gateway.save_reply_draft(
             bearer, business_id, inquiry_id, message, request_id)
+
+    @mcp.tool(
+        title="Queue real project file change on an authorized computer",
+        annotations=ToolAnnotations(
+            read_only_hint=False, destructive_hint=True,
+            idempotent_hint=True, open_world_hint=True),
+        meta=oauth_tool_metadata(settings.read_scope, with_scope=device_work.WORK_SCOPE),
+    )
+    def queue_project_file_write(
+        business_id: str, device_id: str,
+        project_id: Annotated[str, Field(min_length=24, max_length=24)],
+        relative_path: Annotated[str, Field(min_length=1, max_length=260)],
+        content: Annotated[str, Field(max_length=262144)],
+        request_id: Annotated[str, Field(min_length=12, max_length=80)],
+        expected_sha256: str | None = None,
+    ) -> dict:
+        """Queue a REAL write for a linked Work-mode computer.
+
+        No file is changed until that computer's owner-approved local Work
+        session retrieves and verifies the request. Check returned job status;
+        queued is NOT the same as saved. Existing files require prior SHA-256.
+        """
+        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        return device_work.enqueue(
+            bearer, issuer=settings.issuer, audience=settings.resource_url,
+            org_id=business_id, device_id=device_id, action="write_file",
+            project_id=project_id, relative_path=relative_path,
+            content=content, expected_sha256=expected_sha256, request_key=request_id)
+
+    @mcp.tool(
+        title="Queue project directory creation on an authorized computer",
+        annotations=ToolAnnotations(
+            read_only_hint=False, destructive_hint=False,
+            idempotent_hint=True, open_world_hint=True),
+        meta=oauth_tool_metadata(settings.read_scope, with_scope=device_work.WORK_SCOPE),
+    )
+    def queue_project_directory(
+        business_id: str, device_id: str,
+        project_id: Annotated[str, Field(min_length=24, max_length=24)],
+        relative_path: Annotated[str, Field(min_length=1, max_length=260)],
+        request_id: Annotated[str, Field(min_length=12, max_length=80)],
+    ) -> dict:
+        """Queue directory creation; completion requires a real device receipt."""
+        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        return device_work.enqueue(
+            bearer, issuer=settings.issuer, audience=settings.resource_url,
+            org_id=business_id, device_id=device_id, action="make_directory",
+            project_id=project_id, relative_path=relative_path,
+            content=None, expected_sha256=None, request_key=request_id)
+
+    @mcp.tool(
+        title="Check result of my computer work request",
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope, with_scope=device_work.WORK_SCOPE),
+    )
+    def get_project_work_status(business_id: str, job_id: str) -> dict:
+        """Returns queued/leased/succeeded/failed with persisted result hash."""
+        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        return device_work.status(
+            bearer, issuer=settings.issuer, audience=settings.resource_url,
+            org_id=business_id, job_id=job_id)
+
+    @mcp.tool(
+        title="Cancel pending computer work before it executes",
+        annotations=ToolAnnotations(
+            read_only_hint=False, destructive_hint=False,
+            idempotent_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope, with_scope=device_work.WORK_SCOPE),
+    )
+    def cancel_project_work(business_id: str, job_id: str) -> dict:
+        """Stop an unclaimed remote job, immediately discard encrypted contents."""
+        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        return device_work.cancel(
+            bearer, issuer=settings.issuer, audience=settings.resource_url,
+            org_id=business_id, job_id=job_id)
 
     from .census_market_tools import available_markets, market_snapshot
 

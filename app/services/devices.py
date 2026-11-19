@@ -38,7 +38,7 @@ from typing import Literal
 from sqlalchemy import func, select
 
 from ..db import TenantSession
-from ..models import ConnectedDevice, DeviceEvent, DevicePairingCode, now
+from ..models import ConnectedDevice, DeviceEvent, DevicePairingCode, DeviceWorkRequest, now
 from ..security import digest
 from .audit import audit
 
@@ -180,6 +180,17 @@ def disconnect_device(db: TenantSession, device: ConnectedDevice, user_id: uuid.
         return False
     device.status, device.revoked_at, device.revoked_by, device.revoked_reason = "revoked", now(), user_id, reason[:40]
     device.credential_hash, device.check_number = digest(secrets.token_urlsafe(32)), ""
+    # A revoked computer must not retain leased customer work or encrypted
+    # file contents indefinitely. Scrub all outstanding payloads immediately.
+    pending = db.scalars(select(DeviceWorkRequest).where(
+        DeviceWorkRequest.org_id == device.org_id,
+        DeviceWorkRequest.device_id == device.id,
+        DeviceWorkRequest.status.in_(("queued", "leased")),
+    ).with_for_update())
+    for job in pending:
+        job.status, job.finished_at, job.result_status = "cancelled", now(), "device_revoked"
+        job.lease_hash, job.lease_expires_at = None, None
+        job.payload_encrypted = b""
     audit(db, device.org_id, user_id, "device.disconnected", "connected_device", device.id, {"reason": reason[:40]})
     return True
 

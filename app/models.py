@@ -956,8 +956,47 @@ class ConnectedDevice(Base):
     revoked_reason: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
     __table_args__ = (
         UniqueConstraint("credential_hash", name="uq_connected_devices_credential_hash"),
+        UniqueConstraint("org_id", "id", name="uq_connected_devices_org_id_id"),
         CheckConstraint("access IN ('read', 'suggest', 'work')", name="ck_connected_devices_access"),
         CheckConstraint("status IN ('pending', 'active', 'revoked', 'expired')", name="ck_connected_devices_status"),
+    )
+
+
+class DeviceWorkRequest(Base):
+    """Tenant-isolated encrypted queued work for one owner-linked computer.
+
+    A token-carrying local companion, not the OAuth caller, may lease/complete
+    work for its own device. Payload never appears as plaintext in database.
+    """
+    __tablename__ = "device_work_requests"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    oauth_client_id: Mapped[str] = mapped_column(String(250), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued", nullable=False)
+    lease_hash: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = OPT_TS()
+    result_hash: Mapped[str | None] = mapped_column(String(64))
+    result_status: Mapped[str | None] = mapped_column(String(30))
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "device_id"],
+                             ["connected_devices.org_id", "connected_devices.id"],
+                             name="fk_device_work_owner_device", ondelete="CASCADE"),
+        UniqueConstraint("org_id", "created_by", "request_key",
+                         name="uq_device_work_request_idempotency"),
+        CheckConstraint("action IN ('write_file', 'make_directory')", name="ck_device_work_action"),
+        CheckConstraint("status IN ('queued', 'leased', 'succeeded', 'failed', 'cancelled', 'expired')",
+                        name="ck_device_work_status"),
+        Index("ix_device_work_claim", "org_id", "device_id", "status", "created_at"),
     )
 
 
@@ -996,7 +1035,7 @@ class DevicePairingCode(Base):
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
     "visibility_research_reservations", "visibility_research_budgets",
-    "device_events", "connected_devices",
+    "device_work_requests", "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "mcp_action_drafts", "lead_replies", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
@@ -1005,6 +1044,7 @@ TENANT_TABLES = [
 TENANT_MODELS = {
     "visibility_research_reservations": VisibilityResearchReservation,
     "visibility_research_budgets": VisibilityResearchBudget,
+    "device_work_requests": DeviceWorkRequest,
     "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
     "visibility_observations": VisibilityObservation,
     "visibility_experiments": VisibilityExperiment,

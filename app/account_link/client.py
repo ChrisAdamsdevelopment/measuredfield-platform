@@ -192,3 +192,30 @@ class DeviceApi:
         if not isinstance(stored, int) or stored < 0:
             raise DeviceClientError("The workspace did not confirm this activity.")
         return stored
+
+    def claim_work(self, credential: str) -> dict | None:
+        """Poll only our pinned MeasuredField origin with this device's bearer."""
+        value = self._request("POST", "/api/device/v1/work/claim", credential=credential)
+        job = value.get("job")
+        if job is None:
+            return None
+        if (not isinstance(job, dict) or not isinstance(job.get("job_id"), str)
+                or job.get("action") not in ("write_file", "make_directory")
+                or not isinstance(job.get("payload"), dict)
+                or not isinstance(job.get("lease_token"), str)):
+            raise DeviceClientError("Invalid work response; no file change was made.")
+        return job
+
+    def finish_work(self, credential: str, job_id: str, lease: str,
+                    *, succeeded: bool, digest: str | None = None,
+                    error_code: str | None = None) -> dict:
+        """Report actual result; never send local pairing token to the server."""
+        result = self._request(
+            "POST", "/api/device/v1/work/" + job_id + "/finish",
+            credential=credential, payload={
+                "lease_token": lease, "succeeded": succeeded,
+                "result_sha256": digest, "error_code": error_code,
+            })
+        if result.get("job_id") != job_id or result.get("state") not in ("succeeded", "failed"):
+            raise DeviceClientError("Workspace did not confirm the work receipt.")
+        return result

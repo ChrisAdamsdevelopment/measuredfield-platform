@@ -40,6 +40,21 @@
 {% else %}<p class="empty">No computers are connected.</p>{% endif %}
 </section>
 
+<section class="card actions" aria-labelledby="work-heading">
+<h2 id="work-heading">Pending computer work</h2>
+<p class="small muted">Only authorized Work-mode projects can change files. A queued request can be cancelled before the computer claims it. To stop already-running work, disconnect that computer.</p>
+{% if pending_work %}
+<div class="scroll"><table><thead><tr><th scope="col">Requested</th><th scope="col">Operation</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>
+{% for job in pending_work %}
+<tr><td>{{ job.created_at.strftime('%b %d, %H:%M UTC') }}</td><td>{{ 'Create or edit file' if job.action == 'write_file' else 'Create folder' }}</td><td>{{ job.status|capitalize }}</td>
+<td>{% if job.status == 'queued' %}
+<form method="post" action="/app/computers/work/{{ job.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="btn danger small" type="submit">Cancel queued work</button></form>
+{% else %}<span class="small muted">Disconnect computer to stop further work</span>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">No pending computer work.</p>{% endif %}
+</section>
+
 <section class="card actions" aria-labelledby="activity-heading">
 <h2 id="activity-heading">What happened on your computers</h2>
 <p class="small muted">Reported by each connected computer. This summary never includes file contents or full paths. Suggest mode requires approval for each change; Work mode can save actual files only during an owner-approved project session.</p>
