@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from app.local_connect import AccessDenied
+from app.local_connect import AccessDenied, is_reparse_point
 from .client import DeviceApi, DeviceClientError, resolve_trusted_origin
 from .secret_store import SecureStoreUnavailable, WindowsCredentialStore
 
@@ -33,7 +33,7 @@ class AccountRuntimeGuard:
 
     def _credential_present(self) -> bool:
         if isinstance(self.secrets, WindowsCredentialStore):
-            return self.secrets.file.exists() or self.secrets.file.is_symlink()
+            return self.secrets.file.exists() or is_reparse_point(self.secrets.file)
         try:
             return bool(self.secrets.load())
         except (SecureStoreUnavailable, OSError, ValueError):
@@ -56,9 +56,7 @@ class AccountRuntimeGuard:
             ) from None
 
     def _read_account(self) -> dict | None:
-        if self.state_file.is_symlink() or (
-            hasattr(self.state_file, "is_junction") and self.state_file.is_junction()
-        ):
+        if is_reparse_point(self.state_file):
             self._deny()
         try:
             raw = self.state_file.read_bytes()

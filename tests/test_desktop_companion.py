@@ -223,3 +223,40 @@ def test_overlong_or_unconfirmed_local_work_pairings_denied(tmp_path):
             allow_writes=True, owner_confirmed_write=False, expires_minutes=5,
         )
     assert not registry.list()
+
+
+def test_shared_reparse_detector_catches_non_junction_windows_tags(monkeypatch):
+    """An NTFS reparse point must be blocked even when neither symlink nor junction."""
+    import app.local_connect.store as store
+    from app.local_connect import is_reparse_point
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(store.stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400, raising=False)
+
+    class UnusualReparse:
+        def is_symlink(self): return False
+        def is_junction(self): return False
+        def lstat(self): return SimpleNamespace(st_file_attributes=0x400)
+
+    assert is_reparse_point(UnusualReparse())
+
+
+def test_account_state_unusual_reparse_tag_stays_unverified(tmp_path, monkeypatch):
+    from app.account_link.controller import AccountLinkController
+    root, local, grant, registry = _owner_folder(tmp_path)
+    account_path = local.home / "account_connection.json"
+    account_path.write_text(json.dumps({
+        "status": "active", "server_url": "https://example.test",
+        "device_id": "synthetic-device", "access": "work",
+    }), encoding="utf-8")
+    class Store:
+        def load(self): return "synthetic-credential"
+        def clear(self): return None
+    import app.account_link.controller as controller
+    monkeypatch.setattr(
+        controller, "is_reparse_point",
+        lambda path: path.name == "account_connection.json",
+    )
+    with pytest.raises(AccessDenied, match="symbolic link"):
+        AccountLinkController(local, credential_store=Store())
+    assert "synthetic-device" in account_path.read_text(encoding="utf-8")

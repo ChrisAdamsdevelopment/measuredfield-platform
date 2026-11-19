@@ -8,6 +8,8 @@ import tempfile
 from ctypes import wintypes
 from pathlib import Path
 
+from app.local_connect import is_reparse_point
+
 
 class SecureStoreUnavailable(RuntimeError):
     """Secure Windows credential storage is not available."""
@@ -60,8 +62,8 @@ class WindowsCredentialStore:
         if sys.platform != "win32":
             raise SecureStoreUnavailable("Windows credential protection is required.")
         self.home.mkdir(parents=True, exist_ok=True)
-        if self.home.is_symlink() or self.file.is_symlink():
-            raise SecureStoreUnavailable("Credential location cannot be a symbolic link.")
+        if any(is_reparse_point(part) for part in (self.home, *self.home.parents, self.file)):
+            raise SecureStoreUnavailable("Credential location cannot be linked or redirected.")
 
     def save(self, credential: str) -> None:
         self._safe()

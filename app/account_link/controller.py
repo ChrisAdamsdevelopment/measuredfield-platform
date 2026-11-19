@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from app.local_connect import AccessDenied, LocalConnect
+from app.local_connect import AccessDenied, LocalConnect, is_reparse_point
 from app.local_connect_ui.pairing_controller import PairingOwnerController
 from app.paired_connect.registry import PairingRegistry
 
@@ -69,7 +69,7 @@ class AccountLinkController:
             # On a non-Windows test runner the DPAPI implementation is deliberately
             # unavailable; an absent file still represents a pristine local pilot.
             if isinstance(self.secrets, WindowsCredentialStore):
-                return self.secrets.file.exists()
+                return self.secrets.file.exists() or is_reparse_point(self.secrets.file)
             return True  # Unknown secret store failure is never permission to write.
 
     @staticmethod
@@ -79,7 +79,7 @@ class AccountLinkController:
                 "business": "", "name": ""}
 
     def _load(self) -> dict:
-        if self.path.is_symlink():
+        if is_reparse_point(self.path):
             return self._empty_state(unverified=True)
         try:
             source = json.loads(self.path.read_text(encoding="utf-8"))
@@ -103,13 +103,13 @@ class AccountLinkController:
         return values
 
     def _save(self) -> None:
-        if self.path.is_symlink():
+        if is_reparse_point(self.path):
             raise AccessDenied("Account state cannot be a symbolic link.")
         # Whitelist fields so neither the pairing code nor device credential can be saved.
         fields = ("status", "server_url", "device_id", "access", "business", "name")
         payload = {key: self._state.get(key, "") for key in fields}
         temporary = self.home / "account_connection.tmp"
-        if temporary.is_symlink():
+        if is_reparse_point(temporary):
             raise AccessDenied("Account state cannot use a symbolic link.")
         with temporary.open("w", encoding="utf-8") as stream:
             json.dump(payload, stream, separators=(",", ":"))

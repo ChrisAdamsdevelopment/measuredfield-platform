@@ -77,6 +77,15 @@ class PairingPanel(ttk.Frame):
             self, text="Work mode: directly create and edit files during this session",
             variable=self.work_mode,
         ).pack(anchor="w", pady=(0, 7))
+        # These are mutually exclusive modes, not two overlapping grants.
+        self.suggestions.trace_add(
+            "write", lambda *_: self.work_mode.set(False)
+            if self.suggestions.get() and self.work_mode.get() else None,
+        )
+        self.work_mode.trace_add(
+            "write", lambda *_: self.suggestions.set(False)
+            if self.work_mode.get() and self.suggestions.get() else None,
+        )
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(0, 9))
         ttk.Button(
@@ -116,7 +125,8 @@ class PairingPanel(ttk.Frame):
         ).pack(side="left")
         ttk.Label(
             self, text="Only explicitly approved Work-mode pairings can change project files. "
-                       "No shell, delete, publish, or network tunnel starts automatically.",
+                       "No shell, delete, publish, or network tunnel starts automatically. "
+                       "If online verification fails, sessions stop and require reapproval.",
         ).pack(anchor="w", pady=(6, 0))
         self.refresh()
 

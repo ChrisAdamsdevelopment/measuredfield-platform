@@ -35,3 +35,5 @@ The downgrade refuses to erase a currently existing Work-mode state.
 No API keys belong to this change. Keys remain in restricted local D drive
 credential storage before entering the target Render service. Do not commit
 keys, access tokens, provider responses or customer data.
+
+Security review follow-up: connectivity loss or an unverified linked account fails closed and permanently revokes active local pairings. The owner must establish a fresh temporary pairing after connectivity is restored; no silently resumed Work session. Suggest and Work checkboxes are mutually exclusive. Shared Windows reparse-point detection is used across local token storage, account state, and DPAPI secrets.

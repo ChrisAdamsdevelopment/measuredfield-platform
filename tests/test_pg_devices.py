@@ -459,3 +459,27 @@ def test_work_mode_requires_owner_confirmation_and_tracks_real_action_metadata(p
     assert computer.post(
         "/api/device/v1/activity", headers=_bearer(key), json={"events": [event]}
     ).status_code == 401
+
+
+def test_suggest_device_cannot_report_successful_direct_work(platform):
+    owner, _, _ = onboard_business(
+        platform, business="Granite Suggest Activity", owner_email="owner@granite-suggest.example",
+    )
+    computer, credential, _ = connect(
+        platform, owner, access="suggest", name="Suggestion-only desktop",
+    )
+    when = datetime.now(timezone.utc).isoformat()
+    for action in ("file_written", "directory_created"):
+        response = computer.post(
+            "/api/device/v1/activity", headers=_bearer(credential),
+            json={"events": [{"action": action, "result": "ok", "project_label": "Site",
+                              "count": 1, "occurred_at": when}]},
+        )
+        assert response.status_code == 422, action
+    # A denied action can still be recorded without claiming unauthorized success.
+    denial = computer.post(
+        "/api/device/v1/activity", headers=_bearer(credential),
+        json={"events": [{"action": "file_written", "result": "denied",
+                          "project_label": "Site", "count": 1, "occurred_at": when}]},
+    )
+    assert denial.status_code == 200

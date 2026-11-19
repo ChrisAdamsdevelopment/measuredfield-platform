@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from app.local_connect import AccessDenied, LocalConnect
+from app.local_connect import AccessDenied, LocalConnect, is_reparse_point
 
 MAX_MINUTES = 24 * 60
 MAX_GRANTS = 8
@@ -45,9 +45,7 @@ class PairingRegistry:
         self.db_path = self.home / "paired_connections.sqlite3"
         self.token_dir = self.home / "paired_connection_tokens"
         self.token_dir.mkdir(exist_ok=True)
-        if self.token_dir.is_symlink() or (
-            hasattr(self.token_dir, "is_junction") and self.token_dir.is_junction()
-        ):
+        if is_reparse_point(self.token_dir):
             raise AccessDenied("Pairing token storage must not be a link")
         if os.name != "nt":
             os.chmod(self.token_dir, 0o700)
@@ -201,9 +199,7 @@ class PairingRegistry:
     def token_for_local_launcher(self, pair_id: str) -> str:
         """Private trusted owner process only. Never return this from an MCP tool."""
         file = self._token_file(pair_id)
-        if file.is_symlink() or (
-            hasattr(file, "is_junction") and file.is_junction()
-        ):
+        if is_reparse_point(file):
             raise AccessDenied("Invalid private connection")
         try:
             token = file.read_text(encoding="ascii")
