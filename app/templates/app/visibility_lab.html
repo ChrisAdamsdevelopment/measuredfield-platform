@@ -1,15 +1,18 @@
 {% extends "app/base.html" %}
-{% block title %}AI Visibility Lab{% endblock %}
+{% block title %}AI Visibility Lab · Advanced Research{% endblock %}
 {% block content %}
+{% set ev = evidence_counts if evidence_counts is defined and evidence_counts else {} %}
+{% set workspace_label = org.name if org and org.name else 'this workspace' %}
+{% set primary_city = (markets[0].split(',')[0]|trim|lower) if markets else 'local' %}
 <link rel="stylesheet" href="/static/module_lab.css">
-<div id="mf-lab" data-csrf="{{ csrf }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan" data-evidence-api="/api/v1/modules/visibility/evidence/classify" data-storage-api="/api/v1/modules/visibility/storage" data-write-enabled="{{ 'true' if role in ('owner', 'admin', 'staff') else 'false' }}">
+<div id="mf-lab" data-csrf="{{ csrf }}" data-org-name="{{ workspace_label }}" data-primary-market="{{ markets[0] if markets else 'Primary Service Area' }}" data-gsc-api="/api/v1/modules/visibility/gsc/analyze" data-plan-api="/api/v1/modules/visibility/plan" data-evidence-api="/api/v1/modules/visibility/evidence/classify" data-storage-api="/api/v1/modules/visibility/storage" data-write-enabled="{{ 'true' if role in ('owner', 'admin', 'staff') else 'false' }}">
   <div class="ml-hero ml-hero-compact">
-    <div class="ml-eyebrow"><a href="/app/modules">MODULES</a> / AI VISIBILITY LAB</div>
+    <div class="ml-eyebrow"><a href="/app/modules">MODULES</a> / <a href="/app/modules/visibility/evidence-health">AI EVIDENCE CHECK</a> / ADVANCED RESEARCH · AI VISIBILITY LAB</div>
     <h1>Understand how customers find you.</h1>
-    <p>Import real Google Search Console queries, inspect visible summaries and source query lineage, explicitly approve draft homeowner questions, select any combination of the 22 benchmark and approved GSC questions across multiple markets and all three prompt methods, and export a complete research plan. Zero live AI calls are sent in this local foundation.</p>
+    <p>Looking for the everyday owner summary? <a href="/app/modules/visibility/evidence-health"><strong>Open AI Evidence Check (default owner view)</strong></a> for a plain-English report. Use this <strong>Advanced research</strong> workbench to import Google Search Console queries, inspect source query lineage, approve draft questions, plan multi-market prompts across your configured service areas, and export a research plan. Zero live AI calls are sent in this local foundation.</p>
     <div class="ml-tags">
-      <span>Prototype / development only</span>
-      <span>22 protected benchmark questions</span>
+      <span>Advanced research console</span>
+      <span>{{ questions|length }} business benchmark questions</span>
       <span>0 AI calls made · 0 fake results</span>
       <span>No automatic localStorage</span>
     </div>
@@ -60,7 +63,7 @@
       <span class="ml-muted">Or paste rows below. No Google account connection is used.</span>
     </div>
     <label for="ml-csv" class="ml-label">Google Search Console rows</label>
-    <textarea id="ml-csv" rows="5" spellcheck="false" placeholder="Query,Clicks,Impressions,Position&#10;prescott general contractors,0,25,7.1&#10;prescott valley kitchen contractor,0,8,28.8"></textarea>
+    <textarea id="ml-csv" rows="5" spellcheck="false" placeholder="Query,Clicks,Impressions,Position&#10;{{ primary_city }} general contractors,0,25,7.1&#10;{{ primary_city }} kitchen contractor,0,8,28.8"></textarea>
     <div class="ml-action-row ml-actions-wrap">
       <button id="ml-analyze" class="ml-primary" type="button">Analyze GSC rows</button>
       <span id="ml-gsc-message" role="status">No file analyzed. The example shown above is placeholder text, not loaded data.</span>
@@ -174,22 +177,22 @@
       <div class="ml-evidence-card">
         <span class="ml-badge">Eligible for live metrics</span>
         <strong>Verified provider receipt</strong>
-        <p>Authenticated Gemini response with raw provider receipt and verified grounded metadata (0 executed in this local preview).</p>
+        <p><strong>{{ ev.get('verified_provider', 0) }} stored for {{ workspace_label }}.</strong> Authenticated provider response with a server-verified receipt and grounded metadata (0 executed in this local preview).</p>
       </div>
       <div class="ml-evidence-card">
         <span class="ml-badge ml-badge-warn">Needs receipt verification</span>
         <strong>Captured run (unverified receipt)</strong>
-        <p>Timestamped run record (e.g., 60 run-live records: 58 grounded support, 2 queries only) without an independently authenticated provider receipt.</p>
+        <p><strong>{{ ev.get('captured_unverified', 0) }} stored for {{ workspace_label }}.</strong> Timestamped runtime observations recorded without an independently authenticated provider receipt.</p>
       </div>
       <div class="ml-evidence-card">
         <span class="ml-badge">Baseline reference only</span>
         <strong>Historical imported baseline</strong>
-        <p>22 historical imported records (6 mentions) preserved as prior reference, distinct from fresh controlled runs.</p>
+        <p><strong>{{ ev.get('historical_import', 0) }} stored for {{ workspace_label }}.</strong> Prior imported baseline records preserved as historical reference, kept distinct from fresh controlled runs.</p>
       </div>
       <div class="ml-evidence-card">
         <span class="ml-badge ml-badge-quarantine">Quarantined · Excluded from metrics</span>
         <strong>Quarantined &amp; synthetic cohorts</strong>
-        <p>22 quarantined reconstructions and 78 code-built <code>run-fresh78</code> synthetic examples never enter live visibility denominators.</p>
+        <p><strong>{{ ev.get('quarantined_reconstruction', 0) }} quarantined · {{ ev.get('synthetic_fixture', 0) }} synthetic stored for {{ workspace_label }}.</strong> Reconstructed records and synthetic test examples never enter live visibility denominators.</p>
       </div>
     </div>
 
