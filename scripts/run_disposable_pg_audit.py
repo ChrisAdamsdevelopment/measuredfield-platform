@@ -60,17 +60,25 @@ def main() -> int:
             f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/{dbname}")
         env["MF_AUDIT_RUNTIME_URL"] = (
             f"postgresql+psycopg://mf_app:{password}@127.0.0.1:{port}/{dbname}")
-        if "--full-suite" in sys.argv[1:]:
+        if "--full-suite" in sys.argv[1:] or "--device-work" in sys.argv[1:]:
             # The pytest fixture uses the local postgres admin database to create
             # fresh owner/runtime roles and per-suite synthetic test databases.
             env["MF_TEST_PG_ADMIN_URL"] = (
                 f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres")
-            print("Running full local suite with disposable real PostgreSQL.", flush=True)
-            # Identical gate to GitHub CI: every PostgreSQL suite must execute,
-            # the JUnit report must contain no skips, and 100+ tests must run.
-            result = run([sys.executable, "-B", "scripts/ci_full_check.py"],
-                         cwd=str(ROOT), env=env)
-            print("FULL_POSTGRES_SUITE_EXIT=" + str(result.returncode), flush=True)
+            if "--device-work" in sys.argv[1:]:
+                print("Running focused Work-mode PostgreSQL security tests.", flush=True)
+                result = run([sys.executable, "-B", "-m", "pytest", "-q",
+                              "tests/test_pg_devices.py", "-k",
+                              "work_mode or suggest_device_cannot"],
+                             cwd=str(ROOT), env=env)
+                print("DEVICE_WORK_TEST_EXIT=" + str(result.returncode), flush=True)
+            else:
+                print("Running full local suite with disposable real PostgreSQL.", flush=True)
+                # Identical gate to GitHub CI: every PostgreSQL suite must execute,
+                # the JUnit report must contain no skips, and 100+ tests must run.
+                result = run([sys.executable, "-B", "scripts/ci_full_check.py"],
+                             cwd=str(ROOT), env=env)
+                print("FULL_POSTGRES_SUITE_EXIT=" + str(result.returncode), flush=True)
         else:
             print("Running migrations and synthetic two-business RLS audit.", flush=True)
             result = run([sys.executable, "-B", "-m", "scripts.rls_audit"],
