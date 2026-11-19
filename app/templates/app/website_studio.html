@@ -1,0 +1,163 @@
+{% extends "app/base.html" %}
+{% block title %}Website Before & After | AI Workbench{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/website_studio.css">
+<div class="mf-studio" data-business-id="{{ org.id }}" data-business-name="{{ org.name }}">
+  <header class="mf-studio-heading">
+    <div>
+      <p class="mf-studio-kicker">WEBSITE STUDIO / MEASUREDFIELD</p>
+      <h1>Website before &amp; after</h1>
+      <p>Compare your real saved site with the working draft, then collaborate with ChatGPT to improve it.</p>
+    </div>
+    <div class="mf-studio-heading-actions">
+      {% if site %}
+      <a class="btn ghost" href="/app/website/preview/" target="_blank" rel="noopener">Open draft</a>
+      {% endif %}
+      <a class="btn" href="/app/website">{{ 'Edit website' if site else 'Create your website' }}</a>
+    </div>
+  </header>
+
+  {% if not site %}
+  <section class="mf-studio-empty card">
+    <div class="mf-studio-empty-symbol" aria-hidden="true">✦</div>
+    <h2>Your design workbench starts with a website</h2>
+    <p>Build your first website draft in MeasuredField. After you save a version, you can compare real changes and use your connected ChatGPT tools to keep improving it.</p>
+    <a class="btn" href="/app/website">Create website draft</a>
+  </section>
+  {% else %}
+  <section class="mf-studio-compare card" aria-labelledby="mf-studio-compare-title">
+    <div class="mf-studio-panel-bar">
+      <div>
+        <h2 id="mf-studio-compare-title">Live design comparison</h2>
+        <p>Move the purple line left and right. This compares real MeasuredField website renders, not generated example screenshots.</p>
+      </div>
+      <div class="mf-studio-controls" role="group" aria-label="Website preview size">
+        <button class="mf-studio-view is-current" type="button" data-mf-preview="desktop" aria-pressed="true">Desktop</button>
+        <button class="mf-studio-view" type="button" data-mf-preview="mobile" aria-pressed="false">Mobile</button>
+      </div>
+    </div>
+    <div class="mf-studio-badges">
+      <div><span class="mf-studio-chip mf-studio-chip-before">Before</span>
+      <span>{{ ('Live version #' ~ baseline.number) if baseline and baseline_is_live else (('Saved version #' ~ baseline.number) if baseline else 'No earlier baseline') }}</span></div>
+      <div><span class="mf-studio-chip mf-studio-chip-after">After</span><span>Current working draft</span></div>
+    </div>
+    {% if baseline %}
+    <div class="mf-studio-viewport-shell" data-mf-viewport="desktop">
+      <div class="mf-studio-comparison" data-mf-compare>
+        <iframe title="Before: {{ 'currently published website' if baseline_is_live else 'previous saved website' }} version {{ baseline.number }}"
+                class="mf-studio-frame mf-studio-frame-before"
+                src="/app/website/versions/{{ baseline.id }}/view/" loading="lazy" sandbox=""
+                tabindex="-1"></iframe>
+        <iframe title="After: current private website working draft"
+                class="mf-studio-frame mf-studio-frame-after"
+                src="/app/website/preview/" loading="lazy" sandbox=""
+                tabindex="-1"></iframe>
+        <span class="mf-studio-divider" aria-hidden="true"><span class="mf-studio-grip">↔</span></span>
+        <label class="sr-only" for="mf-studio-range">Reveal more of the after website to the right (percentage)</label>
+        <input id="mf-studio-range" class="mf-studio-range" type="range" min="0" max="100" value="50" step="1" aria-valuetext="50 percent before, 50 percent after">
+      </div>
+    </div>
+    <div class="mf-studio-compare-foot">
+      <span>‹ Drag to inspect the original</span>
+      <strong id="mf-studio-compare-state" role="status" aria-live="off">50% before / 50% after</strong>
+      <span>Drag to inspect the new draft ›</span>
+    </div>
+    {% else %}
+    <div class="mf-studio-unpaired">
+      <iframe title="Your working draft (no saved before version exists yet)"
+              src="/app/website/preview/" class="mf-studio-single-frame"
+              loading="lazy" sandbox="" tabindex="-1"></iframe>
+      <p class="mf-studio-unpaired-note">This is your current draft. Save a version, make a change, then return to compare an actual before and after. A baseline is not invented.</p>
+    </div>
+    {% endif %}
+    <div class="mf-studio-compare-links">
+      <span class="mf-studio-pill {{ 'mf-studio-pill-live' if baseline and baseline_is_live else 'mf-studio-pill-soft' }}">
+        {{ 'Public version is live' if site.published_version_id else 'No version is currently public' }}
+      </span>
+      <span class="mf-studio-pill mf-studio-pill-soft">{{ 'Current draft matches latest snapshot' if draft_saved else 'Working draft has changes' }}</span>
+      {% if baseline %}
+      <a href="/app/website/versions/{{ baseline.id }}/view/" target="_blank" rel="noopener">Open before version</a>
+      {% endif %}
+      <a href="/app/website/preview/" target="_blank" rel="noopener">Open working draft</a>
+    </div>
+  </section>
+
+  <div class="mf-studio-summary" aria-label="Website workflow status">
+    <div class="mf-studio-stat"><span class="mf-studio-stat-symbol" aria-hidden="true">◇</span><div><small>Saved versions</small><strong>{{ versions|length }}{{ '+' if versions|length == 20 else '' }}</strong></div></div>
+    <div class="mf-studio-stat"><span class="mf-studio-stat-symbol" aria-hidden="true">✓</span><div><small>Website status</small><strong>{{ 'Published' if site.published_version_id else 'Not published' }}</strong></div></div>
+    <div class="mf-studio-stat"><span class="mf-studio-stat-symbol" aria-hidden="true">◎</span><div><small>ChatGPT identity</small><strong>{{ 'Linked' if linked_identity else 'Not linked' }}</strong></div></div>
+    <div class="mf-studio-stat"><span class="mf-studio-stat-symbol" aria-hidden="true">⌘</span><div><small>Work-mode computers</small><strong>{{ work_devices|length }}</strong></div></div>
+  </div>
+  {% endif %}
+
+  <div class="mf-studio-work-grid">
+    <section class="card mf-studio-assistant" aria-labelledby="mf-assistant-title">
+      <div class="mf-studio-panel-header">
+        <span class="mf-studio-assistant-mark" aria-hidden="true">✦</span>
+        <div><h2 id="mf-assistant-title">Work with ChatGPT</h2><p>Tell ChatGPT what to change. MeasuredField's connected tools handle authorized actions and return real receipts.</p></div>
+      </div>
+      <div class="mf-studio-chat-note">
+        <strong>What should we improve?</strong>
+        <p>Describe the result you want. Your request can include headlines, page layout, service sections, SEO, and calls to action.</p>
+        <label for="mf-studio-request">Your change request</label>
+        <textarea id="mf-studio-request" rows="4" maxlength="2400" placeholder="Example: Improve the hero headline and services section. Make the call-to-action more prominent and show me the resulting website before publishing."></textarea>
+        <div class="mf-studio-task-controls">
+          <button type="button" class="btn" id="mf-studio-copy">Copy request for ChatGPT</button>
+          <a class="btn ghost" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
+        </div>
+        <p id="mf-studio-copy-feedback" class="mf-studio-help" aria-live="polite">Select the connected MeasuredField tool inside ChatGPT. Copying a request does not submit work or alter your website.</p>
+      </div>
+      <div class="mf-studio-suggestions">
+        <strong>Quick ideas to ask ChatGPT</strong>
+        <div class="mf-studio-suggestion-buttons" aria-label="Suggested work requests">
+          <button type="button" data-mf-suggest="Improve the homepage headline, supporting copy, and call-to-action while keeping the brand voice." class="mf-studio-suggestion">Strengthen hero and CTA</button>
+          <button type="button" data-mf-suggest="Review our service descriptions, rewrite them for clarity and local customer intent, and show me the differences." class="mf-studio-suggestion">Rewrite services</button>
+          <button type="button" data-mf-suggest="Recommend a clearer mobile layout and accessible navigation. Show the updated version before any publishing." class="mf-studio-suggestion">Improve mobile design</button>
+        </div>
+      </div>
+      <p class="mf-studio-warning">ChatGPT tools operate only after an actual OAuth connection and the required permissions. Desktop file writes also require an owner-approved computer and folder session. This page does not pretend to embed a ChatGPT conversation or make unverified changes.</p>
+    </section>
+
+    <div class="mf-studio-side-stack">
+      <section class="card mf-studio-steps" aria-labelledby="mf-studio-connection-title">
+        <div class="mf-studio-panel-header"><span class="mf-studio-mini-symbol" aria-hidden="true">⌁</span>
+          <div><h2 id="mf-studio-connection-title">Connections &amp; permissions</h2><p>Current first-party account and device status</p></div></div>
+        <ol class="mf-studio-checklist">
+          <li><span class="mf-studio-check-state">{{ '✓' if linked_identity else '1' }}</span><div><strong>Verify ChatGPT identity</strong><small>{{ 'Verified external identity linked to this account' if linked_identity else 'Connect your account using Auth0' }}</small></div><a href="/app/connections">{{ 'Manage' if linked_identity else 'Connect' }}</a></li>
+          <li><span class="mf-studio-check-state">{{ '✓' if work_devices else '2' }}</span><div><strong>Approve a computer</strong><small>{{ (work_devices|length|string ~ ' Work-mode device(s) connected') if work_devices else 'Pair a computer and choose Work in approved projects' }}</small></div><a href="/app/computers">Manage</a></li>
+          <li><span class="mf-studio-check-state">3</span><div><strong>Use the MeasuredField tool</strong><small>Select it inside ChatGPT and approve the specific OAuth scopes. Identity linking alone does not confirm plugin installation.</small></div><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open</a></li>
+        </ol>
+      </section>
+
+      <section class="card mf-studio-receipts" aria-labelledby="mf-studio-work-title">
+        <div class="mf-studio-panel-header"><span class="mf-studio-mini-symbol" aria-hidden="true">▤</span>
+          <div><h2 id="mf-studio-work-title">Real computer work</h2><p>Most recent requests from your authorized account</p></div></div>
+        {% if work_receipts %}
+          <ul class="mf-studio-receipt-list">
+          {% for job in work_receipts %}
+            <li><span class="mf-studio-receipt-icon" aria-hidden="true">✓</span>
+              <div><strong>{{ 'File edit or creation' if job.action == 'write_file' else 'Folder creation' }}</strong>
+              <small>Requested {{ job.created_at.strftime('%b %d, %H:%M UTC') }} · {{ job.status|capitalize }}</small>
+              {% if job.status == 'succeeded' and job.result_hash %}<small>Receipt SHA-256: {{ job.result_hash[:12] }}…</small>{% endif %}
+              </div><span class="mf-studio-work-state state-{{ job.status }}">{{ job.status|capitalize }}</span></li>
+          {% endfor %}
+          </ul>
+        {% else %}
+        <p class="mf-studio-empty-copy">No completed or pending computer work for your account yet. Real work receipts appear after connected tools perform verified actions.</p>
+        {% endif %}
+        <a class="mf-studio-card-link" href="/app/computers">View computers, requests and approvals →</a>
+      </section>
+    </div>
+  </div>
+
+  {% if site %}
+  <section class="card mf-studio-publish" aria-labelledby="mf-studio-publish-title">
+    <div class="mf-studio-panel-header"><span class="mf-studio-mini-symbol" aria-hidden="true">↗</span>
+      <div><h2 id="mf-studio-publish-title">From draft to live</h2><p>Use existing version snapshots and recorded owner approval before publishing</p></div></div>
+    <div class="mf-studio-publish-steps" aria-label="Publishing workflow"><span>1 · Edit draft</span><span>2 · Save snapshot</span><span>3 · Owner approval</span><span>4 · Publish live</span></div>
+    <div class="mf-studio-publish-foot"><p>Nothing on this page auto-publishes a website. You can inspect saved versions and roll back from the website editor.</p><a class="btn" href="/app/website#version-history">Review versions &amp; publish</a></div>
+  </section>
+  {% endif %}
+</div>
+<script defer src="/static/website_studio.js"></script>
+{% endblock %}

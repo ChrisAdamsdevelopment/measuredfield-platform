@@ -61,12 +61,19 @@ def main() -> int:
             f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/{dbname}")
         env["MF_AUDIT_RUNTIME_URL"] = (
             f"postgresql+psycopg://mf_app:{password}@127.0.0.1:{port}/{dbname}")
-        if "--full-suite" in sys.argv[1:] or "--device-work" in sys.argv[1:]:
+        if any(flag in sys.argv[1:] for flag in ("--full-suite", "--device-work", "--studio")):
             # The pytest fixture uses the local postgres admin database to create
             # fresh owner/runtime roles and per-suite synthetic test databases.
             env["MF_TEST_PG_ADMIN_URL"] = (
                 f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres")
-            if "--device-work" in sys.argv[1:]:
+            if "--studio" in sys.argv[1:]:
+                print("Running real PostgreSQL website studio and UI regression tests.", flush=True)
+                result = run([sys.executable, "-B", "-m", "pytest", "-q",
+                              "tests/test_pg_website_studio.py",
+                              "tests/test_website_editor_ui.py",
+                              "tests/test_ai_approval_ui.py"], cwd=str(ROOT), env=env)
+                print("STUDIO_TEST_EXIT=" + str(result.returncode), flush=True)
+            elif "--device-work" in sys.argv[1:]:
                 print("Running focused Work-mode PostgreSQL security tests.", flush=True)
                 result = run([sys.executable, "-B", "-m", "pytest", "-q",
                               "tests/test_pg_devices.py", "tests/test_pg_device_work.py",

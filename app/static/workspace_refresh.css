@@ -1,0 +1,106 @@
+/* MeasuredField Workspace Visual System, Nov 2026.
+   Shared with every authenticated page; no JS, no fake status, accessible contrast. */
+:root{
+  --ink:#222944;
+  --teal:#6842d4;
+  --muted:#68738b;
+  --line:#e2e6f1;
+  --paper:#f8f9ff;
+  --deep:#fff;
+  --mf-purple:#6d40de;
+  --mf-purple-pale:#f1edff;
+  --mf-border:#e4e5f0;
+}
+body{background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.55}
+h1,h2,h3{color:#242945;letter-spacing:-.04em;line-height:1.2}
+h1{font-size:clamp(1.65rem,2.2vw,2.1rem);font-weight:830}
+h2{font-size:1.15rem;font-weight:810}
+a{color:#6040bf}
+a:hover{color:#4f28b4}
+a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #885cf4;outline-offset:3px}
+.shell{grid-template-columns:230px minmax(0,1fr);min-height:100vh}
+.side{background:#fff;color:#34405b;border-right:1px solid var(--mf-border);padding:21px 15px 18px;gap:17px;position:sticky;top:0;height:100vh;overflow-y:auto;box-shadow:2px 0 20px rgba(38,28,90,.025)}
+.side .brand{display:flex;align-items:center;gap:9px;color:#262c45;font-weight:840;font-size:1.12rem;text-decoration:none;letter-spacing:-.05em;padding:6px 5px 12px}
+.side .brand img{width:31px;height:31px;object-fit:contain;flex-shrink:0}
+.side .brand:hover{color:#6034c9}
+.side .brand span{color:inherit}
+.side .org{margin:0 3px;border:1px solid #e6e0f8;background:#f8f6ff;border-radius:12px;padding:12px;font-size:.75rem;color:#7c7394}
+.side .org strong{color:#31264e;font-size:.84rem;margin-bottom:2px}
+.side nav{display:flex;flex-direction:column;gap:2px}
+.side nav a{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;color:#465069;font-size:.84rem;font-weight:670;line-height:1.32;letter-spacing:-.01em}
+.side nav a .nav-icon{width:22px;height:23px;display:grid;place-items:center;flex-shrink:0;color:#8a81ab;font-size:1.18rem;line-height:1}
+.side nav a:hover{color:#653bc6;background:#f4f1ff}
+.side nav a[aria-current=page]{color:#6036ce;background:#efebff}
+.side nav a[aria-current=page] .nav-icon{color:#6d40de}
+.side nav>a:not(:has(.nav-icon)){padding-left:12px}
+.side .foot{margin-top:auto;font-size:.73rem;color:#7b8195;border-top:1px solid #ebe8f2;padding:13px 5px 0}
+.side .foot form{margin-top:9px}
+.side select{color:#34274b;background:#f8f6ff;border-color:#ded4f7;border-radius:9px}
+.linkbtn{color:#6446c4}
+.main{padding:0 34px 65px;min-width:0;background:radial-gradient(ellipse at 100% 0%,#eeeefe 0,transparent 44%),var(--paper)}
+.workspace-topbar{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;min-height:73px;padding:12px 0;margin-bottom:18px;border-bottom:1px solid #e7e7f2}
+.workspace-topbar-identity{display:flex;align-items:center;gap:11px}
+.workspace-topbar-icon{display:grid;place-items:center;width:34px;height:34px;border:1px solid #e2d6fa;border-radius:10px;color:#7449d9;background:#efeaff;font-weight:900;font-size:1.02rem}
+.workspace-topbar-identity strong{display:block;color:#292442;line-height:1.25;font-size:.85rem}
+.workspace-topbar-identity span:not(.workspace-topbar-icon){display:block;color:#7c8294;font-size:.71rem}
+.workspace-topbar-actions{display:flex;gap:17px;align-items:center;flex-wrap:wrap;font-size:.76rem;font-weight:720}
+.workspace-topbar-actions a{text-decoration:none}
+.workspace-topbar-actions a:hover{text-decoration:underline}
+.workspace-topbar-account{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 12px;color:#5b3b98;background:#f0ebff;border:1px solid #e7dffa;border-radius:30px}
+.main>header:not(.mf-studio-heading){padding:10px 0 5px;margin:0 0 23px}
+.main>header p{color:var(--muted)}
+.card{background:#fff;border:1px solid var(--mf-border);border-radius:16px;padding:21px 23px;box-shadow:0 3px 19px rgba(46,42,101,.04)}
+.card>h2{margin-bottom:14px}
+.muted{color:#69738a}
+.stat .n{color:#292848;font-size:1.95rem}
+.stat .l{color:#73788b}
+.badge{font-size:.68rem;font-weight:790;letter-spacing:.035em;border-radius:40px;padding:4px 9px}
+.badge.live,.badge.measured,.badge.done,.badge.sent,.badge.paid{color:#1b754d;background:#e2f6e9}
+.badge.draft,.badge.unknown{color:#5d4a89;background:#eeebf6}
+.badge.pending,.badge.new{color:#9b6216;background:#fff1dc}
+.btn,button.btn{background:#6940d4;border-color:#6940d4;color:#fff;border-radius:10px;font-size:.86rem;padding:10px 15px;font-weight:750}
+.btn:hover,button.btn:hover{background:#5429b6;border-color:#5429b6}
+.btn.ghost{color:#5a3dad;background:#fff;border-color:#ddd5ee}
+.btn.ghost:hover{background:#f4efff}
+.btn.danger{color:#b13c36;background:#fff;border:1px solid #e8c7c5}
+input,textarea,select{border-radius:9px;border-color:#cfd3e5;background:#fff;color:#242945;min-height:39px}
+input[type=checkbox],input[type=radio]{accent-color:#7247e4;min-height:auto}
+form label{color:#3d4563}
+table{background:transparent}
+th{color:#81849a}
+td,th{border-color:#edeaf3}
+.alert{border-radius:12px}
+.preview{border:1px solid #e7e4f0}
+details.box{border-color:#e7e2f3;border-radius:12px}
+.side nav a[aria-current=page]:focus-visible{outline-offset:-2px}
+@media (max-width:1050px){
+  .shell{grid-template-columns:205px minmax(0,1fr)}
+  .side{padding:14px 11px}
+  .main{padding:0 19px 50px}
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:780px){
+  .shell{display:block}
+  .side{position:relative;height:auto;min-height:auto;overflow:visible;padding:11px 13px}
+  .side .brand{padding:4px}
+  .side .org{display:none}
+  .side nav{display:flex;flex-direction:row;gap:6px;overflow-x:auto;flex-wrap:nowrap;padding:0 0 5px;scrollbar-width:thin}
+  .side nav a{white-space:nowrap;padding:8px 10px}
+  .side nav .nav-icon{width:17px;height:18px}
+  .side nav>a:not(:has(.nav-icon)){padding:8px 10px}
+  .side .foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0;padding:0;border:0}
+  .side .foot form{margin:0}
+  .workspace-topbar{margin-bottom:10px;min-height:60px}
+  .workspace-topbar-actions{gap:10px}
+  .workspace-topbar-account{display:none}
+  .main{padding:0 14px 45px}
+  .g2,.g3,.g4,.g-side,.form-grid{grid-template-columns:1fr}
+  .card{padding:16px}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition-duration:0ms!important;animation-duration:0ms!important}}
+
+/* Workbench entrance cards on the current dashboard and website editor. */
+.mf-workbench-entry{background:linear-gradient(110deg,#faf8ff,#ede9ff);border-color:#ddd3ff;margin:16px 0 19px}
+.mf-workbench-entry-row{justify-content:space-between;gap:12px}
+.mf-workbench-entry-row>div{flex:1;min-width:240px}
+.mf-workbench-entry-row p{color:#685f83}

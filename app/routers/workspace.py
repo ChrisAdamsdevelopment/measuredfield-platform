@@ -18,9 +18,9 @@ from sqlalchemy import func, select
 from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
-from ..models import (AssessmentReport, AuditEvent, Customer, DataRequest, Document, Improvement, Lead,
-                      LeadNote, LeadReply, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
-                      User, now)
+from ..models import (AssessmentReport, AuditEvent, ConnectedDevice, Customer, DataRequest, DeviceWorkRequest,
+                      Document, Improvement, Lead, LeadNote, LeadReply, LessonCandidate, McpIdentityLink,
+                      Membership, MemoryItem, Project, Proposal, SiteVersion, User, now)
 from ..security import ROLES, digest, new_token, valid_email
 from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
 from ..services.audit import audit
@@ -245,6 +245,48 @@ def website(request: Request, db: TenantSession = Depends(get_db), p: Principal 
         "colors": sitegen.COLORS, "industries": sitegen.INDUSTRIES, "windows": sitegen.RESPONSE_WINDOWS,
         "suggested_slug": sitegen.slugify(p.org.name), "base_domain": get_settings().sites_base_domain,
         "hosts": sites.list_hosts(db, site) if site else [], "dirty": dirty})
+
+
+@router.get("/app/website/studio")
+def website_studio(request: Request, db: TenantSession = Depends(get_db),
+                   p: Principal = Depends(member())):
+    """Private website workbench: authentic published/saved vs draft previews.
+
+    Reads tenant-isolated immutable snapshots; simply opening it never writes,
+    starts a connected device, sends email, or changes the public site.
+    """
+    site = sites.get_site(db)
+    versions = (db.scalars(select(SiteVersion).where(
+        SiteVersion.site_id == site.id).order_by(
+            SiteVersion.number.desc()).limit(20)).all() if site else [])
+    live = (db.get(SiteVersion, site.published_version_id)
+            if site and site.published_version_id else None)
+    if live is not None and (live.site_id != site.id or live.org_id != p.org.id):
+        live = None
+    # Saved prior version when nothing is live; never invent a baseline.
+    baseline = live or (next(
+        (v for v in versions if v.content != site.draft), None)
+        if site else None)
+    linked = db.scalar(select(McpIdentityLink.id).where(
+        McpIdentityLink.user_id == p.user.id,
+        McpIdentityLink.revoked_at.is_(None)).limit(1)) is not None
+    devices = db.scalars(select(ConnectedDevice).where(
+        ConnectedDevice.org_id == p.org.id,
+        ConnectedDevice.status == "active",
+    ).order_by(ConnectedDevice.confirmed_at.desc()).limit(8)).all()
+    receipts = db.scalars(select(DeviceWorkRequest).where(
+        DeviceWorkRequest.org_id == p.org.id,
+        DeviceWorkRequest.created_by == p.user.id,
+    ).order_by(DeviceWorkRequest.created_at.desc()).limit(5)).all()
+    return _page(request, db, p, "app/website_studio.html", {
+        "site": site, "versions": versions, "baseline": baseline,
+        "baseline_is_live": bool(live),
+        "draft_saved": bool(site and versions and versions[0].content == site.draft),
+        "linked_identity": linked, "devices": devices,
+        "work_devices": [device for device in devices if device.access == "work"],
+        "work_receipts": receipts,
+        "website_host": sites.subdomain_host(site.slug) if site else "",
+    })
 
 
 @router.post("/app/website/save")

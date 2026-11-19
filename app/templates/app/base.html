@@ -4,16 +4,17 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{% block title %}Workspace{% endblock %} | {{ org.name }}</title>
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/workspace_refresh.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="shell">
 <aside class="side">
-<a class="brand" href="/app">{{ brand }}<span>.</span></a>
+<a class="brand" href="/app"><img src="/static/media/measuredfield-brand-icon.webp" width="31" height="31" alt="" loading="eager"><span>{{ brand }}</span></a>
 <div class="org"><strong>{{ org.name }}</strong>{{ role|capitalize }} access</div>
 <nav aria-label="Workspace">
-{% set links = [('/app','Dashboard'),('/app/inquiries','Inquiries'),('/app/website','Website'),('/app/customers','Customers'),('/app/documents','Documents'),('/app/computers','Computers'),('/app/connections','ChatGPT Connections'),('/app/improvements','Improvements'),('/app/insights','Insights'),('/app/market-intelligence','Market intelligence'),('/app/learning','Notes and playbook'),('/app/feedback','Send feedback'),('/app/team','Team'),('/app/activity','Activity'),('/app/settings','Settings')] %}
-{% for href, label in links %}<a href="{{ href }}"{% if path == href or (href != '/app' and path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+{% set links = [('/app','Dashboard','⌂'),('/app/website/studio','AI Website Workbench','✦'),('/app/website','Website editor','▣'),('/app/inquiries','Leads & inquiries','◇'),('/app/customers','Customers','♧'),('/app/documents','Documents','▤'),('/app/computers','Trusted computers','⌘'),('/app/connections','ChatGPT Connections','◎'),('/app/improvements','Improvements','↗'),('/app/insights','Insights','▥'),('/app/market-intelligence','Market intelligence','◉'),('/app/learning','Notes and playbook','▦'),('/app/feedback','Send feedback','✉'),('/app/team','Team','♧'),('/app/activity','Activity','◷'),('/app/settings','Settings','⚙')] %}
+{% for href, label, symbol in links %}<a href="{{ href }}"{% if path == href or (href == '/app/website' and path == '/app/website') or (href not in ('/app','/app/website') and path.startswith(href)) %} aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span><span>{{ label }}</span></a>{% endfor %}
 {% if role == 'owner' %}<a href="/app/mcp/approvals"{% if path.startswith('/app/mcp/approvals') %} aria-current="page"{% endif %}>ChatGPT draft approvals</a>{% endif %}
 {% if settings is defined and not settings.is_production %}<a href="/app/growth-start"{% if path == "/app/growth-start" %} aria-current="page"{% endif %}>Growth Launch (local preview)</a><a href="/app/modules"{% if path.startswith("/app/modules") %} aria-current="page"{% endif %}>Modules (local preview)</a><a href="/app/lead-rescue"{% if path == "/app/lead-rescue" %} aria-current="page"{% endif %}>Lead Rescue (local preview)</a>{% endif %}
 {% if principal.user.is_platform_admin %}<a href="/operator">Operator console</a>{% endif %}
@@ -27,6 +28,10 @@
 </div>
 </aside>
 <main class="main" id="main">
+<div class="workspace-topbar" aria-label="Active MeasuredField workspace">
+  <div class="workspace-topbar-identity"><span class="workspace-topbar-icon" aria-hidden="true">M</span><div><strong>{{ org.name }}</strong><span>Business workspace</span></div></div>
+  <div class="workspace-topbar-actions"><a href="/app/website/studio">Website studio</a><a href="/app/connections">ChatGPT tools</a><span class="workspace-topbar-account">{{ principal.user.name or principal.user.email }}</span></div>
+</div>
 {% if org.status == 'deletion_pending' %}<div class="alert err" role="alert">This workspace is scheduled for deletion. An owner can cancel this in <a href="/app/settings">Settings</a>.</div>{% endif %}
 {% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
 {% if flash_error %}<div class="alert err" role="alert">{{ flash_error }}</div>{% endif %}
