@@ -34,3 +34,12 @@ Focused new module suite 16 passed. Existing entire no-database suite 191 passed
 ## Files
 app/module_catalog.py, app/services/visibility_lab.py, app/routers/module_lab.py, app/templates/app/modules.html, app/templates/app/visibility_lab.html, app/static/module_lab.css, app/static/module_lab.js, main.py, base.html, tests/test_module_lab.py.
 User-supplied full evidence CSVs are in the ChatGPT conversation; raw data was not automatically placed on D:. An evidence ZIP and audited report were generated as conversation artifacts for deliberate owner-controlled transfer to D:.
+
+## 2026-11-19 Multi-Tenant Per-Business Configuration Remediation (Claude Review #460)
+- Resolved the multi-business hardcoding defect identified in Claude's review of `380d87e`:
+  - Added `TenantLabConfig`, `tenant_lab_config(org)`, `derive_brand_aliases(...)`, `build_tenant_benchmark_questions(...)` and `validate_tenant_lab_settings(...)` in `app/services/visibility_lab.py`.
+  - The Prescott pilot set (`BENCHMARK_22`, `MARKETS`, `BRAND_ALIASES`) is seeded **only** when the signed-in organization is the pilot business (`_is_pilot_org`).
+  - Every other tenant automatically derives brand aliases from its own business name (`Organization.name`), validates markets against its own configured service areas in `Organization.settings["visibility_lab"]` (or neutral service-area defaults), and receives a 22-question benchmark set scoped to its own business name and service areas—never Prescott's Best Construction.
+  - Updated `import_gsc_csv`, `propose_questions`, `transform_question` and `plan_experiment` to accept `config: TenantLabConfig`, classifying each tenant's own brand queries as `"brand"`, mapping queries to the tenant's own service areas, protecting the tenant's brand aliases during controlled city substitution, and rejecting foreign markets outside the tenant's service areas.
+  - Wired `GET /app/modules/visibility`, `GET/POST /api/v1/modules/visibility/config`, `POST /api/v1/modules/visibility/gsc/analyze`, and `POST /api/v1/modules/visibility/plan` in `app/routers/module_lab.py` to the authenticated tenant's configuration and tenant-scoped `VisibilityObservation` provenance counts.
+  - Added unit and real PostgreSQL multi-tenant isolation tests in `tests/test_module_lab.py` with synthetic businesses in Flagstaff/Sedona and Tucson/Oro Valley.
