@@ -19,10 +19,14 @@ expires at 2026-12-13T18:00:16Z per Render API.
   Do NOT reset, force push or replace a branch with the other branch's tree.
 - Existing public brand icons, responsive video/website assets, before/after
   preview modules and new ChatGPT Work relay are preserved.
-- Full candidate suite uses disposable PostgreSQL **16**, not the live
-  PostgreSQL **18** instance. Full suite result: 1,347 passed, zero skips,
-  errors, or failures; disposable PostgreSQL removed. Production compatibility
-  requires an independent PostgreSQL 18 migration rehearsal before deployment.
+- Full candidate suite passed on disposable **PostgreSQL 16** and
+  **PostgreSQL 18**: 1,347 tests on EACH, zero skips/errors/failures.
+  PostgreSQL 18 synthetic migrations 0001–0018 and cross-tenant FORCE RLS
+  audit also passed. Both disposable containers were removed.
+  Migration rehearsal against a faithfully restored, populated live backup
+  is STILL required before any production database changes.
+- Release review: GitHub DRAFT PR #4, https://github.com/ChrisAdamsdevelopment/measuredfield-platform/pull/4.
+  This draft is not an authorization to deploy or purchase infrastructure.
 - Focussed visual-preview, brand, Work and MCP tests passed 65; 2 tests
   intentionally skipped when PostgreSQL test fixture was unavailable;
   full database suite exercises them without skips.
