@@ -226,7 +226,7 @@ class Assessment(Base):
 class ServiceOrder(Base):
     __tablename__ = "service_orders"
     id: Mapped[uuid.UUID] = PK()
-    assessment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assessments.id", ondelete="CASCADE"), index=True)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assessments.id", ondelete="CASCADE"), index=True, nullable=True)
     offer_code: Mapped[str] = mapped_column(String(40), nullable=False)
     offer_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)

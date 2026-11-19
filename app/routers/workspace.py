@@ -22,7 +22,7 @@ from ..models import (AssessmentReport, AuditEvent, Customer, DataRequest, Docum
                       LeadNote, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
                       User, now)
 from ..security import ROLES, digest, new_token, valid_email
-from ..services import growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
+from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
 from ..services.audit import audit
 from .auth import list_orgs
 
@@ -643,7 +643,17 @@ def team_remove(membership_id: str, db: TenantSession = Depends(get_db),
 @router.get("/app/settings")
 def settings_page(request: Request, db: TenantSession = Depends(get_db), p: Principal = Depends(member())):
     settings = get_settings()
+    active_workspace = orders.active_subscription_for(db, p.org.id, "operate")
+    pending_workspace = orders.pending_owner_checkout(db, p.org.id)
+    billing_linked = billing_portal.verified_customer_for(db, p.org.id) is not None if active_workspace else False
+    offer = settings.offer("operate")
+    checkout_available = bool(settings.payment_provider == "stripe" and settings.stripe_secret_key
+                              and settings.stripe_webhook_secret and offer
+                              and offer.get("billing") == "monthly" and offer.get("stripe_price_id")
+                              and offer.get("allow_promotion_codes") is True)
     return _page(request, db, p, "app/settings.html", {
+        "subscription_active": active_workspace, "subscription_linked": billing_linked,
+        "checkout_pending": pending_workspace is not None, "checkout_available": checkout_available,
         "billing": (p.org.settings or {}).get("billing", {}),
         "deletion": db.scalar(select(DataRequest).where(DataRequest.kind == "delete", DataRequest.status == "requested")),
         "email_live": settings.email_provider != "none", "payments_live": settings.payment_provider != "none",

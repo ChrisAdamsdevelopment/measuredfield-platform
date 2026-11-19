@@ -156,6 +156,33 @@ def active_subscription_for(db: TenantSession, org_id: uuid.UUID,
     return any(_effective_entitlement(db, row, at) for row in rows)
 
 
+def pending_owner_checkout(db: TenantSession, org_id: uuid.UUID) -> ServiceOrder | None:
+    """Protect an existing owner from accidental duplicate subscriptions.
+
+    A pending Checkout can remain open for 24 hours. A verified paid order with
+    no terminal subscription stays blocked rather than allowing another charge
+    while Stripe reconciliation is incomplete. A canceled/refunded subscription
+    may be replaced with a fresh checkout.
+    """
+    candidates = db.scalars(select(ServiceOrder).where(
+        ServiceOrder.org_id == org_id,
+        ServiceOrder.assessment_id.is_(None),
+        ServiceOrder.offer_code == "operate",
+        ServiceOrder.status.in_(("payment_pending", "paid", "provisioned")),
+    ).order_by(ServiceOrder.created_at.desc()).limit(10)).all()
+    for order in candidates:
+        if order.status == "payment_pending":
+            if order.created_at + timedelta(hours=24) > now():
+                return order
+            continue
+        subscription = db.scalar(select(BillingSubscription).where(
+            BillingSubscription.order_id == order.id))
+        if subscription is None or (subscription.status not in ("canceled", "incomplete_expired")
+                                    and subscription.invoice_status != "refunded"):
+            return order
+    return None
+
+
 def _reconcile_subscription(db: TenantSession, row: BillingSubscription) -> None:
     """Project verified Stripe subscription facts to the linked organization.
 

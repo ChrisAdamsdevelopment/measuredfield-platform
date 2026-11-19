@@ -31,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import get_settings
 from .db import finish_request_session, get_engine, isolation_self_check
 from .deps import BASE_DIR, LoginRequired, render
-from .routers import auth, beta_signup, billing_portal, census_market, devices, feedback, growth_journey, lead_rescue, mcp_account_settings, module_lab, operator, public, site_host, visibility_store, visibility_execution, visibility_owner_snapshot, workspace
+from .routers import auth, beta_signup, billing_portal, census_market, devices, feedback, growth_journey, lead_rescue, mcp_account_settings, module_lab, operator, owner_checkout, public, site_host, visibility_store, visibility_execution, visibility_owner_snapshot, workspace
 from .services import jobs
 
 log = logging.getLogger("mf")
@@ -82,7 +82,7 @@ def create_main_app() -> FastAPI:
     mimetypes.add_type("image/webp", ".webp", strict=True)
     mimetypes.add_type("text/vtt", ".vtt", strict=True)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-    for module in (public, auth, beta_signup, billing_portal, workspace, feedback, census_market, operator, growth_journey, module_lab, visibility_store, visibility_execution, visibility_owner_snapshot, lead_rescue, devices, mcp_account_settings):
+    for module in (public, auth, beta_signup, billing_portal, owner_checkout, workspace, feedback, census_market, operator, growth_journey, module_lab, visibility_store, visibility_execution, visibility_owner_snapshot, lead_rescue, devices, mcp_account_settings):
         app.include_router(module.router)
 
     @app.middleware("http")
