@@ -79,11 +79,16 @@ def test_founder_discount_checkout_reuses_owner_workspace(platform, billing_mode
     assert "Open Business Workspace checkout" in owner.get("/app/settings").text
     with monkeypatch.context() as m:
         m.setattr("app.routers.owner_checkout.payments.get_provider", lambda settings=None: FakeStripe())
+        m.setattr("app.routers.owner_checkout._inspect_stripe_checkout",
+                  lambda provider, order: {"status": "open", "url":
+                      "https://checkout.stripe.com/c/pay/cs_test_" +
+                      str(order.id).replace("-", "")})
         response = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
         assert response.status_code == 303
         assert response.headers["location"].startswith("https://checkout.stripe.com/")
         second = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
-        assert second.status_code == 303 and "/app/settings" in second.headers["location"]
+        assert second.status_code == 303
+        assert second.headers["location"] == response.headers["location"]
     assert len(seen) == 1
     assert seen[0]["offer"]["allow_promotion_codes"] is True
     assert seen[0]["offer"]["stripe_price_id"] == "price_syntheticonly12345"
@@ -153,6 +158,12 @@ def test_founder_discount_checkout_reuses_owner_workspace(platform, billing_mode
         sub = db.scalar(select(BillingSubscription).where(BillingSubscription.org_id == org_id))
         assert sub is not None and sub.order_id == uuid.UUID(order_id)
         assert sub.entitlement_active
+        org = db.get(Organization, org_id)
+        assert org.plan == "operate", "Signed owner checkout must upgrade same workspace plan"
+        billing = org.settings["billing"]
+        assert billing["paid"] is True and billing["order_id"] == order_id
+        assert billing["amount_cents"] == 0 and billing["discount_cents"] == 9900
+        assert org.settings["owner_checkout_previous_plan"] == "founding_beta"
 
     dashboard = owner.get("/app")
     assert dashboard.status_code == 200
@@ -167,6 +178,10 @@ def test_founder_discount_checkout_reuses_owner_workspace(platform, billing_mode
     with session_scope(org_id=org_id) as db:
         assert not active_subscription_for(db, org_id, "operate")
         assert pending_owner_checkout(db, org_id) is None
+        org = db.get(Organization, org_id)
+        assert org.plan == "founding_beta"
+        assert org.settings["billing"]["paid"] is False
+        assert org.settings["billing"]["offer"] == "Founding beta"
     assert "Open Business Workspace checkout" in owner.get("/app/settings").text
 
 
@@ -209,3 +224,98 @@ def test_checkout_rejects_unauthorized_staff_cross_org_and_bad_url(platform, bil
     staff = login(platform, address, pw)
     assert "Open Business Workspace checkout" not in staff.get("/app/settings").text
     assert staff.post("/app/billing/checkout", data={"csrf": csrf_of(staff)}).status_code == 403
+
+
+def test_expired_checkout_event_unblocks_exact_original_and_rejects_late_expiration(
+        platform, billing_mode, monkeypatch):
+    """No second Stripe subscription until signed expiration or verified provider status."""
+    owner, org_id, _ = _owner(platform, "expired")
+    calls = []
+
+    class FakeStripe:
+        def create_checkout(self, *, order_id, **kwargs):
+            calls.append(order_id)
+            return {
+                "id": "cs_test_owner_" + order_id.replace("-", ""),
+                "url": "https://checkout.stripe.com/c/pay/cs_test_" + order_id.replace("-", ""),
+            }
+
+        def verify_webhook(self, payload, signature_header):
+            from app.services.payments import StripeProvider
+            return StripeProvider("sk_test_synthetic", SIGNATURE_SECRET).verify_webhook(
+                payload, signature_header)
+
+    with monkeypatch.context() as m:
+        m.setattr("app.routers.owner_checkout.payments.get_provider", lambda settings=None: FakeStripe())
+        m.setattr("app.routers.owner_checkout._inspect_stripe_checkout",
+                  lambda provider, order: None)
+        response = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("https://checkout.stripe.com/")
+        # Never bypass on local time alone.
+        with session_scope(org_id=org_id) as db:
+            pending = db.scalar(select(ServiceOrder).where(
+                ServiceOrder.assessment_id.is_(None), ServiceOrder.org_id == org_id))
+            old_id = pending.id
+            old_session = pending.provider_ref
+            pending.created_at = now() - timedelta(days=4)
+        waiting = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
+        assert waiting.status_code == 303 and "/app/settings" in waiting.headers["location"]
+        assert len(calls) == 1
+        assert "Unable to verify your previous Stripe checkout" in owner.get(
+            waiting.headers["location"]).text or waiting.headers["location"].startswith("/app/settings")
+
+        # Signed expired event names exactly the bound provider session, not a browser ID.
+        unbound = _webhook(owner, "checkout.session.expired",
+                           {"id": "cs_test_not_a_session"}, "unknown_expire")
+        assert unbound.json()["outcome"] == "unknown_order"
+        with session_scope(org_id=org_id) as db:
+            assert db.get(ServiceOrder, old_id).status == "payment_pending"
+        expired = _webhook(owner, "checkout.session.expired",
+                           {"id": old_session}, "real_expire")
+        assert expired.json()["outcome"] == "checkout_expired"
+        duplicate = _webhook(owner, "checkout.session.expired",
+                             {"id": old_session}, "real_expire")
+        assert duplicate.json()["outcome"] == "duplicate"
+        with session_scope(org_id=org_id) as db:
+            assert db.get(ServiceOrder, old_id).status == "cancelled"
+            assert pending_owner_checkout(db, org_id) is None
+        fresh = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
+        assert fresh.status_code == 303 and fresh.headers["location"].startswith(
+            "https://checkout.stripe.com/")
+        assert fresh.headers["location"] != response.headers["location"]
+        assert len(calls) == 2
+        late = _webhook(owner, "checkout.session.expired",
+                        {"id": old_session}, "late_expire")
+        assert late.json()["outcome"] == "not_pending"
+        with session_scope(org_id=org_id) as db:
+            assert db.scalar(select(func.count()).select_from(Organization).where(
+                Organization.id == org_id)) == 1
+            assert db.scalar(select(func.count()).select_from(ServiceOrder).where(
+                ServiceOrder.org_id == org_id, ServiceOrder.assessment_id.is_(None))) == 2
+
+
+def test_open_checkout_verified_by_stripe_is_resumed_not_duplicated(
+        platform, billing_mode, monkeypatch):
+    owner, org_id, _ = _owner(platform, "resume")
+    session_requests = []
+    class FakeStripe:
+        def create_checkout(self, *, order_id, **kwargs):
+            session_requests.append(order_id)
+            return {"id": "cs_test_owner_" + order_id.replace("-", ""),
+                    "url": "https://checkout.stripe.com/c/pay/cs_test_" + order_id.replace("-", "")}
+    with monkeypatch.context() as m:
+        m.setattr("app.routers.owner_checkout.payments.get_provider", lambda settings=None: FakeStripe())
+        m.setattr("app.routers.owner_checkout._inspect_stripe_checkout",
+                  lambda provider, order: {"status": "expired"})
+        first = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
+        with session_scope(org_id=org_id) as db:
+            old = db.scalar(select(ServiceOrder).where(
+                ServiceOrder.org_id == org_id, ServiceOrder.assessment_id.is_(None)))
+            old_id = old.id
+        next_ = owner.post("/app/billing/checkout", data={"csrf": csrf_of(owner)})
+    assert first.status_code == 303 and next_.status_code == 303
+    assert len(session_requests) == 2
+    assert first.headers["location"] != next_.headers["location"]
+    with session_scope(org_id=org_id) as db:
+        assert db.get(ServiceOrder, old_id).status == "cancelled"

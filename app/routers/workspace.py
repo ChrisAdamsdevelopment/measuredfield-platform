@@ -650,7 +650,8 @@ def settings_page(request: Request, db: TenantSession = Depends(get_db), p: Prin
     checkout_available = bool(settings.payment_provider == "stripe" and settings.stripe_secret_key
                               and settings.stripe_webhook_secret and offer
                               and offer.get("billing") == "monthly" and offer.get("stripe_price_id")
-                              and offer.get("allow_promotion_codes") is True)
+                              and offer.get("allow_promotion_codes") is True
+                              and type(offer.get("price_cents")) is int and offer["price_cents"] > 0)
     return _page(request, db, p, "app/settings.html", {
         "subscription_active": active_workspace, "subscription_linked": billing_linked,
         "checkout_pending": pending_workspace is not None, "checkout_available": checkout_available,
