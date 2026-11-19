@@ -96,7 +96,9 @@ class AccountPanel(ttk.Frame):
             "revoked": "Disconnected",
         }.get(view.status, "Not connected")
         if view.status == "active":
-            status += " — " + ("Read only" if view.access == "read" else "May suggest changes with approval")
+            status += " — " + ("Read only" if view.access == "read" else
+                                          "May write in approved Work folders" if view.access == "work"
+                                          else "May suggest changes with approval")
         self.state.set(status)
         self.number.set(("Check number: " + view.check_number) if view.status == "pending" and view.check_number else "")
         if self._configuration_invalid:

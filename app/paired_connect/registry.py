@@ -58,6 +58,7 @@ class PairingRegistry:
                     label TEXT NOT NULL,
                     grants_json TEXT NOT NULL,
                     allow_proposals INTEGER NOT NULL DEFAULT 0,
+                    allow_writes INTEGER NOT NULL DEFAULT 0,
                     token_hash TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
@@ -72,6 +73,9 @@ class PairingRegistry:
                     grant_id TEXT
                 );
             """)
+            columns = {r["name"] for r in db.execute("PRAGMA table_info(pairings)")}
+            if "allow_writes" not in columns:
+                db.execute("ALTER TABLE pairings ADD COLUMN allow_writes INTEGER NOT NULL DEFAULT 0")
         if os.name != "nt":
             os.chmod(self.db_path, 0o600)
 
@@ -99,7 +103,8 @@ class PairingRegistry:
         return self.token_dir / (_validate_id(pair_id) + ".token")
 
     def create(self, label: str, grant_ids: list[str], *, owner_confirmed: bool = False,
-               allow_proposals: bool = False, expires_minutes: int = 15) -> dict:
+               allow_proposals: bool = False, allow_writes: bool = False,
+               owner_confirmed_write: bool = False, expires_minutes: int = 15) -> dict:
         """Explicit OWNER invocation only, never part of the MCP tool surface."""
         if not owner_confirmed:
             raise AccessDenied("The owner must approve pairing locally")
@@ -121,6 +126,13 @@ class PairingRegistry:
                 raise AccessDenied("Cannot pair a disconnected project")
         if allow_proposals and not any(grants[g]["access"] == "readwrite" for g in grant_ids):
             raise AccessDenied("No selected folder permits proposed edits")
+        if allow_writes:
+            if not owner_confirmed_write:
+                raise AccessDenied("The owner must explicitly approve direct Work-mode writes")
+            if expires_minutes > 480:
+                raise AccessDenied("Work-mode pairings may last at most eight hours")
+            if not any(grants[g]["access"] == "readwrite" for g in grant_ids):
+                raise AccessDenied("No selected project folder permits direct writes")
         pair_id = secrets.token_hex(16)
         token = secrets.token_urlsafe(48)
         created = time.time()
@@ -136,10 +148,10 @@ class PairingRegistry:
                 os.chmod(token_file, 0o600)
             with self._db() as db:
                 db.execute(
-                    "INSERT INTO pairings(id,label,grants_json,allow_proposals,token_hash,"
-                    "created_at,expires_at) VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO pairings(id,label,grants_json,allow_proposals,allow_writes,token_hash,"
+                    "created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)",
                     (pair_id, label.strip(), json.dumps(grant_ids, separators=(",", ":")),
-                     int(allow_proposals), _hash_token(token), created,
+                     int(allow_proposals), int(allow_writes), _hash_token(token), created,
                      created + expires_minutes * 60),
                 )
         except BaseException:
@@ -148,13 +160,14 @@ class PairingRegistry:
         self._log("pair", "owner_confirmed", pair_id)
         return {"pairing_id": pair_id, "name": label.strip(),
                 "project_count": len(grant_ids),
-                "read_only": not allow_proposals,
+                "read_only": not (allow_proposals or allow_writes),
+                "can_write": allow_writes,
                 "expires_at": _iso(created + expires_minutes * 60)}
 
     def list(self) -> list[dict]:
         with self._db() as db:
             rows = db.execute(
-                "SELECT id,label,grants_json,allow_proposals,created_at,expires_at,revoked_at "
+                "SELECT id,label,grants_json,allow_proposals,allow_writes,created_at,expires_at,revoked_at "
                 "FROM pairings ORDER BY created_at DESC"
             ).fetchall()
         now = time.time()
@@ -162,6 +175,7 @@ class PairingRegistry:
             {"pairing_id": row["id"], "name": row["label"],
              "project_count": len(json.loads(row["grants_json"])),
              "can_suggest_edits": bool(row["allow_proposals"]),
+             "can_write": bool(row["allow_writes"]),
              "status": "revoked" if row["revoked_at"] is not None
                        else "expired" if row["expires_at"] <= now else "active",
              "expires_at": _iso(row["expires_at"])}
@@ -203,14 +217,14 @@ class PairingRegistry:
 
     def authorize(self, pair_id: str, token: str,
                   grant_id: str | None = None, action: str = "list") -> dict:
-        if action not in {"list", "read", "propose"}:
+        if action not in {"list", "read", "propose", "write", "mkdir"}:
             raise AccessDenied("This operation is not permitted")
         pair_id = _validate_id(pair_id)
         if not isinstance(token, str) or len(token) < 32 or len(token) > 128:
             raise AccessDenied("Invalid connection credentials")
         with self._db() as db:
             row = db.execute(
-                "SELECT token_hash,grants_json,allow_proposals,expires_at,revoked_at "
+                "SELECT token_hash,grants_json,allow_proposals,allow_writes,expires_at,revoked_at "
                 "FROM pairings WHERE id=?", (pair_id,)
             ).fetchone()
         if (not row or row["revoked_at"] is not None or row["expires_at"] <= time.time()
@@ -227,10 +241,15 @@ class PairingRegistry:
             if not row["allow_proposals"] or not grant_id or current[grant_id]["access"] != "readwrite":
                 self._log("authorize", "denied", pair_id, grant_id)
                 raise AccessDenied("Proposed edits are not allowed in this connection")
+        if action in ("write", "mkdir"):
+            if not row["allow_writes"] or not grant_id or current[grant_id]["access"] != "readwrite":
+                self._log("authorize", "denied", pair_id, grant_id)
+                raise AccessDenied("Owner-approved Work mode is required for direct file changes")
         return {
             "pairing_id": pair_id,
             "grants": tuple(live),
             "can_propose": bool(row["allow_proposals"]),
+            "can_write": bool(row["allow_writes"]),
         }
 
     def audit(self, limit: int = 30) -> list[dict]:
@@ -283,6 +302,29 @@ class BoundSession:
     def propose(self, grant_id: str, relative_path: str, new_content: str) -> dict:
         self._verify(grant_id, "propose")
         return self.registry.connect.propose(grant_id, relative_path, new_content)
+
+    def write_file(self, grant_id: str, relative_path: str, content: str,
+                   expected_sha256: str | None = None) -> dict:
+        """Persist an authorized edit; no separate approval for Work-mode sessions."""
+        from app.desktop_companion.work_actions import WorkActions
+
+        self._verify(grant_id, "write")
+        actions = WorkActions(
+            self.registry.connect,
+            lambda current: self._verify(current, "write"),
+        )
+        return actions.write_file(grant_id, relative_path, content, expected_sha256)
+
+    def make_directory(self, grant_id: str, relative_path: str) -> dict:
+        """Create one directory inside an owner-approved Work-mode project."""
+        from app.desktop_companion.work_actions import WorkActions
+
+        self._verify(grant_id, "mkdir")
+        actions = WorkActions(
+            self.registry.connect,
+            lambda current: self._verify(current, "mkdir"),
+        )
+        return actions.make_directory(grant_id, relative_path)
 
     def pending(self) -> list[dict]:
         session = self._verify()

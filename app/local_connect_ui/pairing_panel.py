@@ -72,6 +72,11 @@ class PairingPanel(ttk.Frame):
             self, text="Allow the assistant to suggest edits (you still approve each one)",
             variable=self.suggestions,
         ).pack(anchor="w", pady=(6, 7))
+        self.work_mode = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self, text="Work mode: directly create and edit files during this session",
+            variable=self.work_mode,
+        ).pack(anchor="w", pady=(0, 7))
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(0, 9))
         ttk.Button(
@@ -110,8 +115,8 @@ class PairingPanel(ttk.Frame):
             connection_actions, text="Connection activity", command=self.view_activity,
         ).pack(side="left")
         ttk.Label(
-            self, text="Pairing grants no shell, delete, publish, or automatic file-write permission. "
-                       "No network tunnel starts automatically.",
+            self, text="Only explicitly approved Work-mode pairings can change project files. "
+                       "No shell, delete, publish, or network tunnel starts automatically.",
         ).pack(anchor="w", pady=(6, 0))
         self.refresh()
 
@@ -135,16 +140,21 @@ class PairingPanel(ttk.Frame):
                 raise AccessDenied("Choose a name for this connection")
             minutes = int(self.minutes.get())
             writable = bool(self.suggestions.get())
+            direct_work = bool(self.work_mode.get())
+            if direct_work and minutes > 480:
+                raise AccessDenied("Work mode expires within eight hours; choose a shorter session.")
             details = {item["id"]: item for item in self.owner.available_projects()}
             if any(pid not in details for pid in project_ids):
                 raise AccessDenied("A selected folder was disconnected; refresh and choose again")
-            if writable and not any(details[pid]["access"] == "readwrite" for pid in project_ids):
+            if (writable or direct_work) and not any(
+                    details[pid]["access"] == "readwrite" for pid in project_ids):
                 raise AccessDenied(
-                    "To suggest edits, first enable that permission for a selected folder"
+                    "Enable readwrite access to an approved folder before allowing edits"
                 )
             selected = "\n".join(
                 "- " + safe_display(details[pid]["name"]) +
-                " (" + ("Suggest edits" if writable and details[pid]["access"] == "readwrite"
+                " (" + ("Direct Work edits" if direct_work and details[pid]["access"] == "readwrite"
+                        else "Suggest edits" if writable and details[pid]["access"] == "readwrite"
                         else "Read only") + "): " +
                 safe_display(details[pid]["root"])
                 for pid in project_ids
@@ -158,19 +168,31 @@ class PairingPanel(ttk.Frame):
                 parent=self.winfo_toplevel(),
             ):
                 return
-            if writable and not messagebox.askyesno(
+            if writable and not direct_work and not messagebox.askyesno(
                 "Confirm suggested changes",
                 "Allow suggested edits inside the write-enabled folders listed?\n\n"
                 "Every actual file change still needs your separate approval.",
                 parent=self.winfo_toplevel(),
             ):
                 return
+            if direct_work:
+                if not messagebox.askyesno(
+                    "Authorize real file changes?",
+                    "Work mode can CREATE and MODIFY actual files in the approved folders "
+                    "without asking again for every file. It cannot delete files, run shell "
+                    "commands, or publish websites. You can disconnect this session any time. "
+                    "Do you permit this direct access for the selected duration?",
+                    parent=self.winfo_toplevel(),
+                ):
+                    return
             pair = self.owner.pair(
                 name, project_ids, minutes=minutes,
-                allow_suggestions=writable, confirmed=True,
-                confirmed_suggestions=writable,
+                allow_suggestions=writable and not direct_work, allow_writes=direct_work,
+                confirmed=True, confirmed_suggestions=writable and not direct_work,
+                confirmed_writes=direct_work,
             )
             self.suggestions.set(False)
+            self.work_mode.set(False)
             self.refresh()
             self.report("Private local connection created. It is not connected to ChatGPT.")
             messagebox.showinfo(
@@ -318,6 +340,7 @@ class PairingPanel(ttk.Frame):
                     safe_display(", ".join(
                         item["name"] for item in self.owner.connection_projects(pair["pairing_id"])
                     )),
+                    "Direct Work mode" if pair.get("can_write") else
                     "Suggest edits" if pair["can_suggest_edits"] else "Read only",
                     pair["expires_at"],
                 ),

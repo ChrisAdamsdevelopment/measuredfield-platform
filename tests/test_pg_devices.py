@@ -420,3 +420,42 @@ def test_deleting_a_business_removes_its_computers(platform):
         assert db.execute(text("SELECT count(*) FROM device_pairing_codes WHERE org_id = :o"), {"o": org_id}).scalar() == 0
     with session_scope(org_id=org_id) as db:
         assert db.execute(text("SELECT count(*) FROM connected_devices")).scalar() == 0
+
+
+def test_work_mode_requires_owner_confirmation_and_tracks_real_action_metadata(platform):
+    """Database-backed Work-mode permission is separate from read/suggest."""
+    owner, _, _ = onboard_business(
+        platform, business="Copper Work Mode", owner_email="owner@copper-workmode.example",
+    )
+    code = get_code(owner, "Production work desktop", access="work")
+    computer, pairing = pair(platform, code)
+    assert pairing.status_code == 201
+    key, device_id = pairing.json()["credential"], pairing.json()["device_id"]
+    waiting = computer.get("/api/device/v1/status", headers=_bearer(key)).json()
+    assert waiting["status"] == "pending" and waiting["access"] == "work"
+    # Pairing alone never authorizes writing.
+    event = {
+        "action": "file_written", "result": "ok", "project_label": "Company Website",
+        "count": 1, "occurred_at": datetime.now(timezone.utc).isoformat(),
+    }
+    assert computer.post(
+        "/api/device/v1/activity", headers=_bearer(key), json={"events": [event]}
+    ).status_code == 403
+    assert owner.post(
+        f"/app/computers/{device_id}/confirm",
+        data={"csrf": csrf_of(owner), "check_number": pairing.json()["check_number"]},
+    ).status_code == 303
+    assert computer.get("/api/device/v1/status", headers=_bearer(key)).json()[
+        "access_label"] == "Work in approved projects"
+    assert computer.post(
+        "/api/device/v1/activity", headers=_bearer(key), json={"events": [event]}
+    ).json() == {"stored": 1}
+    page = owner.get("/app/computers").text
+    assert "File created or updated" in page
+    assert "Work in approved projects" in page
+    assert owner.post(
+        f"/app/computers/{device_id}/disconnect", data={"csrf": csrf_of(owner)}
+    ).status_code == 303
+    assert computer.post(
+        "/api/device/v1/activity", headers=_bearer(key), json={"events": [event]}
+    ).status_code == 401

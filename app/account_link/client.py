@@ -166,7 +166,7 @@ class DeviceApi:
     def status(self, credential: str) -> DeviceStatus:
         value = self._request("GET", "/api/device/v1/status", credential=credential)
         if (value.get("status") not in ("pending", "active") or
-                value.get("access") not in ("read", "suggest") or
+                value.get("access") not in ("read", "suggest", "work") or
                 not isinstance(value.get("device_id"), str)):
             raise DeviceClientError("Unexpected computer status. No file action was taken.")
         return DeviceStatus(value["device_id"], value["status"], value["access"],

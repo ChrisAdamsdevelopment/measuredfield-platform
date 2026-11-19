@@ -106,7 +106,8 @@ class PairRequest(BaseModel):
 class ActivityEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["connection_started", "connection_ended", "folder_shared", "folder_unshared",
-                    "file_read", "change_proposed", "change_approved", "change_rejected"]
+                    "file_read", "change_proposed", "change_approved", "change_rejected",
+                    "file_written", "directory_created"]
     result: Literal["ok", "denied", "error"]
     project_label: str = Field(default="", max_length=80)
     count: int = Field(default=1, ge=0, le=10_000)

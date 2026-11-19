@@ -41,7 +41,7 @@ class ConnectedWorkspaceWindow:
         )
         ttk.Label(
             shell,
-            text="Choose what MeasuredField can see. Review every suggested file change before it is applied.",
+            text="Connect chosen project folders. Suggest mode needs approval; Work mode can write during an authorized session.",
             style="Body.TLabel",
         ).pack(anchor="w", pady=(5, 14))
 

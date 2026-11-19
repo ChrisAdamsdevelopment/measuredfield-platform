@@ -125,7 +125,11 @@ class AccountLinkController:
         # Existing local pilot remains usable unlinked. Once account-linked,
         # active Suggest changes is required for local proposal permissions.
         return self._state["status"] == "not_connected" or (
-            self._state["status"] == "active" and self._state["access"] == "suggest")
+            self._state["status"] == "active" and self._state["access"] in ("suggest", "work"))
+
+    def can_work(self) -> bool:
+        """Direct changes only when a real linked computer has Work permission."""
+        return self._state["status"] == "active" and self._state["access"] == "work"
 
     def _stop_local_connections(self) -> None:
         # Revoke ALL local MCP pairing capabilities, including previously issued sessions.
@@ -137,9 +141,13 @@ class AccountLinkController:
         status = self._state["status"]
         if status in ("pending", "unverified", "revoked"):
             self._stop_local_connections()
-        elif status == "active" and self._state["access"] != "suggest":
+        elif status == "active":
+            access = self._state["access"]
             for row in self.registry.list():
-                if row["status"] == "active" and row["can_suggest_edits"]:
+                if row["status"] != "active":
+                    continue
+                if ((access == "read" and row["can_suggest_edits"])
+                        or (access != "work" and row.get("can_write", False))):
                     self.registry.revoke(row["pairing_id"])
 
     def _revoke(self, notice: str) -> AccountView:
@@ -271,8 +279,9 @@ class AccountBoundPairingController(PairingOwnerController):
         self.account = account
 
     def pair(self, name: str, project_ids: list[str], *, minutes: int = 15,
-             allow_suggestions: bool = False, confirmed: bool = False,
-             confirmed_suggestions: bool = False) -> dict:
+             allow_suggestions: bool = False, allow_writes: bool = False,
+             confirmed: bool = False, confirmed_suggestions: bool = False,
+             confirmed_writes: bool = False) -> dict:
         state = self.account.view().status
         if state != "not_connected":
             # Re-check each account-linked pairing at the time of the consequential action.
@@ -282,5 +291,9 @@ class AccountBoundPairingController(PairingOwnerController):
             raise AccessDenied("This computer must be confirmed and connected before sharing folders.")
         if allow_suggestions and not self.account.can_suggest_edits():
             raise AccessDenied("Your account is Read only or pending confirmation; suggested edits are disabled.")
+        if allow_writes and not self.account.can_work():
+            raise AccessDenied("This computer must have owner-approved Work mode before direct edits.")
         return super().pair(name, project_ids, minutes=minutes, allow_suggestions=allow_suggestions,
-                            confirmed=confirmed, confirmed_suggestions=confirmed_suggestions)
+                            allow_writes=allow_writes, confirmed=confirmed,
+                            confirmed_suggestions=confirmed_suggestions,
+                            confirmed_writes=confirmed_writes)

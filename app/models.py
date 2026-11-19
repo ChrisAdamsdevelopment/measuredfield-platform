@@ -941,7 +941,7 @@ class ConnectedDevice(Base):
     name: Mapped[str] = mapped_column(String(80), nullable=False)             # chosen by the owner
     reported_name: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)  # claimed by the computer
     platform: Mapped[str] = mapped_column(String(20), nullable=False)
-    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest
+    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest | work
     status: Mapped[str] = mapped_column(String(12), nullable=False)
     credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     check_number: Mapped[str] = mapped_column(String(6), default="", server_default="", nullable=False)
@@ -956,7 +956,7 @@ class ConnectedDevice(Base):
     revoked_reason: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
     __table_args__ = (
         UniqueConstraint("credential_hash", name="uq_connected_devices_credential_hash"),
-        CheckConstraint("access IN ('read', 'suggest')", name="ck_connected_devices_access"),
+        CheckConstraint("access IN ('read', 'suggest', 'work')", name="ck_connected_devices_access"),
         CheckConstraint("status IN ('pending', 'active', 'revoked', 'expired')", name="ck_connected_devices_status"),
     )
 

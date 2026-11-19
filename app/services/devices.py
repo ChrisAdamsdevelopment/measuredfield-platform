@@ -50,10 +50,11 @@ MAX_ACTIVE_DEVICES = 10
 MAX_OPEN_CODES = 5
 MAX_CONFIRM_ATTEMPTS = 5
 CREDENTIAL_PREFIX = "mfd1"
-ACCESS_LEVELS = {"read": "Read only", "suggest": "Suggest changes"}
+ACCESS_LEVELS = {"read": "Read only", "suggest": "Suggest changes", "work": "Work in approved projects"}
 PLATFORMS = ("windows", "macos", "linux")
 ACTIVITY_ACTIONS = ("connection_started", "connection_ended", "folder_shared", "folder_unshared",
-                    "file_read", "change_proposed", "change_approved", "change_rejected")
+                    "file_read", "change_proposed", "change_approved", "change_rejected",
+                    "file_written", "directory_created")
 ACTIVITY_RESULTS = ("ok", "denied", "error")
 MAX_EVENTS_PER_BATCH = 50
 _LABEL_FORBIDDEN = re.compile(r"[\\/:\x00-\x1f\x7f]")
@@ -101,7 +102,7 @@ def create_pairing_code(db: TenantSession, org_id: uuid.UUID, user_id: uuid.UUID
                         device_name: str, access: str) -> IssuedCode:
     """Requires a tenant context for ``org_id``; the caller has already checked permission."""
     if access not in ACCESS_LEVELS:
-        raise DeviceError("Choose Read only or Suggest changes.")
+        raise DeviceError("Choose Read only, Suggest changes, or Work in approved projects.")
     device_name = clean_name(device_name)
     if len(device_name) < 2:
         raise DeviceError("Give this computer a name you will recognise, like \"Front office PC\".")
@@ -271,7 +272,8 @@ def rotate_credential(db: TenantSession, device: ConnectedDevice) -> str:
 @dataclass(frozen=True)
 class ActivityItem:
     action: Literal["connection_started", "connection_ended", "folder_shared", "folder_unshared",
-                    "file_read", "change_proposed", "change_approved", "change_rejected"]
+                    "file_read", "change_proposed", "change_approved", "change_rejected",
+                    "file_written", "directory_created"]
     result: Literal["ok", "denied", "error"]
     project_label: str
     count: int
@@ -296,8 +298,13 @@ def record_activity(db: TenantSession, device: ConnectedDevice, items: list[Acti
         label = clean_name(item.project_label, limit=80)
         if _LABEL_FORBIDDEN.search(item.project_label or "") or not 0 <= item.count <= 10_000:
             raise DeviceError("Activity must not contain file paths.")
-        if device.access == "read" and item.action in ("change_proposed", "change_approved") and item.result == "ok":
+        if (device.access == "read" and item.action in
+                ("change_proposed", "change_approved", "file_written", "directory_created")
+                and item.result == "ok"):
             raise DeviceError("This computer is connected as Read only.")
+        if (device.access != "work" and item.action in ("file_written", "directory_created")
+                and item.result == "ok"):
+            raise DeviceError("Direct file changes require owner-approved Work mode.")
         occurred = item.occurred_at
         if occurred.tzinfo is None or occurred > current + timedelta(minutes=5) or occurred < current - timedelta(days=30):
             occurred = current
