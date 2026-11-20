@@ -992,6 +992,34 @@ class ConnectedDevice(Base):
     )
 
 
+class DeviceWorkProject(Base):
+    """Short-lived, device-reported metadata for an owner-approved local grant.
+
+    No filesystem paths, credentials or file contents ever leave the computer.
+    This roster helps OAuth clients choose opaque local project identifiers;
+    actual writes still require the live local pairing and directory checks.
+    """
+    __tablename__ = "device_work_projects"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(24), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)
+    reported_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "device_id"],
+                             ["connected_devices.org_id", "connected_devices.id"],
+                             name="fk_device_work_projects_device", ondelete="CASCADE"),
+        UniqueConstraint("org_id", "device_id", "project_id",
+                         name="uq_device_work_projects_identity"),
+        CheckConstraint("access IN ('readwrite')",
+                        name="ck_device_work_projects_access"),
+        Index("ix_device_work_projects_fresh", "org_id", "device_id", "expires_at"),
+    )
+
+
 class DeviceWorkRequest(Base):
     """Tenant-isolated encrypted queued work for one owner-linked computer.
 
@@ -1065,7 +1093,7 @@ class DevicePairingCode(Base):
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
     "visibility_research_reservations", "visibility_research_budgets",
-    "device_work_requests", "device_events", "connected_devices",
+    "website_work_requests", "device_work_requests", "device_work_projects", "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
     "mcp_action_drafts", "lead_replies", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
@@ -1074,7 +1102,9 @@ TENANT_TABLES = [
 TENANT_MODELS = {
     "visibility_research_reservations": VisibilityResearchReservation,
     "visibility_research_budgets": VisibilityResearchBudget,
+    "website_work_requests": WebsiteWorkRequest,
     "device_work_requests": DeviceWorkRequest,
+    "device_work_projects": DeviceWorkProject,
     "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
     "visibility_observations": VisibilityObservation,
     "visibility_experiments": VisibilityExperiment,

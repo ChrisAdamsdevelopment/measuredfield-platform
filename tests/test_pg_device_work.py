@@ -244,3 +244,112 @@ def test_corrupt_ciphertext_denies_claim_and_clears_payload(platform, monkeypatc
         assert row.status == "failed"
         assert row.payload_encrypted == b""
         assert row.result_status == "cannot_decrypt"
+
+
+def test_owner_approved_work_roster_discovered_without_local_paths(
+    platform, monkeypatch,
+):
+    """Live Postgres RLS: only active owner grants are visible to the owner."""
+    from datetime import timedelta
+    from app.db import session_scope
+    from app.models import DeviceWorkProject, now
+    from app.services import devices
+    from sqlalchemy import select
+
+    owner, org, actor, computer, linked, full_bearer = _setup(
+        platform, monkeypatch, "Owner Roster A")
+    _, other_org, _, _, _, _ = _setup(
+        platform, monkeypatch, "Owner Roster B")
+    manifest = [{"project_id": "c" * 24, "name": "Public website",
+                 "access": "readwrite"}]
+    posted = computer.post(
+        "/api/device/v1/work/projects",
+        headers={"Authorization": "Bearer " + linked["credential"]},
+        json={"projects": manifest},
+    )
+    assert posted.status_code == 200, posted.text
+    assert posted.json() == {"reported": 1}
+    assert "Cache-Control" in posted.headers
+    import app.mcp_plugin.links as link_service
+    monkeypatch.setattr(link_service, "linked_subject_user_id", lambda *_: actor)
+    read_bearer = SimpleNamespace(
+        identity=SimpleNamespace(
+            issuer=full_bearer.identity.issuer,
+            audience=full_bearer.identity.audience,
+            subject=full_bearer.identity.subject,
+            scopes=frozenset({"mf:read"}),
+        ), issued_at=full_bearer.issued_at,
+    )
+
+    def read(business):
+        return devices.connected_work_computers_for_oauth(
+            read_bearer, issuer=read_bearer.identity.issuer,
+            audience=read_bearer.identity.audience,
+            business_id=str(business),
+        )
+
+    roster = read(org)
+    assert roster["count"] == 1
+    assert roster["computers"][0]["device_id"] == linked["device_id"]
+    assert roster["computers"][0]["projects"][0]["project_id"] == "c" * 24
+    assert roster["computers"][0]["projects"][0]["name"] == "Public website"
+    assert "root" not in repr(roster)
+    assert "credential" not in repr(roster)
+    with pytest.raises(ConnectorAccessDenied):
+        read(other_org)
+
+    bad = computer.post(
+        "/api/device/v1/work/projects",
+        headers={"Authorization": "Bearer " + linked["credential"]},
+        json={"projects": [{"project_id": "e" * 24,
+                            "name": "D:\\Secret", "access": "readwrite"}]},
+    )
+    assert bad.status_code == 422
+    assert read(org)["computers"][0]["projects"][0]["name"] == "Public website"
+    duplicate = computer.post(
+        "/api/device/v1/work/projects",
+        headers={"Authorization": "Bearer " + linked["credential"]},
+        json={"projects": [manifest[0], manifest[0]]},
+    )
+    assert duplicate.status_code == 422
+    with session_scope(org_id=org) as db:
+        item = db.scalar(select(DeviceWorkProject).where(
+            DeviceWorkProject.device_id == uuid.UUID(linked["device_id"])))
+        assert item is not None
+        item.expires_at = now() - timedelta(seconds=1)
+    assert read(org)["computers"][0]["projects"] == []
+
+    assert owner.post(
+        f"/app/computers/{linked['device_id']}/disconnect",
+        data={"csrf": csrf_of(owner)},
+    ).status_code == 303
+    assert read(org)["computers"] == []
+
+
+def test_roster_cannot_be_published_by_unconfirmed_or_read_only_device(
+    platform, monkeypatch,
+):
+    owner, org, _, computer, linked, bearer = _setup(
+        platform, monkeypatch, "Readonly Roster")
+    manifest = {"projects": [{"project_id": "d" * 24,
+                              "name": "Unapproved", "access": "readwrite"}]}
+    read_code = get_code(owner, "Read-only laptop", access="read")
+    read_client, read_data = pair(platform, read_code)
+    assert read_data.status_code == 201
+    pending = read_client.post(
+        "/api/device/v1/work/projects",
+        headers={"Authorization": "Bearer " + read_data.json()["credential"]},
+        json=manifest,
+    )
+    assert pending.status_code == 403
+    assert owner.post(
+        f"/app/computers/{read_data.json()['device_id']}/confirm",
+        data={"csrf": csrf_of(owner),
+              "check_number": read_data.json()["check_number"]},
+    ).status_code == 303
+    active_read = read_client.post(
+        "/api/device/v1/work/projects",
+        headers={"Authorization": "Bearer " + read_data.json()["credential"]},
+        json=manifest,
+    )
+    assert active_read.status_code == 422

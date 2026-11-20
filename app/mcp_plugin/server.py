@@ -105,7 +105,7 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         issuer=settings.issuer, resource_audience=settings.resource_url,
         resolve_subject=linked_subject_user_id)
     from app.mcp_actions.drafts import OwnerDraftGateway
-    from app.services import device_work, website_work
+    from app.services import device_work, website_work, devices
     draft_gateway = OwnerDraftGateway(
         issuer=settings.issuer, audience=settings.resource_url,
         read_scope=settings.read_scope, write_scope=settings.write_scope)
@@ -297,6 +297,22 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             return oauth_write_scope_challenge(settings)
         return draft_gateway.save_reply_draft(
             bearer, business_id, inquiry_id, message, request_id)
+
+    @mcp.tool(
+        title="List my connected Work computers and approved project folders",
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+        meta=oauth_tool_metadata(settings.read_scope),
+    )
+    def list_connected_work_computers(business_id: str) -> dict:
+        """Discover live owner-approved project IDs for actual computer Work.
+
+        No folder paths, device bearer or local pairing secrets are returned.
+        A fresh roster is advisory: actual file access is checked again locally.
+        """
+        bearer = checked_bearer()
+        return devices.connected_work_computers_for_oauth(
+            bearer, issuer=settings.issuer, audience=settings.resource_url,
+            business_id=business_id)
 
     @mcp.tool(
         title="Queue real project file change on an authorized computer",

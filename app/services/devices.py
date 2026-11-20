@@ -35,10 +35,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from ..db import TenantSession
-from ..models import ConnectedDevice, DeviceEvent, DevicePairingCode, DeviceWorkRequest, now
+from ..models import (ConnectedDevice, DeviceEvent, DevicePairingCode,
+                      DeviceWorkProject, DeviceWorkRequest, now)
 from ..security import digest
 from .audit import audit
 
@@ -182,6 +183,11 @@ def disconnect_device(db: TenantSession, device: ConnectedDevice, user_id: uuid.
     device.credential_hash, device.check_number = digest(secrets.token_urlsafe(32)), ""
     # A revoked computer must not retain leased customer work or encrypted
     # file contents indefinitely. Scrub all outstanding payloads immediately.
+    # Its last project manifest must also disappear without waiting for TTL.
+    db.execute(delete(DeviceWorkProject).where(
+        DeviceWorkProject.org_id == device.org_id,
+        DeviceWorkProject.device_id == device.id,
+    ))
     pending = db.scalars(select(DeviceWorkRequest).where(
         DeviceWorkRequest.org_id == device.org_id,
         DeviceWorkRequest.device_id == device.id,
@@ -323,3 +329,145 @@ def record_activity(db: TenantSession, device: ConnectedDevice, items: list[Acti
                            project_label=label, count=item.count, occurred_at=occurred))
         stored += 1
     return stored
+
+
+# ------------------------------------------------- scoped Work-mode project discovery
+
+def report_work_projects(db: TenantSession, device: ConnectedDevice,
+                         projects: list[dict]) -> int:
+    """Refresh the visible roster ONLY from a confirmed Work-mode device.
+
+    All IDs/names are metadata supplied by the local owner-approved session;
+    folder paths and local tokens must never be uploaded. Expiration prevents a
+    stopped local worker from advertising its stale authorization indefinitely.
+    A manifest is not itself permission to operate on the local filesystem.
+    """
+    # Reuse module-level SQLAlchemy delete for tenant-scoped roster updates.
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from ..models import DeviceWorkProject
+
+    require_active(device)
+    if device.access != "work" or not isinstance(projects, list) or len(projects) > 8:
+        raise DeviceError("A current Work-mode computer is required")
+    checked: list[tuple[str, str]] = []
+    for item in projects:
+        if not isinstance(item, dict) or set(item) != {"project_id", "name", "access"}:
+            raise DeviceError("Invalid approved project metadata")
+        grant_id, name = item["project_id"], item["name"]
+        if (not isinstance(grant_id, str) or
+                not re.fullmatch(r"[0-9a-f]{24}", grant_id) or
+                not isinstance(name, str) or
+                not name.strip() or len(name) > 100 or
+                _LABEL_FORBIDDEN.search(name) or
+                clean_name(name, limit=100) != name or
+                item["access"] != "readwrite"):
+            raise DeviceError("Invalid approved project metadata")
+        checked.append((grant_id, name))
+    if len({x[0] for x in checked}) != len(checked):
+        raise DeviceError("Duplicate project in computer's approval list")
+
+    current = now()
+    valid_until = current + timedelta(seconds=40)
+    previous = set(db.execute(select(
+        DeviceWorkProject.project_id, DeviceWorkProject.label,
+    ).where(
+        DeviceWorkProject.org_id == device.org_id,
+        DeviceWorkProject.device_id == device.id,
+    )).all())
+    # Scoped delete plus upsert is concurrency-tolerant for repeated polls.
+    keep = [grant_id for grant_id, _ in checked]
+    stale = delete(DeviceWorkProject).where(
+        DeviceWorkProject.org_id == device.org_id,
+        DeviceWorkProject.device_id == device.id,
+    )
+    if keep:
+        stale = stale.where(DeviceWorkProject.project_id.not_in(keep))
+    db.execute(stale)
+    for grant_id, name in checked:
+        item = pg_insert(DeviceWorkProject).values(
+            id=uuid.uuid4(), org_id=device.org_id, device_id=device.id,
+            project_id=grant_id, label=name, access="readwrite",
+            reported_at=current, expires_at=valid_until,
+        )
+        db.execute(item.on_conflict_do_update(
+            constraint="uq_device_work_projects_identity",
+            set_={"label": name, "access": "readwrite",
+                  "reported_at": current, "expires_at": valid_until},
+        ))
+    if set(checked) != previous:
+        audit(db, device.org_id, device.user_id, "device.work_projects_changed",
+              "connected_device", device.id, {"count": len(checked)})
+    return len(checked)
+
+
+def connected_work_computers_for_oauth(bearer, *, issuer: str,
+                                       audience: str, business_id: str) -> dict:
+    """Read only the caller's own business computers and fresh local grants.
+
+    The remote ChatGPT tool receives opaque grant IDs and owner-chosen names,
+    never desktop root paths, pairing secrets or device bearer credentials.
+    """
+    from ..db import session_scope
+    from ..models import DeviceWorkProject, Membership, Organization, User
+    from ..mcp_connector.gateway import ConnectorAccessDenied
+    from ..mcp_plugin.links import linked_subject_user_id
+
+    identity = getattr(bearer, "identity", None)
+    if (identity is None or identity.issuer != issuer or
+            identity.audience != audience or
+            "mf:read" not in identity.scopes or
+            type(getattr(bearer, "issued_at", None)) is not int):
+        raise ConnectorAccessDenied("Connected computer access is unavailable")
+    actor = linked_subject_user_id(issuer, identity.subject, bearer.issued_at)
+    if not isinstance(actor, uuid.UUID):
+        raise ConnectorAccessDenied("The owner account is no longer linked")
+    try:
+        org_id = uuid.UUID(str(business_id))
+    except (ValueError, AttributeError, TypeError):
+        raise ConnectorAccessDenied("Business unavailable") from None
+    with session_scope(user_id=actor) as db:
+        user = db.get(User, actor)
+        membership = db.scalar(select(Membership).where(
+            Membership.user_id == actor, Membership.org_id == org_id))
+        if (not user or user.disabled_at is not None or
+                not membership or membership.role not in ("owner", "admin")):
+            raise ConnectorAccessDenied("Connected computers unavailable")
+        db.set_context(org_id, actor)
+        business = db.get(Organization, org_id)
+        if not business or business.status != "active":
+            raise ConnectorAccessDenied("Business unavailable")
+        rows = db.scalars(select(ConnectedDevice).where(
+            ConnectedDevice.org_id == org_id,
+            ConnectedDevice.status == "active",
+            ConnectedDevice.access == "work",
+        ).order_by(ConnectedDevice.created_at.desc()).limit(MAX_ACTIVE_DEVICES)).all()
+        now_at = now()
+        result = []
+        for device in rows:
+            grants = db.scalars(select(DeviceWorkProject).where(
+                DeviceWorkProject.org_id == org_id,
+                DeviceWorkProject.device_id == device.id,
+                DeviceWorkProject.expires_at > now_at,
+            ).order_by(DeviceWorkProject.label).limit(8)).all()
+            result.append({
+                "device_id": str(device.id), "name": device.name,
+                "platform": device.platform, "status": "active",
+                "access": "work",
+                "last_seen_at": device.last_seen_at.isoformat()
+                                if device.last_seen_at else None,
+                "projects": [
+                    {"project_id": g.project_id, "name": g.label,
+                     "access": g.access, "reported_at": g.reported_at.isoformat()}
+                    for g in grants
+                ],
+            })
+        return {
+            "business_id": str(org_id),
+            "computers": result,
+            "count": len(result),
+            "project_roster_source": "owner_approved_local_work_pairing",
+            "note": (
+                "Only recently reported projects are listed. The computer must "
+                "still be online with an active local Work session to execute."
+            ),
+        }

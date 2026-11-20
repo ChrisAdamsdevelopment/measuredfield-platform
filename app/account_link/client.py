@@ -193,6 +193,16 @@ class DeviceApi:
             raise DeviceClientError("The workspace did not confirm this activity.")
         return stored
 
+    def report_work_projects(self, credential: str, projects: list[dict]) -> int:
+        """Report only owner-approved opaque IDs and labels; never local paths."""
+        value = self._request(
+            "POST", "/api/device/v1/work/projects",
+            credential=credential, payload={"projects": projects})
+        count = value.get("reported")
+        if type(count) is not int or count < 0 or count > 8:
+            raise DeviceClientError("The workspace did not accept approved projects.")
+        return count
+
     def claim_work(self, credential: str) -> dict | None:
         """Poll only our pinned MeasuredField origin with this device's bearer."""
         value = self._request("POST", "/api/device/v1/work/claim", credential=credential)

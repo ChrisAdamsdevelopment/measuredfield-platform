@@ -46,6 +46,11 @@ def test_poller_saves_actual_file_and_reports_digest(tmp_path, monkeypatch):
     job = _job(grant)
     receipts = []
     class FakeApi:
+        def report_work_projects(self, credential, projects):
+            assert credential == "synthetic-device-credential"
+            assert projects == [{"project_id": grant, "name": "Owner website",
+                                 "access": "readwrite"}]
+            return len(projects)
         def claim_work(self, credential):
             assert credential == "synthetic-device-credential"
             return job
@@ -118,6 +123,9 @@ def test_default_worker_does_not_revoke_fresh_owner_pairing(tmp_path, monkeypatc
             }
 
     class NoWorkApi:
+        def report_work_projects(self, credential, projects):
+            assert len(projects) == 1 and projects[0]["project_id"] == grant
+            return 1
         def claim_work(self, credential):
             assert credential == "synthetic-device-credential"
             return None

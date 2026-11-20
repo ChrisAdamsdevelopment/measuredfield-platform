@@ -103,8 +103,22 @@ class WorkPoller:
         credential = self.account.secrets.load()
         if not credential:
             raise AccessDenied("Computer device credential is unavailable")
+        # The owner chooses project folders in this local companion, never in
+        # ChatGPT. Upload names/opaque IDs only during an active Work pairing.
+        allowed_ids = set(local_scope["grants"])
+        projects = [
+            {"project_id": item["id"], "name": item["name"],
+             "access": "readwrite"}
+            for item in self.registry.connect.grants()
+            if item["id"] in allowed_ids and item["access"] == "readwrite"
+        ]
+        if not projects:
+            raise AccessDenied("This session has no approved writable project")
         api = self.api_factory(view.server_url)
         try:
+            # Refuse to fetch remote work if the current local grants could not
+            # be synchronized. Server roster entries expire when polling stops.
+            api.report_work_projects(credential, projects)
             job = api.claim_work(credential)
             if job is None:
                 return False

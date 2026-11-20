@@ -241,6 +241,35 @@ class WorkFinishRequest(BaseModel):
     error_code: str | None = Field(default=None, max_length=30)
 
 
+class WorkProjectItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str = Field(min_length=24, max_length=24, pattern=r"^[0-9a-f]{24}$")
+    name: str = Field(min_length=1, max_length=100)
+    access: Literal["readwrite"]
+
+
+class WorkProjectReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projects: list[WorkProjectItem] = Field(max_length=8)
+
+
+@router.post("/api/device/v1/work/projects")
+def api_report_work_projects(body: WorkProjectReport, db: TenantSession = Depends(get_db),
+                             device: ConnectedDevice = Depends(device_auth)):
+    """Expose only an active paired device's owner-chosen project labels and IDs.
+
+    This is a metadata heartbeat, never an authorization to access a folder.
+    """
+    _active(device)
+    try:
+        stored = devices.report_work_projects(
+            db, device, [item.model_dump() for item in body.projects])
+    except devices.DeviceError:
+        raise HTTPException(422, "Invalid owner-approved project roster") from None
+    devices.touch(device)
+    return JSONResponse({"reported": stored}, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/api/device/v1/work/claim")
 def api_claim_work(db: TenantSession = Depends(get_db),
                    device: ConnectedDevice = Depends(device_auth)):

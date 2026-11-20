@@ -61,7 +61,8 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         "get_connected_profile", "list_my_businesses",
         "get_business_overview", "list_inquiries", "get_inquiry", "preview_reply",
         "list_supported_census_markets", "get_census_market_snapshot",
-        "save_inquiry_reply_draft", "queue_project_file_write",
+        "save_inquiry_reply_draft", "list_connected_work_computers",
+        "queue_project_file_write",
         "queue_project_directory", "get_project_work_status", "cancel_project_work",
         "list_website_work_requests", "apply_website_work_request",
     }
