@@ -13,9 +13,30 @@
 <a class="brand" href="/app"><img src="/static/media/measuredfield-brand-icon.webp" width="31" height="31" alt="" loading="eager"><span>{{ brand }}</span></a>
 <div class="org"><strong>{{ org.name }}</strong>{{ role|capitalize }} access</div>
 <nav aria-label="Workspace">
-{% set links = [('/app','Dashboard','⌂'),('/app/website/studio','AI Website Workbench','✦'),('/app/website','Website editor','▣'),('/app/inquiries','Leads & inquiries','◇'),('/app/customers','Customers','♧'),('/app/documents','Documents','▤'),('/app/computers','Trusted computers','⌘'),('/app/connections','ChatGPT Connections','◎'),('/app/improvements','Improvements','↗'),('/app/insights','Insights','▥'),('/app/market-intelligence','Market intelligence','◉'),('/app/learning','Notes and playbook','▦'),('/app/feedback','Send feedback','✉'),('/app/team','Team','♧'),('/app/activity','Activity','◷'),('/app/settings','Settings','⚙')] %}
-{% for href, label, symbol in links %}<a href="{{ href }}"{% if path == href or (href == '/app/website' and path == '/app/website') or (href not in ('/app','/app/website') and path.startswith(href)) %} aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ symbol }}</span><span>{{ label }}</span></a>{% endfor %}
-{% if role == 'owner' %}<a href="/app/mcp/approvals"{% if path.startswith('/app/mcp/approvals') %} aria-current="page"{% endif %}>ChatGPT draft approvals</a>{% endif %}
+{% set links = [
+('/app','Dashboard','dashboard'),
+('/app/website/studio','AI Website Workbench','website'),
+('/app/website','Website editor','website'),
+('/app/inquiries','Leads & inquiries','leads'),
+('/app/customers','Customers','account'),
+('/app/documents','Documents','pages'),
+('/app/computers','Trusted computers','trusted_computers'),
+('/app/connections','ChatGPT Connections','integrations'),
+('/app/improvements','Improvements','performance'),
+('/app/insights','Insights','insights'),
+('/app/market-intelligence','Market intelligence','visibility'),
+('/app/learning','Notes and playbook','workspaces'),
+('/app/feedback','Send feedback','communications'),
+('/app/team','Team','leads'),
+('/app/activity','Activity','automations'),
+('/app/settings','Settings','settings')
+] %}
+{% for href, label, icon_key in links %}
+<a href="{{ href }}"{% if path == href or (href == '/app/website' and path == '/app/website') or (href not in ('/app','/app/website') and path.startswith(href)) %} aria-current="page"{% endif %}>
+<span class="nav-icon" aria-hidden="true"><img src="/static/media/ui_kit/{{ icon_key }}.png" width="22" height="22" alt="" loading="lazy"></span>
+<span>{{ label }}</span></a>
+{% endfor %}
+{% if role == 'owner' %}<a href="/app/mcp/approvals"{% if path.startswith('/app/mcp/approvals') %} aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true"><img src="/static/media/ui_kit/pages.png" width="22" height="22" alt=""></span>ChatGPT draft approvals</a>{% endif %}
 {% if settings is defined and not settings.is_production %}<a href="/app/growth-start"{% if path == "/app/growth-start" %} aria-current="page"{% endif %}>Growth Launch (local preview)</a><a href="/app/modules"{% if path.startswith("/app/modules") %} aria-current="page"{% endif %}>Modules (local preview)</a><a href="/app/lead-rescue"{% if path == "/app/lead-rescue" %} aria-current="page"{% endif %}>Lead Rescue (local preview)</a>{% endif %}
 {% if principal.user.is_platform_admin %}<a href="/operator">Operator console</a>{% endif %}
 </nav>

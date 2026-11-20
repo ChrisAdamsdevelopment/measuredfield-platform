@@ -104,3 +104,8 @@ details.box{border-color:#e7e2f3;border-radius:12px}
 .mf-workbench-entry-row{justify-content:space-between;gap:12px}
 .mf-workbench-entry-row>div{flex:1;min-width:240px}
 .mf-workbench-entry-row p{color:#685f83}
+
+/* Reviewed MeasuredField asset-sheet icons. The glyph is decorative and
+   never replaces the accessible textual navigation label. */
+.side nav a .nav-icon img{display:block;width:21px;height:21px;object-fit:contain}
+.side nav a:hover .nav-icon img,.side nav a[aria-current=page] .nav-icon img{filter:saturate(1.15)}
