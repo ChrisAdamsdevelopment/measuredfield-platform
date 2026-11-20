@@ -50,14 +50,27 @@ are real data. Do not use example numbers in the customer's production UI.
 - Explicit human-readable current ChatGPT owner-link and computer-work status
   from persisted first-party records, plus recent real work receipts.
 - Website/dashboard access to the new studio and keyboard accessible slider.
-- Honest assisted-work request preparation until live provider/ChatGPT tool
-  invocation is integrated. Do not call this an embedded ChatGPT chat service.
+- Owner-approved task form now saves a **real** website work request in
+  website_work_requests (migration 0019), with instruction, current draft
+  SHA-256, status, audit event and owner cancellation.
+- The ChatGPT OAuth MCP now has list_website_work_requests (mf:read) and
+  apply_website_work_request (separate mf:website.write consent). The action
+  changes the ACTUAL Site.draft, validates allowed fields (headline, intro,
+  about, services, color), rejects a stale base, is idempotent and records
+  the resulting SHA-256. It never publishes or sends messages.
+- Those tools have source and real-PostgreSQL tests. An owner still needs to
+  install/connect the actual ChatGPT MCP plugin and approve the permissions.
+  The workbench is not an embedded ChatGPT chat service.
 - Tests test_pg_website_studio.py on disposable PG18 plus existing editor and
   UI tests; local JS syntax and lint validated.
 
 ## Immediate next functional priorities
-- Replace the interim "copy request" button with a real in-app task queue and
-  OAuth-scoped ChatGPT MCP tools for retrieving/acting on website work requests.
+- Confirm production OAuth client enrollment and scope consent for
+  mf:website.write, plus real linked owner, plugin install and end-to-end live
+  website work verification. The Auth0 API scope alone is not an active tool.
+- Extend the MeasuredField site generator to real layout blocks/imagery and
+  responsive page variants. The current patch tool edits existing profile fields
+  only; it does not yet arbitrary-rewrite CSS, create new pages or deploy code.
 - Browser visual QA on responsive layouts with real website fixtures; expand
   420px mobile test and test reduced motion/keyboard comparison.
 - Direct connected Gmail/Outlook authorization and outbox receipt, no draft-only

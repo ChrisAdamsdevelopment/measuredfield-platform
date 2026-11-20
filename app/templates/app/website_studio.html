@@ -99,14 +99,42 @@
       <div class="mf-studio-chat-note">
         <strong>What should we improve?</strong>
         <p>Describe the result you want. Your request can include headlines, page layout, service sections, SEO, and calls to action.</p>
-        <label for="mf-studio-request">Your change request</label>
-        <textarea id="mf-studio-request" rows="4" maxlength="2400" placeholder="Example: Improve the hero headline and services section. Make the call-to-action more prominent and show me the resulting website before publishing."></textarea>
-        <div class="mf-studio-task-controls">
-          <button type="button" class="btn" id="mf-studio-copy">Copy request for ChatGPT</button>
-          <a class="btn ghost" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
-        </div>
-        <p id="mf-studio-copy-feedback" class="mf-studio-help" aria-live="polite">Select the connected MeasuredField tool inside ChatGPT. Copying a request does not submit work or alter your website.</p>
+        {% if site and can('site.edit') and role in ('owner','admin') %}
+        <form method="post" action="/app/website/studio/requests">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label for="mf-studio-request">Your change request</label>
+          <textarea id="mf-studio-request" name="instruction" rows="4" minlength="12" maxlength="2400" required placeholder="Example: Improve our homepage hero headline and service descriptions, and show me the changes before publishing."></textarea>
+          <div class="mf-studio-task-controls">
+            <button type="submit" class="btn">Queue real website work</button>
+            <a class="btn ghost" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Continue with connected ChatGPT</a>
+          </div>
+        </form>
+        <p id="mf-studio-copy-feedback" class="mf-studio-help" aria-live="polite">Your request is saved in MeasuredField. Open ChatGPT with your MeasuredField connection and ask it to process pending website work. Completion is confirmed only after a real draft update.</p>
+        {% else %}
+        <p class="mf-studio-help">{{ 'Create a website before requesting edits.' if not site else 'Only an owner or administrator with website-edit permission can queue real work.' }}</p>
+        <a class="btn ghost" href="/app/website">Go to website editor</a>
+        {% endif %}
       </div>
+      {% if site %}
+      <div class="mf-studio-pending" aria-label="Submitted website work requests">
+        <div class="mf-studio-panel-header"><span class="mf-studio-mini-symbol" aria-hidden="true">▤</span>
+          <div><h3>Website work queue</h3><p>Actual owner-submitted tasks and their current execution status</p></div></div>
+        {% if website_requests %}
+        <ul class="mf-studio-receipt-list">
+        {% for task in website_requests %}
+          <li><span class="mf-studio-receipt-icon" aria-hidden="true">{{ '✓' if task.status == 'completed' else '•' }}</span>
+            <div><strong>{{ task.instruction[:130] }}{{ '…' if task.instruction|length > 130 else '' }}</strong>
+            <small>{{ task.created_at.strftime('%b %d, %H:%M UTC') }} · {{ task.status|capitalize }}</small>
+            {% if task.resulting_draft_sha256 %}<small>Applied draft SHA-256: {{ task.resulting_draft_sha256[:12] }}…</small>{% endif %}</div>
+            {% if task.status == 'queued' and role in ('owner','admin') and can('site.edit') %}
+            <form method="post" action="/app/website/studio/requests/{{ task.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn ghost small">Cancel</button></form>
+            {% else %}<span class="mf-studio-work-state state-{{ 'succeeded' if task.status == 'completed' else task.status }}">{{ task.status|capitalize }}</span>{% endif %}
+          </li>
+        {% endfor %}
+        </ul>
+        {% else %}<p class="mf-studio-empty-copy">No website work submitted yet. A submitted request remains queued until an authorized ChatGPT tool applies an actual draft change.</p>{% endif %}
+      </div>
+      {% endif %}
       <div class="mf-studio-suggestions">
         <strong>Quick ideas to ask ChatGPT</strong>
         <div class="mf-studio-suggestion-buttons" aria-label="Suggested work requests">

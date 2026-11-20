@@ -94,3 +94,44 @@ def test_revoked_scope_challenge_path_checks_current_owner_link():
     segment = ast.get_source_segment(source, tool)
     assert segment.index('linked_subject_user_id(') < segment.index(
         'return oauth_write_scope_challenge(settings)')
+
+
+def test_incremental_website_work_scope_challenge_has_no_side_effects():
+    from app.mcp_plugin.server import oauth_additional_scope_challenge
+
+    settings = McpPluginSettings(
+        issuer="https://auth.synthetic.test/",
+        jwks_url="https://auth.synthetic.test/jwks",
+        resource_url="https://mcp.synthetic.test/mcp",
+    )
+    result = oauth_additional_scope_challenge(settings, scope="mf:website.write")
+    data = result.model_dump(by_alias=True, exclude_none=True)
+    assert data["isError"] is True
+    challenge = data["_meta"]["mcp/www_authenticate"][0]
+    assert 'scope="mf:read mf:website.write"' in challenge
+    assert 'error="insufficient_scope"' in challenge
+    assert "mcp.synthetic.test/.well-known/oauth-protected-resource/mcp" in challenge
+    assert "Nothing was changed or published" in data["content"][0]["text"]
+    assert all("token=" not in str(row) for row in data["content"])
+    with pytest.raises(ValueError):
+        oauth_additional_scope_challenge(settings, scope="mf:read")
+    with pytest.raises(ValueError):
+        oauth_additional_scope_challenge(settings, scope="other:scope")
+
+
+def test_website_work_tool_requires_verified_link_before_incremental_scope_prompt():
+    source = (Path(__file__).resolve().parents[1] / "app" /
+              "mcp_plugin" / "server.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    factory = next(node for node in module.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "create_server")
+    tool = next(node for node in factory.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == "apply_website_work_request")
+    segment = ast.get_source_segment(source, tool)
+    assert "checked_bearer(extra_scope=website_work.WRITE_SCOPE)" in segment
+    assert "read_bearer = checked_bearer()" in segment
+    assert "linked_subject_user_id(" in segment
+    assert "oauth_additional_scope_challenge(" in segment
+    assert segment.index("linked_subject_user_id(") < segment.index("return oauth_additional_scope_challenge(")
+    assert "website_work.apply_for_oauth(" in segment

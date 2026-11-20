@@ -102,3 +102,11 @@
 @media(max-width:1100px){.mf-studio-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.mf-studio-work-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.mf-studio-heading{padding-top:4px}.mf-studio-heading h1{font-size:1.7rem}.mf-studio-heading-actions,.mf-studio-heading-actions .btn{width:100%}.mf-studio-compare{padding:10px!important}.mf-studio-panel-bar{flex-direction:column;align-items:flex-start}.mf-studio-viewport-shell[data-mf-viewport=mobile]{max-width:100%}.mf-studio-comparison{height:340px}.mf-studio-compare-foot{font-size:.67rem}.mf-studio-summary{gap:7px}.mf-studio-stat{padding:12px;gap:8px}.mf-studio-stat-symbol{width:33px;height:33px}.mf-studio-stat strong{font-size:.96rem}.mf-studio-assistant,.mf-studio-side-stack .card{padding:15px!important}.mf-studio-publish-steps{grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){.mf-studio-viewport-shell{transition:none}}
+
+.mf-studio-pending{margin-top:19px;background:#fff;border:1px solid #e8e2f9;border-radius:14px;padding:15px 17px}
+.mf-studio-pending .mf-studio-panel-header{margin-bottom:11px}
+.mf-studio-pending h3{font-size:1rem}
+.mf-studio-pending form{flex-shrink:0}
+.mf-studio-pending .mf-studio-receipt-list li{align-items:flex-start}
+.mf-studio-pending .btn.small{font-size:.72rem;padding:5px 9px}
+.mf-studio-chat-note form{margin-top:12px}

@@ -512,6 +512,36 @@ class SiteVersion(Base):
     __table_args__ = (UniqueConstraint("site_id", "number"),)
 
 
+class WebsiteWorkRequest(Base):
+    """User-submitted website work for a separately authorized ChatGPT tool.
+
+    Instructions are not an execution receipt. Completion requires a real
+    version-checked draft mutation; publishing is a separate human action.
+    """
+    __tablename__ = "website_work_requests"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    site_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued", nullable=False)
+    expected_draft_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    applied_payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    resulting_draft_sha256: Mapped[str | None] = mapped_column(String(64))
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = TS()
+    completed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        ForeignKeyConstraint(["site_id", "org_id"], ["sites.id", "sites.org_id"],
+                             name="fk_website_work_owner_site", ondelete="CASCADE"),
+        CheckConstraint("status IN ('queued', 'completed', 'cancelled')",
+                        name="ck_website_work_status"),
+        Index("ix_website_work_queue", "org_id", "status", "created_at"),
+    )
+
+
 class SiteEvent(Base):
     """Cookie-less daily aggregate counters from published sites. No visitor identifiers."""
     __tablename__ = "site_events"

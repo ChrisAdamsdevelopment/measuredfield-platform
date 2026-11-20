@@ -157,14 +157,15 @@ def test_owner_connection_journey_does_not_claim_live_chatgpt_without_link():
     assert 'action="/app/connections/start"' not in page
     assert "Open ChatGPT Plugins" in page
     assert "https://chatgpt.com/plugins" in page
-    assert "It does not send customer replies" in page
+    assert "Connecting never grants whole-drive access" in page
+    assert "permission to send emails automatically" in page
 
 
 def test_config_only_may_show_owner_oidc_button_but_not_plugin_install_success():
     page = _synthetic_connections_page(available=True)
     assert "Setup available" in page
     assert 'action="/app/connections/start"' in page
-    assert "Verify and connect my account (read only)" in page
+    assert "Verify and link my account" in page
     assert 'value="CONNECT READ ONLY"' in page
     assert "Not verified" in page
     assert "Not tested" in page

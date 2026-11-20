@@ -20,9 +20,9 @@ from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
 from ..models import (AssessmentReport, AuditEvent, ConnectedDevice, Customer, DataRequest, DeviceWorkRequest,
                       Document, Improvement, Lead, LeadNote, LeadReply, LessonCandidate, McpIdentityLink,
-                      Membership, MemoryItem, Project, Proposal, SiteVersion, User, now)
+                      Membership, MemoryItem, Project, Proposal, SiteVersion, User, WebsiteWorkRequest, now)
 from ..security import ROLES, digest, new_token, valid_email
-from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
+from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data, website_work
 from ..services.audit import audit
 from .auth import list_orgs
 
@@ -285,8 +285,45 @@ def website_studio(request: Request, db: TenantSession = Depends(get_db),
         "linked_identity": linked, "devices": devices,
         "work_devices": [device for device in devices if device.access == "work"],
         "work_receipts": receipts,
+        "website_requests": db.scalars(select(WebsiteWorkRequest).where(
+            WebsiteWorkRequest.org_id == p.org.id, WebsiteWorkRequest.created_by == p.user.id,
+        ).order_by(WebsiteWorkRequest.created_at.desc()).limit(12)).all(),
         "website_host": sites.subdomain_host(site.slug) if site else "",
     })
+
+
+@router.post("/app/website/studio/requests")
+def website_studio_submit(
+    instruction: str = Form(""), db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("site.edit")),
+):
+    """An actual persistent owner task for ChatGPT to pick up via OAuth."""
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator access required")
+    site = sites.get_site(db)
+    if site is None:
+        return back("/app/website/studio", err="Create your website draft first")
+    try:
+        website_work.enqueue(db, p.org.id, p.user.id, site, instruction)
+    except website_work.WebsiteWorkDenied as exc:
+        return back("/app/website/studio", err=str(exc))
+    return back("/app/website/studio",
+                ok="Website work queued. Open ChatGPT with MeasuredField connected to perform it.")
+
+
+@router.post("/app/website/studio/requests/{request_id}/cancel")
+def website_studio_cancel(
+    request_id: str, db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("site.edit")),
+):
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator access required")
+    try:
+        website_work.cancel_for_owner(
+            db, org_id=p.org.id, actor=p.user.id, request_id=request_id)
+    except website_work.WebsiteWorkDenied as exc:
+        return back("/app/website/studio", err=str(exc))
+    return back("/app/website/studio", ok="Website work request cancelled")
 
 
 @router.post("/app/website/save")
