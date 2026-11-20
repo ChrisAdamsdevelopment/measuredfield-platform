@@ -1,12 +1,13 @@
-"""Email-verified, no-card self-service workspace enrollment for the founding beta.
+"""Email-verified account setup for verified direct Stripe purchasers.
 
-An anonymous browser may request an invitation, but never receives a usable token,
-account or tenant membership. Only /accept-invite can activate membership after
-the invited email recipient proves control of the address.
+Signup never provisions an anonymous paid entitlement or bypasses Stripe. An
+existing pending invite may be resent under strict rate limits. The email
+recipient must still redeem the time-limited invitation before login.
 """
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -14,11 +15,11 @@ from sqlalchemy import select
 
 from ..db import TenantSession, get_db
 from ..deps import client_key, render
-from ..models import AuthToken, Organization, now
+from ..models import AuthToken, EmailMessage, Organization, PendingPaymentLinkClaim, now
 from ..security import digest, normalize_email, rate_limited, valid_email
 from ..services import jobs, sitegen
 from ..services.audit import audit
-from ..services.email import get_provider, queue_auth_email
+from ..services.email import AUTH_LINK_PLACEHOLDER, get_provider, queue_auth_email
 
 router = APIRouter()
 ALLOWED_INDUSTRIES = frozenset(sitegen.INDUSTRIES)
@@ -88,36 +89,78 @@ def request_invite(
 
     # Suppress duplicate unaccepted invitations, including those from existing operator
     # workflows. The response is generic, preventing account/tenant enumeration.
-    pending = db.scalar(select(AuthToken.id).where(
+    pending = db.scalar(select(AuthToken).where(
         AuthToken.email == values["email"], AuthToken.purpose == "invite",
         AuthToken.role == "owner", AuthToken.used_at.is_(None),
         AuthToken.expires_at > now(),
-    ).limit(1))
+    ).order_by(AuthToken.created_at.desc()).limit(1).with_for_update())
     if pending is not None:
+        # A previous accepted/undelivered email must not make retrying signup a
+        # permanent no-op. Reuse the SAME owner invitation and organization;
+        # do not grant membership, create a second tenant, or mint live tokens.
+        last = db.scalar(select(EmailMessage).where(
+            EmailMessage.auth_token_id == pending.id,
+            EmailMessage.kind == "invite",
+        ).order_by(EmailMessage.created_at.desc()).limit(1))
+        if last is None or last.created_at <= now() - timedelta(minutes=3):
+            from ..config import get_settings
+            settings = get_settings()
+            followup = EmailMessage(
+                kind="invite", to_email=values["email"],
+                org_id=pending.org_id,
+                subject="Your MeasuredField account verification link",
+                body=("You requested another one-time verification link. "
+                      "Open this link to finish setting up your MeasuredField account:\n"
+                      + settings.public_base_url.rstrip("/")
+                      + "/accept-invite?token=" + AUTH_LINK_PLACEHOLDER
+                      + "\n\nIf you didn't request it, ignore this message.\n"),
+                auth_token_id=pending.id,
+            )
+            db.add(followup)
+            db.flush()
+            jobs.enqueue(db, "send_email", {"message_id": str(followup.id)},
+                         key=f"email:{followup.id}")
         return RedirectResponse("/signup/thanks", status_code=303)
+
+    # Only a verified signed Stripe Payment Link Checkout can open a NEW
+    # business-account invitation. An anonymous signup is not a free plan.
+    claim = db.scalar(select(PendingPaymentLinkClaim.id).where(
+        PendingPaymentLinkClaim.billing_email == values["email"],
+        PendingPaymentLinkClaim.offer_code == "operate",
+        PendingPaymentLinkClaim.status == "pending_claim",
+    ).order_by(PendingPaymentLinkClaim.verified_at.desc()).limit(1))
+    if claim is None:
+        return _form(request, values=values, errors={
+            "form": ("Complete Business Workspace checkout first, then register "
+                     "with the same email address. Already registered? "
+                     "Use Sign in or Reset password.")
+        }, status=422)
 
     org = Organization(
         id=uuid.uuid4(), name=values["business_name"], industry=values["industry"],
-        plan="founding_beta",
+        plan="purchase_pending",
         settings={
-            "billing": {"offer": "Founding beta pilot", "paid": False, "amount_cents": 0},
-            "beta": {"source": "verified_email_self_signup", "card_required": False},
+            "billing": {"offer": "Business Workspace checkout pending claim",
+                        "paid": False, "amount_cents": 0},
+            "onboarding": {"source": "verified_stripe_payment_link",
+                           "pending_claim_confirmation": True},
         },
     )
     db.set_context(org.id, None)
     db.add(org)
     db.flush()
-    audit(db, org.id, None, "beta.signup_requested", "organization", org.id,
+    audit(db, org.id, None, "purchase.signup_requested", "organization", org.id,
           {"email_verification_required": True, "paid": False})
     db.set_context(None, None)
 
     msg = queue_auth_email(
         db, kind="invite", to=values["email"], org_id=org.id, role="owner",
-        subject="Confirm your free MeasuredField workspace",
-        intro=("You requested a free founding-beta workspace for " + org.name
-               + ". Open this one-time link to verify your email and finish creating your workspace:"),
-        outro=("No card is needed for founding-beta access. If you didn't request"
-               " this invitation, ignore this email."),
+        subject="Verify your MeasuredField Business Workspace account",
+        intro=("You requested an account for " + org.name
+               + ". Open this one-time link to verify your email and set your password:"),
+        outro=("After signing in, open Billing > Connect a verified purchase to "
+               "activate your Stripe subscription. If you didn't request "
+               "this invitation, ignore this email."),
     )
     jobs.enqueue(db, "send_email", {"message_id": str(msg.id)}, key=f"email:{msg.id}")
     return RedirectResponse("/signup/thanks", status_code=303)

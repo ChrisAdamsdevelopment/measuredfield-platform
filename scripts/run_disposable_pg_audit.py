@@ -61,12 +61,19 @@ def main() -> int:
             f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/{dbname}")
         env["MF_AUDIT_RUNTIME_URL"] = (
             f"postgresql+psycopg://mf_app:{password}@127.0.0.1:{port}/{dbname}")
-        if any(flag in sys.argv[1:] for flag in ("--full-suite", "--device-work", "--studio")):
+        if any(flag in sys.argv[1:] for flag in ("--full-suite", "--device-work", "--studio", "--purchase-checkout")):
             # The pytest fixture uses the local postgres admin database to create
             # fresh owner/runtime roles and per-suite synthetic test databases.
             env["MF_TEST_PG_ADMIN_URL"] = (
                 f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres")
-            if "--studio" in sys.argv[1:]:
+            if "--purchase-checkout" in sys.argv[1:]:
+                print("Running real PostgreSQL purchase, discount and account recovery tests.", flush=True)
+                result = run([sys.executable, "-B", "-m", "pytest", "-q",
+                              "tests/test_pg_beta_signup.py",
+                              "tests/test_pg_payment_link_claims.py",
+                              "tests/test_pg_auth_payments.py"], cwd=str(ROOT), env=env)
+                print("PURCHASE_CHECKOUT_TEST_EXIT=" + str(result.returncode), flush=True)
+            elif "--studio" in sys.argv[1:]:
                 print("Running real PostgreSQL website studio and UI regression tests.", flush=True)
                 result = run([sys.executable, "-B", "-m", "pytest", "-q",
                               "tests/test_pg_website_studio.py",

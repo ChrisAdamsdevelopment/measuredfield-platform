@@ -128,7 +128,8 @@ def test_signed_purchase_claims_existing_verified_owner_no_new_business(
     assert _send(owner, event).json()["outcome"] == "duplicate"
 
     with session_scope(org_id=org_id) as db:
-        claims = db.scalars(select(PendingPaymentLinkClaim)).all()
+        claims = db.scalars(select(PendingPaymentLinkClaim).where(
+            PendingPaymentLinkClaim.checkout_session_id == state["session"])).all()
         assert len(claims) == 1
         claim = claims[0]
         claim_id = claim.id
@@ -408,3 +409,40 @@ def test_billing_claim_notice_contains_no_auth_token(platform, fake_stripe, monk
         assert "/app/billing/claim" in msg.body
         assert "token=" not in msg.body
         assert msg.auth_token_id is None
+
+
+def test_real_stripe_zero_dollar_checkout_reports_paid_and_can_be_claimed(
+    platform, fake_stripe,
+):
+    """Regression: a 100%-off Stripe subscription is PAID, not necessarily no_payment_required."""
+    owner, org_id, email = _member(platform, "zero-dollar-paid")
+    state, _ = fake_stripe
+    paid = _event(email, payment_status="paid", amount_total=0, discount=9900,
+                  session=state["session"], subscription=state["sub"],
+                  customer=state["customer"])
+    response = _send(owner, paid)
+    assert response.status_code == 200
+    assert response.json()["outcome"] == "direct_checkout_pending_claim"
+    with session_scope() as db:
+        claim = db.scalar(select(PendingPaymentLinkClaim).where(
+            PendingPaymentLinkClaim.checkout_session_id == state["session"]))
+        assert claim is not None
+        assert claim.amount_total_cents == 0
+        assert claim.discount_cents == 9900
+    result = owner.post("/app/billing/claim/" + str(claim.id),
+                        data={"csrf": csrf_of(owner), "confirm": "yes"})
+    assert result.status_code == 303
+    with session_scope(org_id=org_id) as db:
+        assert active_subscription_for(db, org_id, "operate")
+
+
+def test_zero_dollar_unpaid_is_never_eligible(platform, fake_stripe):
+    owner, _, email = _member(platform, "zero-unpaid")
+    state, _ = fake_stripe
+    result = _send(owner, _event(
+        email, payment_status="unpaid", amount_total=0, discount=9900,
+        session=state["session"], subscription=state["sub"],
+        customer=state["customer"],
+    ))
+    assert result.status_code == 200
+    assert result.json()["outcome"] == "unpaid"

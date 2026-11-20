@@ -135,8 +135,12 @@ def from_signed_checkout(db: TenantSession, event: dict, obj: dict) -> str:
     if breakdown is None or obj.get("amount_subtotal") is None:
         return "direct_checkout_invalid_amount"
     amount, discount, tax = breakdown
-    expected_status = "no_payment_required" if amount == 0 else "paid"
-    if obj.get("payment_status") != expected_status:
+    # Stripe can report a fully discounted recurring Checkout as "paid"
+    # (because the $0 invoice was successfully settled). Both "paid" and
+    # "no_payment_required" are successful for a VERIFIED $0 total. Positive
+    # charges must still be paid; never unlock unpaid/open sessions.
+    permitted_statuses = {"paid", "no_payment_required"} if amount == 0 else {"paid"}
+    if obj.get("payment_status") not in permitted_statuses:
         return "direct_checkout_not_paid"
 
     existing = db.scalar(select(PendingPaymentLinkClaim).where(
