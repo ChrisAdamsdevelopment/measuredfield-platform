@@ -15,7 +15,7 @@ def _responses(*, http=401, metadata=True, issuer="https://example.auth0.com/",
         "/healthz": smoke.PublicResult(200, {}, b'{"status":"ok"}'),
         "/readyz": smoke.PublicResult(200, {}, b'{"status":"ready"}'),
         "/mcp": smoke.PublicResult(http, {
-            "www-authenticate": ('Bearer resource_metadata="https://measuredfield-staging-web.onrender.com/.well-known/oauth-protected-resource/mcp"'
+            "www-authenticate": ('Bearer resource_metadata="https://spectracleanse.com/.well-known/oauth-protected-resource/mcp"'
                                  if challenge else "Basic")
         }),
         "/.well-known/oauth-protected-resource/mcp": smoke.PublicResult(
@@ -33,7 +33,7 @@ def test_valid_resource_proves_boundary_not_account_connection():
     assert result["revocation_verified"] is False
 
 
-def test_current_deployment_404_is_not_ready():
+def test_any_404_mcp_host_is_not_ready():
     result = smoke.analyze(_responses(http=404, metadata=False))
     assert result["server_ready_for_chatgpt_authorization"] is False
     assert result["mcp_http"] == 404
@@ -103,3 +103,17 @@ def test_issuer_url_validation_rejects_ip_and_invalid_ports():
     assert not smoke._valid_issuer_url("https://issuer.example.org:8443/")
     assert not smoke._valid_issuer_url("https://issuer.example.org/?x=1")
     assert smoke._valid_issuer_url("https://example.auth0.com/")
+
+
+def test_challenge_must_point_to_exact_pinned_production_resource():
+    values = _responses()
+    values["/mcp"] = smoke.PublicResult(401, {
+        "www-authenticate": (
+            'Bearer resource_metadata="https://lookalike.example/'
+            '.well-known/oauth-protected-resource/mcp"'
+        ),
+    })
+    result = smoke.analyze(values)
+    assert result["mcp_denies_anonymous"] is True
+    assert result["mcp_bearer_challenge"] is False
+    assert result["server_ready_for_chatgpt_authorization"] is False
