@@ -12,7 +12,7 @@
     <div class="mfcp-hero-main">
       <p class="mfcp-eyebrow">Connections / ChatGPT</p>
       <h1>Bring your business into the conversation.</h1>
-      <p class="mfcp-lead">Verify your MeasuredField identity, then authorize ChatGPT to perform the specific business actions you choose. Computer Work mode is a separate owner-controlled permission.</p>
+      <p class="mfcp-lead">Connect your MeasuredField login to Auth0, then add MeasuredField inside ChatGPT. This is a secure sign-in check—not a government ID check. Computer file access requires a separate permission.</p>
       <div class="mfcp-permission-line" aria-label="Connection permissions">
         <span>Separate OAuth permissions</span><span>Real work with approved scopes</span><span>Owner-controlled access</span>
       </div>
@@ -39,8 +39,8 @@
       </li>
       <li class="mfcp-step">
         <span class="mfcp-number">2</span>
-        <div><h3>Verify your identity</h3>
-          <p>{% if account_state.active %}An identity-provider account has been linked to this MeasuredField sign-in.{% elif oidc_link_available %}The identity-link settings are present. Use the secure sign-in below to verify your account.{% else %}This installation still needs an approved identity provider and secure HTTPS callback.{% endif %}</p>
+        <div><h3>Link your Auth0 sign-in</h3>
+          <p>{% if account_state.active %}Your Auth0 account is linked to this MeasuredField user.{% elif oidc_link_available %}Use the button below to open Auth0 sign-in, then return here. No ID photo or document is required.{% else %}This installation still needs an approved identity provider and secure HTTPS callback.{% endif %}</p>
         </div>
         <span class="mfcp-step-state">{% if account_state.active %}Identity linked{% elif oidc_link_available %}Setup available{% else %}Needs setup{% endif %}</span>
       </li>
@@ -60,15 +60,15 @@
   <div class="mfcp-panels">
     <section class="mfcp-panel" aria-labelledby="connect-owner-heading">
       <p class="mfcp-eyebrow">Your permission</p>
-      <h2 id="connect-owner-heading">Verify and connect your account</h2>
+      <h2 id="connect-owner-heading">Connect your Auth0 login to MeasuredField</h2>
       {% if oidc_link_available %}
-      <p>The identity provider is configured for sign-in. Your verified identity will be linked only to your personal MeasuredField account—not automatically to every team member.</p>
+      <p>Auth0 is a secure login service, not a request for a government ID. You'll sign in with Auth0 and return here; this links that login only to your own MeasuredField account, not everyone on your team.</p>
       <form method="post" action="/app/connections/start">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="confirm" value="CONNECT READ ONLY">
         <button class="btn primary mfcp-primary-action" type="submit">Verify and link my account</button>
       </form>
-      <p class="mfcp-footnote">This verifies your identity. It does not install a plugin or grant computer-file access.</p>
+      <p class="mfcp-footnote">After Auth0 returns you here, this page will show your connected account. Linking here does not install the ChatGPT plugin or grant computer-file access.</p>
       {% else %}
       <div class="mfcp-callout" role="status">
         <strong>Identity connection is not yet available.</strong>

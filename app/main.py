@@ -46,6 +46,29 @@ APP_CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self'; script-s
            "base-uri 'none'; frame-ancestors 'self'; object-src 'none'")
 
 
+def _owner_link_form_csp() -> str:
+    """Authorize only the configured OIDC login host for the owner-link form.
+
+    Chrome checks CSP form-action on redirects from form POSTs. With only
+    'self' listed, the successful 303 to the configured identity provider is
+    silently cancelled in the browser, leaving an unconsumed OAuth challenge.
+    Ordinary pages and unrelated forms retain the stricter default CSP.
+    """
+    try:
+        provider = mcp_account_settings.oidc.OIDCOwnerSettings.from_env()
+        parsed = urlsplit(provider.authorization_endpoint)
+        host = parsed.hostname or ""
+        if (parsed.scheme != "https" or not re.fullmatch(r"[a-zA-Z0-9.-]{3,253}", host)
+                or parsed.username or parsed.password or parsed.port not in (None, 443)):
+            return APP_CSP
+        return APP_CSP.replace(
+            "form-action 'self' https://checkout.stripe.com;",
+            f"form-action 'self' https://checkout.stripe.com https://{host};",
+        )
+    except (mcp_account_settings.oidc.OwnerEnrollmentUnavailable, ValueError):
+        return APP_CSP
+
+
 def _security_headers(response, *, csp: str = APP_CSP, production: bool) -> None:
     headers = response.headers
     headers.setdefault("Content-Security-Policy", csp)
@@ -114,7 +137,13 @@ def create_main_app() -> FastAPI:
                                                success=response.status_code < 400)
         if jobs_pending and settings.inline_jobs:
             await run_in_threadpool(jobs.run_due, 25)
-        _security_headers(response, production=settings.is_production)
+        # The owner-link POST redirects to the approved external OIDC provider.
+        # Only those two routes allow form-action to the configured provider.
+        owner_link = request.url.path in ("/app/connections", "/app/connections/start")
+        _security_headers(
+            response, csp=_owner_link_form_csp() if owner_link else APP_CSP,
+            production=settings.is_production,
+        )
         if request.url.path.startswith(("/app", "/operator", "/api", "/assessment/r", "/order", "/p/", "/dev/visual-preview")):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Request-ID"] = request_id

@@ -80,10 +80,17 @@ def _owner(app, label):
 
 
 def _start(client, idp, csrf=True):
+    # CSP form-action applies to the whole 303 redirect chain in Chrome.
+    # The external provider MUST be permitted on the submitting page.
+    page = client.get("/app/connections")
+    assert "form-action 'self' https://checkout.stripe.com https://synthetic.example.org;" in (
+        page.headers["content-security-policy"]
+    )
     reply = client.post("/app/connections/start",
                         data={"csrf": csrf_of(client) if csrf else "",
                               "confirm": "CONNECT READ ONLY"})
     assert reply.status_code == 303, reply.text[:180]
+    assert "https://synthetic.example.org;" in reply.headers["content-security-policy"]
     location = reply.headers["location"]
     assert location.startswith(ISSUER + "/authorize?"), location[:100]
     params = parse_qs(urlsplit(location).query)
