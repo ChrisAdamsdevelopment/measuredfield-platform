@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import re
+import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.db import session_scope
-from app.models import AuthToken, EmailMessage, Organization, ServiceOrder
+from app.models import AuthToken, EmailMessage, Organization, PendingPaymentLinkClaim, ServiceOrder, now
 from app.services.email import AUTH_LINK_PLACEHOLDER, SendResult
 
 from .conftest import client_for
@@ -38,6 +40,27 @@ def mail_ready(platform, monkeypatch):
     get_settings.cache_clear()
 
 
+def _verified_payment_claim(email):
+    """Synthetic signed-Stripe evidence, inserted directly in disposable test DB."""
+    from app.services.payment_link_claims import LINKS
+    link = "plink_1UcxSA2LWll6Mkhu7MR1P3dr"
+    marker = uuid.uuid4().hex
+    with session_scope() as db:
+        db.add(PendingPaymentLinkClaim(
+            checkout_session_id="cs_test_" + marker,
+            stripe_subscription_id="sub_test_" + marker,
+            stripe_customer_id="cus_test_" + marker,
+            stripe_payment_link_id=link, stripe_price_id=LINKS[link].price_id,
+            offer_code="operate", billing_email=email,
+            amount_subtotal_cents=9900, amount_total_cents=0,
+            discount_cents=9900, tax_cents=0,
+            stripe_event_id="evt_test_" + marker,
+            subscription_status="active",
+            period_end=now() + timedelta(days=30),
+            status="pending_claim", verified_at=now(),
+        ))
+
+
 def _signup(client, *, name, email, industry="professional", consent="yes", **other):
     fields = {
         "business_name": name, "contact_name": "Pilot Test Owner",
@@ -62,15 +85,19 @@ def _accept(client, fake, address, password="correct horse battery staple"):
     return token.group(1)
 
 
-def test_two_independent_beta_owners_no_card_and_protected_email(platform, mail_ready):
+def test_two_verified_purchasers_get_account_email_without_assessment(platform, mail_ready):
     alpha = client_for(platform)
     beta = client_for(platform)
     assert alpha.get("/signup").status_code == 200
-    assert 'Email my free invitation' in alpha.get("/signup").text
+    assert 'Email my account verification link' in alpha.get("/signup").text
+    assert alpha.get("/buy").status_code == 200
+    assert "https://buy.stripe.com/4gMaEQ5vs1Kk5lsdJu0Ny01" in alpha.get("/buy").text
     assert '/signup' in alpha.get("/").text
 
     email_a = "alpha-beta@example.test"
     email_b = "beta-beta@example.test"
+    _verified_payment_claim(email_a)
+    _verified_payment_claim(email_b)
     assert _signup(alpha, name="Alpha Beta Studio", email=email_a,
                    industry="construction").headers["location"] == "/signup/thanks"
     assert _signup(beta, name="Beta Cleaning Studio", email=email_b,
@@ -91,7 +118,7 @@ def test_two_independent_beta_owners_no_card_and_protected_email(platform, mail_
         for org_id in ids:
             db.set_context(org_id, None)
             org = db.get(Organization, org_id)
-            assert org and org.plan == "founding_beta"
+            assert org and org.plan == "purchase_pending"
             assert org.settings["billing"]["paid"] is False
             db.set_context(None, None)
 
@@ -120,6 +147,7 @@ def test_two_independent_beta_owners_no_card_and_protected_email(platform, mail_
 def test_beta_duplicate_owner_pending_suppressed_and_rate_limited(platform, mail_ready):
     visitor = client_for(platform)
     e = "repeat-beta@example.test"
+    _verified_payment_claim(e)
     assert _signup(visitor, name="Once Only Studio", email=e).status_code == 303
     assert _signup(visitor, name="Duplicate Brand", email=e).status_code == 303
     assert _signup(visitor, name="Duplicate Brand", email=e).status_code == 303
@@ -152,3 +180,61 @@ def test_beta_input_protection_and_provider_off(platform, mail_ready, monkeypatc
     result = _signup(visitor, name="Provider Down", email="down@example.test")
     assert result.status_code == 503
     assert not mail_ready.messages
+
+
+
+def test_anonymous_signup_without_verified_stripe_purchase_creates_no_account(
+    platform, mail_ready,
+):
+    visitor = client_for(platform)
+    response = _signup(
+        visitor, name="Unpaid Business", email="unpaid@example.test")
+    assert response.status_code == 422
+    assert "Complete Business Workspace checkout first" in response.text
+    assert not mail_ready.messages
+    with session_scope() as db:
+        assert not db.scalar(select(AuthToken).where(
+            AuthToken.email == "unpaid@example.test"))
+
+
+def test_pending_invitation_resends_after_cooldown_without_creating_new_tenant(
+    platform, mail_ready,
+):
+    visitor = client_for(platform)
+    email = "retry-beta@example.test"
+    _verified_payment_claim(email)
+    assert _signup(visitor, name="Original Brand", email=email).status_code == 303
+    assert len(mail_ready.messages) == 1
+    old_message = mail_ready.messages[0][2]
+    old_token = re.search(r"/accept-invite\?token=([A-Za-z0-9_-]+)", old_message).group(1)
+    with session_scope() as db:
+        first = db.scalar(select(EmailMessage).where(
+            EmailMessage.to_email == email, EmailMessage.kind == "invite"))
+        original_org, token_id = first.org_id, first.auth_token_id
+        first.created_at = now() - timedelta(minutes=4)
+    assert _signup(visitor, name="Duplicate Brand", email=email).status_code == 303
+    assert len(mail_ready.messages) == 2
+    new_message = mail_ready.messages[-1][2]
+    new_token = re.search(r"/accept-invite\?token=([A-Za-z0-9_-]+)", new_message).group(1)
+    assert new_token != old_token
+    assert visitor.get("/accept-invite?token="+old_token).status_code == 410
+    assert visitor.get("/accept-invite?token="+new_token).status_code == 200
+    with session_scope() as db:
+        rows = db.scalars(select(EmailMessage).where(
+            EmailMessage.to_email == email, EmailMessage.kind == "invite")).all()
+        assert len(rows) == 2
+        assert {row.org_id for row in rows} == {original_org}
+        assert {row.auth_token_id for row in rows} == {token_id}
+        assert db.scalar(select(func.count()).select_from(AuthToken).where(
+            AuthToken.email == email, AuthToken.purpose == "invite")) == 1
+
+
+def test_resend_under_three_minute_cooldown_does_not_rotate_a_live_link(
+    platform, mail_ready,
+):
+    visitor = client_for(platform)
+    email = "cooldown-beta@example.test"
+    _verified_payment_claim(email)
+    assert _signup(visitor, name="Cooldown Studio", email=email).status_code == 303
+    assert _signup(visitor, name="Cooldown Studio", email=email).status_code == 303
+    assert len(mail_ready.messages) == 1

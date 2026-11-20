@@ -30,6 +30,19 @@ def home(request: Request, principal: Principal | None = Depends(get_principal))
     return render(request, "public/home.html", {"offers": get_settings().offers})
 
 
+@router.get("/buy")
+def buy_direct(request: Request):
+    """Assessment-free checkout using only the two reviewed live Stripe links.
+
+    The private founder coupon is entered at Stripe, never advertised on a
+    public page. Stripe webhooks and owner email verification activate access.
+    """
+    return render(request, "public/buy.html", {
+        "workspace_checkout": "https://buy.stripe.com/4gMaEQ5vs1Kk5lsdJu0Ny01",
+        "growth_checkout": "https://buy.stripe.com/14A5kwe1Y0Gg9BIaxi0Ny02",
+    })
+
+
 @router.get("/robots.txt")
 def public_robots():
     settings = get_settings()

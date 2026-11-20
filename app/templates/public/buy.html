@@ -1,0 +1,32 @@
+{% extends "public/base.html" %}
+{% block title %}Buy MeasuredField directly | No assessment needed{% endblock %}
+{% block description %}Get MeasuredField Business Workspace directly through verified Stripe Checkout, with a promotional code if you have one.{% endblock %}
+{% block content %}
+<div class="flow"><div class="narrow">
+  <div class="eyebrow"><span class="eyebrow-line"></span> DIRECT CHECKOUT</div>
+  <h1>Start your Business Workspace.</h1>
+  <p class="lead">No assessment is required. Use Stripe Checkout to purchase a Business Workspace. If you were given a founder promotion code, enter it at Checkout before you confirm.</p>
+  <div class="step-card">
+    <h2>Business Workspace</h2>
+    <p><strong>$99/month before discounts</strong> · recurring subscription</p>
+    <p>Private workspace, websites, lead tracking, business tools and owner-approved integrations. Review the current feature availability and all renewal terms before confirming.</p>
+    <p><a class="btn primary block" href="{{ workspace_checkout }}" rel="noopener noreferrer">Continue directly to secure Stripe Checkout</a></p>
+    <p class="hint">Stripe shows your total after the promotion code is applied. A 100% founder coupon may bring that total to $0.</p>
+  </div>
+  <div class="step-card">
+    <h2>After checkout: access your workspace</h2>
+    <p>Use the <strong>same email address</strong> you entered in Stripe. Your purchase is checked through a signed Stripe webhook. Then verify your email, create a password, and connect the purchase in your account.</p>
+    <div class="actions">
+      <a class="btn secondary" href="/signup">Create your account after checkout</a>
+      <a class="btn secondary" href="/login">Already registered? Sign in</a>
+    </div>
+    <p class="hint">Already have a MeasuredField account? Sign in and open Settings → Connect a verified purchase. If you can't sign in, <a href="/forgot">reset your password</a>.</p>
+    <p class="hint">If the purchase confirmation has not reached us yet, return to account creation after Stripe finishes processing. No second purchase is necessary.</p>
+  </div>
+  <div class="step-card">
+    <h2>Optional: Growth Partner</h2>
+    <p><strong>Additional $99/month before discounts.</strong> Available only with an active Business Workspace subscription.</p>
+    <p><a class="btn secondary" href="{{ growth_checkout }}" rel="noopener noreferrer">Add Growth Partner in Stripe</a></p>
+  </div>
+</div></div>
+{% endblock %}

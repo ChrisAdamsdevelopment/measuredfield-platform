@@ -1,15 +1,15 @@
 {% extends "public/base.html" %}
-{% block title %}Start your free workspace | {{ brand }}{% endblock %}
-{% block description %}Create a no-card MeasuredField founding beta workspace for your business. Verify your email and explore the tools available today.{% endblock %}
+{% block title %}Create your purchased workspace account | {{ brand }}{% endblock %}
+{% block description %}Verify the email used for your MeasuredField Stripe purchase and create your Business Workspace account without an assessment.{% endblock %}
 {% block social_meta %}
 {% if settings.public_base_url %}<link rel="canonical" href="{{ settings.public_base_url.rstrip('/') }}/signup">{% endif %}
 {% endblock %}
 {% block content %}
 <div class="flow"><div class="narrow">
-  <div class="eyebrow"><span class="eyebrow-line"></span> Founding beta</div>
-  <h1>Start a free business workspace.</h1>
-  <p class="lead">No card required. Create a separate private workspace for your own business. We'll email you a verification link before you can sign in.</p>
-  <p class="hint">The beta includes working features as they are released. AI and external account connections need their own authorization; this is not a paid plan or a promise that every planned tool is live.</p>
+  <div class="eyebrow"><span class="eyebrow-line"></span> Business Workspace account</div>
+  <h1>Create your account.</h1>
+  <p class="lead">First complete <a href="/buy">direct Stripe Checkout</a>, then use the same email address below to verify your account and create your password. An assessment is not required.</p>
+  <p class="hint">Already requested an invitation that didn't arrive? Submit this form again with the same email. After a short cooldown, we'll send another one-time verification link. If you've already activated your account, use <a href="/forgot">password reset</a>.</p>
   {% if not available %}<div class="alert err" role="alert">Email invitations are temporarily unavailable. Please check back shortly.</div>{% endif %}
   {% if errors.get("form") %}<div class="alert err" role="alert">{{ errors.form }}</div>{% endif %}
   <form action="/signup" method="post" novalidate>
@@ -44,11 +44,11 @@
       </div>
       <div class="trap" aria-hidden="true"><label for="company_site">Leave this empty</label><input id="company_site" name="company_site" tabindex="-1" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="consent" value="yes" required {% if not available %}disabled{% endif %}>
-      <span>I agree to the <a href="/terms">terms</a> and <a href="/privacy">privacy information</a> and may receive an account verification email. No purchase is required.</span></label>
+      <span>I agree to the <a href="/terms">terms</a> and <a href="/privacy">privacy information</a> and may receive an account verification email. My account will be linked to my verified Stripe purchase.</span></label>
       {% if errors.get('consent') %}<div class="error" role="alert">{{ errors.consent }}</div>{% endif %}
-      <div class="field"><button type="submit" class="btn primary block" {% if not available %}disabled{% endif %}>Email my free invitation</button></div>
+      <div class="field"><button type="submit" class="btn primary block" {% if not available %}disabled{% endif %}>Email my account verification link</button></div>
     </div>
   </form>
-  <p class="hint">Already have an account? <a href="/login">Sign in</a>. Existing members can use the same password when accepting a new business invitation.</p>
+  <p class="hint">Already have an account? <a href="/login">Sign in</a> or <a href="/forgot">reset your password</a>. Want to purchase without an assessment? <a href="/buy">Open direct checkout</a>.</p>
 </div></div>
 {% endblock %}

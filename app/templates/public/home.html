@@ -50,8 +50,8 @@
   <div class="eyebrow"><span class="eyebrow-line"></span> THE CONNECTED SMALL-BUSINESS WORKSPACE</div>
   <h1>Find what's working. <em>Know what to do next.</em></h1>
   <p class="lead">Your website, visibility research, incoming leads, and business workflows belong in one understandable place. MeasuredField organizes the evidence, shows where opportunities are, and helps you turn the next step into actual work.</p>
-  <div class="actions"><a class="btn primary" href="/assessment">Find your next opportunity <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="/platform">Explore the complete platform</a></div>
-  <div class="hero-foot">Start with two questions. No technical setup required to get your assessment. Product features are available at different development stages.</div>
+  <div class="actions"><a class="btn primary" href="/buy">Buy Business Workspace directly <span aria-hidden="true">&rarr;</span></a><a class="btn secondary" href="/assessment">Free business assessment (optional)</a></div>
+  <div class="hero-foot">No assessment required to buy. Use an eligible promo code during Stripe Checkout. Verify your account email afterward to access your workspace.</div>
   <div class="mh-points"><span>One place for your business</span><span>Evidence, not invented rankings</span><span>You approve important actions</span></div>
 </div>
 <div class="mh-console" aria-label="Illustration of MeasuredField tools and availability, not live results">
@@ -162,7 +162,7 @@ website experiences and customer inquiry paths while tracking the changes.</p>
 </figure>
 </div></section>
 
-<section id="pricing" class="section"><div class="wrap"><div class="section-head"><div class="eyebrow">Pricing</div><h2>Clear options. No surprise invoices.</h2><p>Start with the assessment; it's free. Choose a service only if the assessment shows something worth doing.</p></div>
+<section id="pricing" class="section"><div class="wrap"><div class="section-head"><div class="eyebrow">Pricing</div><h2>Clear options. No surprise invoices.</h2><p>Buy the Business Workspace directly with Stripe; the free assessment is optional. Apply any private founder code at checkout.</p></div>
 <div class="pricing">
 {% for offer in offers %}
 <article class="plan{% if offer.code == 'launch' %} featured{% endif %}">
@@ -175,7 +175,7 @@ website experiences and customer inquiry paths while tracking the changes.</p>
 <div class="price">{% if offer.price_cents == 0 %}Free{% else %}${{ '%.0f'|format(offer.price_cents / 100) }}{% if offer.billing == 'monthly' %} <small>per month</small>{% else %} <small>one time</small>{% endif %}{% endif %}</div>
 <p>{{ offer.summary }}</p>
 <ul>{% for line in offer.includes %}<li>{{ line }}</li>{% endfor %}</ul>
-<a class="btn {{ 'primary' if offer.code == 'launch' else 'secondary' }}" href="/assessment">Start with the assessment</a>
+{% if offer.code == 'operate' or offer.code == 'business_workspace' %}<a class="btn primary" href="/buy">Buy directly with Stripe</a>{% else %}<a class="btn {{ 'primary' if offer.code == 'launch' else 'secondary' }}" href="/assessment">Explore this option</a>{% endif %}
 </article>
 {% endfor %}
 <article class="plan add-on">
@@ -186,7 +186,7 @@ website experiences and customer inquiry paths while tracking the changes.</p>
 <div class="price">+$99 <small>per month</small></div>
 <p>Optional hands-on help with business priorities, marketing ideas, campaigns and improvements alongside your Business Workspace.</p>
 <p class="plan-helper">Available as an add-on for workspace owners. Your service scope and renewal terms are confirmed before purchase.</p>
-<a class="btn secondary" href="/assessment">Discuss your business</a>
+<a class="btn secondary" href="/buy">Buy or review options</a>
 </article>
 </div>
 <p class="fine-print">Prices shown are our current introductory prices and may change. You see the exact scope and price, and approve it, before any charge.</p>
