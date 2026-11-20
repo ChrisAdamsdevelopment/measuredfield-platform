@@ -135,3 +135,50 @@ def test_website_work_tool_requires_verified_link_before_incremental_scope_promp
     assert "oauth_additional_scope_challenge(" in segment
     assert segment.index("linked_subject_user_id(") < segment.index("return oauth_additional_scope_challenge(")
     assert "website_work.apply_for_oauth(" in segment
+
+
+@pytest.mark.parametrize("work_scope", ["mf:computer.write", "mf:website.write"])
+def test_incremental_work_scope_challenge_is_explicit_and_non_executing(work_scope):
+    from app.mcp_plugin.server import oauth_additional_scope_challenge
+
+    settings = McpPluginSettings(
+        issuer="https://auth.synthetic.test/",
+        jwks_url="https://auth.synthetic.test/jwks",
+        resource_url="https://mcp.synthetic.test/mcp",
+    )
+    result = oauth_additional_scope_challenge(settings, scope=work_scope)
+    data = result.model_dump(by_alias=True, exclude_none=True)
+    challenge = data["_meta"]["mcp/www_authenticate"][0]
+    assert data["isError"] is True
+    assert f'scope="mf:read {work_scope}"' in challenge
+    assert 'error="insufficient_scope"' in challenge
+    assert "resource_metadata=" in challenge
+    assert "Nothing was changed or published" in data["content"][0]["text"]
+    assert "token=" not in str(data)
+
+
+def test_computer_write_tools_trigger_challenge_only_after_current_link_check():
+    source = (Path(__file__).resolve().parents[1] / "app" /
+              "mcp_plugin" / "server.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    factory = next(n for n in module.body
+                   if isinstance(n, ast.FunctionDef) and n.name == "create_server")
+    funcs = {n.name: n for n in factory.body if isinstance(n, ast.FunctionDef)}
+    helper = ast.get_source_segment(source, funcs["computer_work_bearer"])
+    assert "checked_bearer(extra_scope=device_work.WORK_SCOPE)" in helper
+    assert "read_bearer = checked_bearer()" in helper
+    assert "linked_subject_user_id(" in helper
+    assert "oauth_additional_scope_challenge(" in helper
+    assert helper.index("linked_subject_user_id(") < helper.index(
+        "return None, oauth_additional_scope_challenge(")
+    for name, downstream in (
+        ("queue_project_file_write", "device_work.enqueue("),
+        ("queue_project_directory", "device_work.enqueue("),
+        ("get_project_work_status", "device_work.status("),
+        ("cancel_project_work", "device_work.cancel("),
+    ):
+        segment = ast.get_source_segment(source, funcs[name])
+        assert "bearer, challenge = computer_work_bearer()" in segment
+        assert "if challenge is not None:" in segment
+        assert "return challenge" in segment
+        assert segment.index("return challenge") < segment.index(downstream)

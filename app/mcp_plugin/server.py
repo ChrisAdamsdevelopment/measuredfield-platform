@@ -161,6 +161,27 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
             raise ConnectorAccessDenied("OAuth session identity changed")
         return bearer
 
+    def computer_work_bearer():
+        """Return a verified computer-write bearer or a safe OAuth scope challenge.
+
+        Tool securitySchemes alone cannot trigger incremental ChatGPT consent.
+        Only a signed mf:read token with a CURRENT owner link is eligible for
+        an mf:computer.write challenge. All other callers remain denied.
+        """
+        try:
+            return checked_bearer(extra_scope=device_work.WORK_SCOPE), None
+        except ConnectorAccessDenied:
+            read_bearer = checked_bearer()
+            if device_work.WORK_SCOPE in read_bearer.identity.scopes:
+                raise
+            if not isinstance(linked_subject_user_id(
+                    read_bearer.identity.issuer, read_bearer.identity.subject,
+                    read_bearer.issued_at), uuid.UUID):
+                raise ConnectorAccessDenied(
+                    "The owner connection is no longer authorized")
+            return None, oauth_additional_scope_challenge(
+                settings, scope=device_work.WORK_SCOPE)
+
     def identity() -> VerifiedOAuthIdentity:
         return checked_bearer().identity
 
@@ -298,7 +319,9 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         session retrieves and verifies the request. Check returned job status;
         queued is NOT the same as saved. Existing files require prior SHA-256.
         """
-        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        bearer, challenge = computer_work_bearer()
+        if challenge is not None:
+            return challenge
         return device_work.enqueue(
             bearer, issuer=settings.issuer, audience=settings.resource_url,
             org_id=business_id, device_id=device_id, action="write_file",
@@ -319,7 +342,9 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
         request_id: Annotated[str, Field(min_length=12, max_length=80)],
     ) -> dict:
         """Queue directory creation; completion requires a real device receipt."""
-        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        bearer, challenge = computer_work_bearer()
+        if challenge is not None:
+            return challenge
         return device_work.enqueue(
             bearer, issuer=settings.issuer, audience=settings.resource_url,
             org_id=business_id, device_id=device_id, action="make_directory",
@@ -333,7 +358,9 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     )
     def get_project_work_status(business_id: str, job_id: str) -> dict:
         """Returns queued/leased/succeeded/failed with persisted result hash."""
-        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        bearer, challenge = computer_work_bearer()
+        if challenge is not None:
+            return challenge
         return device_work.status(
             bearer, issuer=settings.issuer, audience=settings.resource_url,
             org_id=business_id, job_id=job_id)
@@ -347,7 +374,9 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     )
     def cancel_project_work(business_id: str, job_id: str) -> dict:
         """Stop an unclaimed remote job, immediately discard encrypted contents."""
-        bearer = checked_bearer(extra_scope=device_work.WORK_SCOPE)
+        bearer, challenge = computer_work_bearer()
+        if challenge is not None:
+            return challenge
         return device_work.cancel(
             bearer, issuer=settings.issuer, audience=settings.resource_url,
             org_id=business_id, job_id=job_id)

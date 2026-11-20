@@ -7,9 +7,13 @@ a read-only or draft-only substitute.
 
 ## What it does
 
-An OAuth-linked owner/admin must grant mf:read and mf:computer.write. Three
-MCP tools are offered: queue_project_file_write, queue_project_directory, and
-get_project_work_status. A queued request is not reported as completed.
+An OAuth-linked owner/admin must grant mf:read and mf:computer.write. Four
+MCP tools are offered: queue_project_file_write, queue_project_directory,
+get_project_work_status, and cancel_project_work. A queued request is not
+reported as completed. Read-only OAuth tokens are never silently upgraded;
+with a valid, still-linked owner account they receive an MCP
+mcp/www_authenticate insufficient_scope challenge for mf:computer.write.
+Unlinked, revoked or invalid tokens cannot trigger this consent challenge.
 
 A confirmed MeasuredField device with access=work retrieves the queued job
 using the separate DPAPI-protected device credential over a pinned HTTPS origin.
