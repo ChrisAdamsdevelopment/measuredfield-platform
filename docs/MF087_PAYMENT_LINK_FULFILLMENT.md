@@ -1,28 +1,41 @@
-# MF-087 — Direct Stripe Payment Link customer fulfillment
-## State
-IMPLEMENTATION DESIGN IN PROGRESS. NO SOURCE CODE OR PRODUCTION CONFIG CHANGE in this story yet. MF-086 owner portal is LIVE at ee3d5d6. MF-087 is claimed by GPT-6, build/review/release gate not yet cleared.
+# MF-087 — Direct Stripe Payment Link purchase fulfillment
 
-## Verified live data (Nov 17 2026 AZ)
-- Stripe account acct_1TZYbe2LWll6Mkhu (live).
-- Workspace Link: plink_1UcxSA2LWll6Mkhu7MR1P3dr; Price price_1Ub6rZ2LWll6MkhusWBI1ebk; $99/month; link https://buy.stripe.com/4gMaEQ5vs1Kk5lsdJu0Ny01.
-- Growth Partner Link: plink_1UcxUD2LWll6MkhuecqI4wT9; Price price_1Ub6rh2LWll6MkhuYiaLXu2m; $99/month; link https://buy.stripe.com/14A5kwe1Y0Gg9BIaxi0Ny02.
-- Both live links active, promo enabled, hosted completion and no internal order metadata.
-- Checkout sessions read back: 1 OPEN unpaid app-created session; ZERO completed Checkout purchases; ZERO subscriptions. No existing paid customer to recover as of this snapshot.
-- Existing signed webhook handles checkout.session.completed but only marks paid if ServiceOrder.provider_ref matches session.id, otherwise returns unknown_order. Do not grant entitlement without payment evidence and verified identity.
-- MF-086 Stripe portal default config active bpc_1UczyC2LWll6Mkhul06ZHxOp for a linked verified Stripe customer; cannot manage unmatched link purchases yet.
+STATUS: LOCAL IMPLEMENTATION AND 1,148 FULL PG TESTS PASSED; NOT DEPLOYED. Independent review pending.
 
-## Proposed secure flow
-1. Webhook receives verified signed checkout.session.completed on server and existing event idempotency key; if session.payment_link matches one of exact allowlisted link IDs, branch to MF-087 reconciliation instead of current generic unknown_order handler. Never trust customer-supplied order_id, links, email, discounts, Stripe metadata, or browser redirects.
-2. Confirm session mode=subscription; payment_status is paid/no_payment_required with exactly $0 net and an authorized 100%-off promotion for no-payment case; currency=usd; amount_subtotal=9900; amount_total and total_details discount/tax arithmetic valid; quantity 1. Use Stripe authenticated GET Checkout Session line_items to verify one exact Price ID and quantity, independent of advertised link ID. Fetch exact linked Subscription ID and associated Customer ID; fail closed if any mismatched or missing. On transient provider failure return retryable 5xx without recording the webhook event as processed; do NOT permanently swallow a retry.
-3. Persist signed purchase as platform-level PendingPaymentLinkClaim with unique checkout session ID (and unique claimed order_id), exact price/offer, normalized billing email, Stripe Customer ID/subscription ID, verified net/subtotal, signed-event ID/time, and status pending_claim. Store only needed data. Do not create User, Membership, or paid org from checkout billing email alone. Send a transactional status notice to the billing email only (not a sign-in token), pointing to https://spectracleanse.com/signup, login and /app/billing/claim. Do not email temporary password or payment portal without login.
-4. Buyer verifies control of same email through existing free signup one-time Resend invite (or already has MeasuredField login). In authenticated /app/billing/claim, list only unclaimed purchase intents matching fully verified account email; POST requires session CSRF, owner membership and explicit selected current org. Never accept Stripe Customer ID, price, order IDs, event details or arbitrary session IDs from client as authorization. Buyer chooses exact company when owning multiple.
-5. Claim transaction locks pending row FOR UPDATE and unique Stripe Checkout/subscription to prevent double claims; verify payment still current against signed provider state (or server fetch with strict bounded API), deny canceled/refunded/expired/unpaid; check that no linked different org or conflicting Stripe Customer exists. Create a ServiceOrder with **nullable assessment_id** for Stripe direct checkout, migrating schema explicitly (do not fabricate assessment consent or a fake 2-question assessment). Set offer_snapshot from trusted allowlisted catalog and amount from verified Stripe event; status provisioned, payment evidence stripe signed event, org_id current verified tenant, paid_at provider time. Link BillingSubscription row to internal order and org with correct subscription ID, customer ID, period end and signed invoice/subscription state. Apply purchase entitlement only to purchased offer; Stripe recurring Business Workspace upgrades org display plan but authorization must use active_subscription_for, not just plan. Growth Partner is add-on to an explicitly selected workspace, never a new entitlement on a random org.
-6. Ensure Stripe webhook event ordering is idempotent across checkout, subscription.created/updated/deleted and invoice.paid/failed/refund; preserve terminal cancellations/refunds. Do not associate by email alone. Support account email aliases and unmatched orders via a reviewable operator queue, never guessed.
-7. Maintain customer self-management via MF-086 linked portal once claimed. Cancellation remains webhook-driven, never trust return_url success.
-8. Capture audit events with IDs and outcome codes, no provider secrets, no raw invite/sign-in URLs/tokens or payment customer financial fields in logs.
+## Purchase evidence
+Two existing exact allowlisted Stripe links:
+- Business Workspace: plink_1UcxSA2LWll6Mkhu7MR1P3dr, price_1Ub6rZ2LWll6MkhusWBI1ebk, operate, $99 monthly.
+- Growth Partner: plink_1UcxUD2LWll6MkhuecqI4wT9, price_1Ub6rh2LWll6MkhuYiaLXu2m, growth_partner, $99 monthly. Requires active operate.
 
-## Security gates
-- False/substituted Payment Link ID, wrong price despite correct link, mismatched quantity, tax/promo arithmetic, zero-dollar coupon without valid Stripe no_payment_required, canceled old subscription, no period_end, duplicate Checkout Session, replay/parallel claim, wrong buyer email, cross-org claiming, staff vs owner, customer with multiple businesses, conflicting Stripe Customer, CSRF/Origin, stripe API timeout/5xx, disabled email, duplicate/nonordered webhook, refund/grace.
-- Verify real disposable restricted PostgreSQL migrations and FORCE RLS boundaries; no superuser runtime, no raw token logging or credential echo. New PendingPaymentLinkClaim is a platform table and must have explicit authenticated equality checks and owner/membership validation.
-- Full PG suite, Ruff, secret scan, independent security review before main push/Render deployment.
-- Test-mode Stripe event lifecycle first. No actual card charge in QA. Existing live links must not be deactivated or modified without separate instruction.
+Only a signed Stripe checkout.session.completed webhook for an unmatched order and allowlisted link reaches this path. Server verifies subscription mode, exact USD $99 pre-discount amount, correct net amount and discount arithmetic, paid/no_payment_required state, customer/email/subscription IDs, actual Stripe GET line items with correct price and quantity one, active subscription and future billing period via a separate authenticated GET. API failures yield retryable HTTP 503; the signed PaymentEvent is rolled back. Unverified or ineligible purchases cannot unlock anything.
+
+## Buyer experience
+A valid direct Checkout records a platform PendingPaymentLinkClaim with unique checkout session and Stripe subscription IDs, but creates NO account or business and grants NO entitlement. If email is configured, a plain information email without login tokens points to the claim process.
+
+Buyer can use /purchase/claim for instructions and /signup to establish a verified account. Only a signed-in OWNER with a redeemed email-issued invite/reset proof matching the exact billing email sees pending claims in /app/billing/claim. CSRF POST chooses the current server-derived business (never a submitted tenant ID), locks the purchase, freshly verifies active Stripe subscription, rejects duplicate/canceled/refunded/unlinked customer state, and binds one ServiceOrder and BillingSubscription to that existing organization. Both $0 and positive-dollar purchases use the same verified path. Cancellation restores previous founding beta plan; Stripe portal available for a linked customer.
+
+## Tests and source
+- Migration 0014 after owner checkout migration 0013, platform-only payment_link_claims table with uniqueness and status checks.
+- Six focused real disposable PostgreSQL tests passed: signed zero-dollar claim, wrong email/tenant, forged CSRF, duplicate signed event, price/totals, inactive subscription, Growth Partner precondition, and transient API retry.
+- Full regression 1,148 passed, zero errors/skips/failures, CI_GATE_PASS. No live purchases or customer writes.
+- Independent security review, Ruff and tracked/staged secret scan are required prior to approval and commit.
+- Existing Payment Links remain unchanged.
+
+## Production gates (NOT satisfied)
+1. Verified recoverable production Postgres snapshot and safe migrations 0013 then 0014.
+2. New signed checkout.session.expired webhook event only after revised handler deployment; live endpoint we_1UcyaC2LWll6Mkhu0almJSv3 currently has seven older event types.
+3. Test-mode genuine webhook delivery, no-charge founder Checkout, Stripe portal, cancel/retry, and final verification of real customer_details/line_items/subscription shapes.
+4. Unmatched payments require operator review; verified alias recovery and exception support flow remain planned; never guess tenant or grant access from email alone.
+5. ChatGPT OAuth client binding and write-capable scoped tools remain separate from billing fulfillment.
+
+This is a development QA milestone only; no Stripe charges, live emails, production database migration or Render deployment occurred.
+
+## Independent review corrections (local, November 18)
+Claude requested changes to the first implementation. Addressed:
+- The persisted subtotal is now the exact validated subtotal from signed Stripe event, not reconstituted catalog price.
+- Migration 0014 now enforces total=subtotal-discount+tax at database level.
+- An immutable platform-only PaymentLinkClaimReview event records the operator, reason, decision, and affected claim. A separate, operator-authenticated and CSRF-protected queue at /operator/payment-link-claims lists expired/needs_review claims.
+- The operator recheck requires live authenticated Stripe subscription verification; it reopens ONLY an unassigned claim with no existing signed terminal cancellation/refund or linked order. Reopening grants no user, tenant, or entitlement. Buyer must still complete email-verified owner claim. Terminally canceled cases remain needs_review for support handling.
+- A pending or active purchase may not be reassigned by the operator directly; no email-as-authorization shortcut exists.
+- Templates no longer mislabel unknown offer codes; strict has_more=False requirement documented.
+- Email-account proof is deliberately global for unique User.email; prior redeemed email-delivered auth tokens remain evidence of mailbox control even if original org membership later changes. Current owner membership in selected business remains mandatory.

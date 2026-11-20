@@ -49,6 +49,12 @@
 </section>
 {% endif %}
 
+<section class="card actions mf-workbench-entry" aria-label="AI website design workbench">
+  <div class="row mf-workbench-entry-row">
+    <div><h2>See the changes, not just a description.</h2><p class="small muted">Open the interactive before-and-after website comparison, prepare real ChatGPT work and check your computer receipts.</p></div>
+    <a class="btn" href="/app/website/studio">{{ 'Open AI Website Workbench' if site else 'Explore Website Workbench' }}</a>
+  </div>
+</section>
 <div class="grid g-side">
 <div class="card"><h2>{{ 'Website details (working draft)' if site else 'Create your website' }}</h2>
 {% if can('site.edit') %}

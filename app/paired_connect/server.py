@@ -55,6 +55,24 @@ def propose_project_edit(grant_id: str, relative_path: str, new_content: str) ->
 
 
 @mcp.tool()
+def write_project_file(grant_id: str, relative_path: str, content: str,
+                       expected_sha256: str | None = None) -> dict:
+    """ACTUALLY save text on this computer in an owner-authorized Work-mode project.
+
+    For an existing file, call read_project_file first and supply its SHA-256.
+    Requires active work-mode device, readwrite folder and a separately approved
+    temporary direct-write pairing. No access outside selected projects.
+    """
+    return _session().write_file(grant_id, relative_path, content, expected_sha256)
+
+
+@mcp.tool()
+def create_project_directory(grant_id: str, relative_path: str) -> dict:
+    """Actually create a directory inside an authorized Work-mode project."""
+    return _session().make_directory(grant_id, relative_path)
+
+
+@mcp.tool()
 def list_pending_edits() -> list[dict]:
     """List outstanding edit proposals in this pairing's approved projects only."""
     return _session().pending()
@@ -67,6 +85,8 @@ def recent_connection_activity(limit: int = 20) -> list[dict]:
 
 
 def main() -> None:
+    # MCP handshake itself grants no file access. Every tool independently
+    # validates the local pairing and current linked account before work.
     mcp.run(transport="stdio")
 
 

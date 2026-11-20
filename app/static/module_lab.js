@@ -9,17 +9,25 @@
   const allModes = () => Array.from(document.querySelectorAll('input[name="ml-mode"]'));
   const suggestionBox = $("ml-suggestions");
 
-  const SAMPLE_GSC_CSV = [
-    "Query,Clicks,Impressions,Position",
-    "prescott general contractors,1,42,6.4",
-    "prescott valley kitchen contractor,0,19,14.2",
-    "bathroom remodeling prescott valley az,0,15,11.8",
-    "custom finish carpentry prescott az,0,11,8.5",
-    "chino valley home remodeling contractor,0,9,16.0",
-    "dewey humboldt bathroom renovation,0,6,19.3",
-    "prescotts best construction,3,28,1.2",
-    "construction superintendent jobs prescott,0,4,38.0",
-  ].join("\n");
+  function buildSampleGscCsv() {
+    const marketValues = allMarkets().map((box) => String(box.value || "").trim()).filter(Boolean);
+    const primaryCity = ((marketValues[0] || app.dataset.primaryMarket || "local area").split(",")[0] || "local area").trim().toLowerCase();
+    const secondaryCity = ((marketValues[1] || marketValues[0] || primaryCity).split(",")[0] || primaryCity).trim().toLowerCase();
+    const rawOrg = String(app.dataset.orgName || "local remodeling company")
+      .replace(/,?\s+\b(?:l\.?l\.?c\.?|inc\.?|corp\.?|co\.?|company|ltd\.?)\b\.?$/i, "")
+      .replace(/['\u2019]/g, "")
+      .trim()
+      .toLowerCase() || "local remodeling company";
+    return [
+      "Query,Clicks,Impressions,Position",
+      `${primaryCity} general contractors,1,42,6.4`,
+      `${secondaryCity} kitchen contractor,0,19,14.2`,
+      `bathroom remodeling ${secondaryCity},0,15,11.8`,
+      `custom finish carpentry ${primaryCity},0,11,8.5`,
+      `${rawOrg},3,28,1.2`,
+      `construction superintendent jobs ${primaryCity},0,4,38.0`,
+    ].join("\n");
+  }
 
   const METHOD_LABELS = {
     as_written: "As written",
@@ -448,7 +456,7 @@
   });
 
   $("ml-sample-csv")?.addEventListener("click", () => {
-    $("ml-csv").value = SAMPLE_GSC_CSV;
+    $("ml-csv").value = buildSampleGscCsv();
     syntheticSample = true;
     analyzedCsv = null;
     visibilityChanged();

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from app.local_connect import AccessDenied
+from app.local_connect import AccessDenied, is_reparse_point
 from .client import DeviceApi, DeviceClientError, resolve_trusted_origin
 from .secret_store import SecureStoreUnavailable, WindowsCredentialStore
 
@@ -33,7 +33,7 @@ class AccountRuntimeGuard:
 
     def _credential_present(self) -> bool:
         if isinstance(self.secrets, WindowsCredentialStore):
-            return self.secrets.file.exists() or self.secrets.file.is_symlink()
+            return self.secrets.file.exists() or is_reparse_point(self.secrets.file)
         try:
             return bool(self.secrets.load())
         except (SecureStoreUnavailable, OSError, ValueError):
@@ -56,9 +56,7 @@ class AccountRuntimeGuard:
             ) from None
 
     def _read_account(self) -> dict | None:
-        if self.state_file.is_symlink() or (
-            hasattr(self.state_file, "is_junction") and self.state_file.is_junction()
-        ):
+        if is_reparse_point(self.state_file):
             self._deny()
         try:
             raw = self.state_file.read_bytes()
@@ -98,7 +96,7 @@ class AccountRuntimeGuard:
         fresh pinned-origin HTTPS call must report the exact active device.
         Read-only permission is enforced even against old local write pairings.
         """
-        if action not in ("list", "read", "propose"):
+        if action not in ("list", "read", "propose", "write", "mkdir"):
             self._deny()
         state = self._read_account()
         if state is None or state.get("status") == "not_connected":
@@ -108,6 +106,8 @@ class AccountRuntimeGuard:
                     state.get("device_id") or state.get("server_url") or
                     state.get("access") or state.get("business")):
                 self._deny()
+            if action in ("write", "mkdir"):
+                raise AccessDenied("Direct work requires a verified account-linked Work-mode computer.")
             # Legacy owner-local pilot: a clean never-linked computer can still
             # use approved, short-lived local pairings; no remote access exists.
             return
@@ -136,7 +136,9 @@ class AccountRuntimeGuard:
         if state_after != state:
             self._deny()
         if status.status != "active" or status.device_id != device_id or (
-                status.access not in ("read", "suggest")):
+                status.access not in ("read", "suggest", "work")):
             self._deny()
-        if action == "propose" and status.access != "suggest":
+        if action == "propose" and status.access not in ("suggest", "work"):
+            self._deny()
+        if action in ("write", "mkdir") and status.access != "work":
             self._deny()

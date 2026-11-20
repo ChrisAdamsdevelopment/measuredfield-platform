@@ -31,7 +31,12 @@ from starlette.concurrency import run_in_threadpool
 from .config import get_settings
 from .db import finish_request_session, get_engine, isolation_self_check
 from .deps import BASE_DIR, LoginRequired, render
-from .routers import auth, beta_signup, billing_portal, census_market, devices, feedback, growth_journey, lead_rescue, mcp_account_settings, module_lab, operator, public, site_host, visibility_store, visibility_execution, visibility_owner_snapshot, workspace
+from .routers import (
+    auth, beta_signup, billing_portal, census_market, devices, feedback, growth_journey,
+    lead_rescue, mcp_account_settings, mcp_actions, module_lab, operator, owner_checkout,
+    payment_link_claims, public, site_host, visibility_store, visibility_execution,
+    visibility_owner_snapshot, visual_preview, workspace,
+)
 from .services import jobs
 
 log = logging.getLogger("mf")
@@ -82,7 +87,12 @@ def create_main_app() -> FastAPI:
     mimetypes.add_type("image/webp", ".webp", strict=True)
     mimetypes.add_type("text/vtt", ".vtt", strict=True)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-    for module in (public, auth, beta_signup, billing_portal, workspace, feedback, census_market, operator, growth_journey, module_lab, visibility_store, visibility_execution, visibility_owner_snapshot, lead_rescue, devices, mcp_account_settings):
+    for module in (
+        public, auth, beta_signup, billing_portal, owner_checkout, payment_link_claims,
+        mcp_actions, workspace, feedback, census_market, operator, growth_journey,
+        module_lab, visibility_store, visibility_execution, visibility_owner_snapshot,
+        lead_rescue, devices, mcp_account_settings, visual_preview,
+    ):
         app.include_router(module.router)
 
     @app.middleware("http")
@@ -105,7 +115,7 @@ def create_main_app() -> FastAPI:
         if jobs_pending and settings.inline_jobs:
             await run_in_threadpool(jobs.run_due, 25)
         _security_headers(response, production=settings.is_production)
-        if request.url.path.startswith(("/app", "/operator", "/api", "/assessment/r", "/order", "/p/")):
+        if request.url.path.startswith(("/app", "/operator", "/api", "/assessment/r", "/order", "/p/", "/dev/visual-preview")):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Request-ID"] = request_id
         # Path only: never the query string, body, cookies or client address.

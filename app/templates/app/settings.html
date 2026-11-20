@@ -18,13 +18,20 @@
 </dl></div>
 
 {% if can('billing.read') %}<div class="card"><h2>Plan and billing</h2>
-<dl class="kv"><dt>Plan</dt><dd>{{ billing.get('offer') or org.plan }}</dd>
-<dt>Payment</dt><dd>{% if billing.get('paid') %}Paid: ${{ '%.2f'|format(billing.get('amount_cents', 0) / 100) }}{% else %}No payment recorded for this workspace.{% endif %}</dd></dl>
-{% if billing.get('paid') and payments_live and role == 'owner' and org.plan == 'operate' %}
+<p class="small muted">Already purchased through a Stripe Payment Link? <a href="/app/billing/claim">Connect a verified purchase to this business</a>. A Stripe receipt by itself does not activate access.</p>
+<dl class="kv"><dt>Plan</dt><dd>{% if subscription_active %}Ongoing Business Workspace (active){% else %}{{ billing.get('offer') or org.plan }}{% endif %}</dd>
+<dt>Subscription</dt><dd>{% if subscription_active %}<span class="badge live">Active</span> Your verified Business Workspace subscription is active, including any Stripe discount.{% elif checkout_pending %}<span class="badge unknown">Pending</span> Stripe checkout or subscription verification is pending. Your existing beta workspace remains available.{% else %}Your free founding-beta workspace remains available without payment.{% endif %}</dd></dl>
+{% if subscription_active and subscription_linked and payments_live and role == 'owner' %}
 <p class="small muted">Manage invoices, payment methods and subscription cancellation securely in Stripe. Subscription changes take effect when Stripe confirms them.</p>
 <form method="post" action="/app/billing/portal"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="actions"><button class="btn" type="submit">Manage billing in Stripe</button></div></form>
-{% elif not billing.get('paid') %}<p class="small muted actions">This workspace has no recorded charge. Your founding beta access does not require a card.</p>
-{% elif not payments_live %}<p class="small muted actions">Online billing management is unavailable. Contact support for invoices or cancellation.</p>
+{% elif subscription_active and not payments_live %}<p class="small muted actions">Your subscription is active, but online billing management is temporarily unavailable. Contact support to review your account.</p>
+{% elif subscription_active %}<p class="small muted actions">Your subscription is active, but Stripe billing management is not yet linked to this workspace. Contact support to verify the billing connection; do not start a second subscription.</p>
+{% elif checkout_pending %}<p class="small muted actions">Checkout was started. Stripe must verify payment and subscription details before access changes. If you left Checkout, you can safely resume it or check whether Stripe has expired it.</p>
+{% if role == 'owner' and checkout_available %}<form method="post" action="/app/billing/checkout"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="actions"><button class="btn ghost" type="submit">Resume or verify pending checkout</button></div></form>{% endif %}
+{% elif checkout_available and role == 'owner' and not subscription_active %}<p class="small muted">Activate this same workspace through our secure Stripe checkout. Eligible founder promotions can reduce the amount due to $0; review the Stripe total before confirming. Your current beta work stays here.</p>
+<form method="post" action="/app/billing/checkout"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="actions"><button class="btn" type="submit">Open Business Workspace checkout</button></div></form>
+{% elif not payments_live %}<p class="small muted actions">Your founding beta access does not require a card. Online checkout is currently unavailable.</p>
+{% else %}<p class="small muted actions">Your founding beta access does not require a card. Paid checkout is currently unavailable.</p>
 {% endif %}</div>{% endif %}
 
 {% if can('data.manage') %}<div class="card"><h2>Your data</h2>

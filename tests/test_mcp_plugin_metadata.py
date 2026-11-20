@@ -61,6 +61,10 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         "get_connected_profile", "list_my_businesses",
         "get_business_overview", "list_inquiries", "get_inquiry", "preview_reply",
         "list_supported_census_markets", "get_census_market_snapshot",
+        "save_inquiry_reply_draft", "list_connected_work_computers",
+        "queue_project_file_write",
+        "queue_project_directory", "get_project_work_status", "cancel_project_work",
+        "list_website_work_requests", "apply_website_work_request",
     }
     for name, decorator in tools.items():
         kwargs = {item.arg: item.value for item in decorator.keywords}
@@ -73,6 +77,23 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         assert len(call.args) == 1
         assert isinstance(call.args[0], ast.Attribute)
         assert call.args[0].attr == "read_scope"
+        extra_scope = {k.arg: k.value for k in call.keywords}.get("with_scope")
+        if name == "save_inquiry_reply_draft":
+            assert isinstance(extra_scope, ast.Attribute)
+            assert extra_scope.attr == "write_scope"
+        elif name == "apply_website_work_request":
+            assert isinstance(extra_scope, ast.Attribute)
+            assert extra_scope.attr == "WRITE_SCOPE"
+            assert isinstance(extra_scope.value, ast.Name)
+            assert extra_scope.value.id == "website_work"
+        elif name in ("queue_project_file_write", "queue_project_directory",
+                      "get_project_work_status", "cancel_project_work"):
+            assert isinstance(extra_scope, ast.Attribute)
+            assert extra_scope.attr == "WORK_SCOPE"
+            assert isinstance(extra_scope.value, ast.Name)
+            assert extra_scope.value.id == "device_work"
+        else:
+            assert extra_scope is None
 
 
 def test_only_authenticated_profile_is_marked_as_special_identity():

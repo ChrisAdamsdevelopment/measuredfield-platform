@@ -156,6 +156,31 @@ def active_subscription_for(db: TenantSession, org_id: uuid.UUID,
     return any(_effective_entitlement(db, row, at) for row in rows)
 
 
+def pending_owner_checkout(db: TenantSession, org_id: uuid.UUID) -> ServiceOrder | None:
+    """Protect an existing owner from accidental duplicate subscriptions.
+
+    A pending Checkout remains blocked until a verified Stripe expiration event
+    or authenticated Stripe status lookup closes it. A verified paid order without
+    a terminal subscription also blocks duplicate purchases. A canceled or
+    refunded subscription may be replaced with fresh checkout.
+    """
+    candidates = db.scalars(select(ServiceOrder).where(
+        ServiceOrder.org_id == org_id,
+        ServiceOrder.assessment_id.is_(None),
+        ServiceOrder.offer_code == "operate",
+        ServiceOrder.status.in_(("payment_pending", "paid", "provisioned")),
+    ).order_by(ServiceOrder.created_at.desc()).limit(10)).all()
+    for order in candidates:
+        if order.status == "payment_pending":
+            return order
+        subscription = db.scalar(select(BillingSubscription).where(
+            BillingSubscription.order_id == order.id))
+        if subscription is None or (subscription.status not in ("canceled", "incomplete_expired")
+                                    and subscription.invoice_status != "refunded"):
+            return order
+    return None
+
+
 def _reconcile_subscription(db: TenantSession, row: BillingSubscription) -> None:
     """Project verified Stripe subscription facts to the linked organization.
 
@@ -184,6 +209,38 @@ def _reconcile_subscription(db: TenantSession, row: BillingSubscription) -> None
             "cancel_at_period_end": bool(row.cancel_at_period_end),
         }
         state["subscriptions"] = plans
+        # Owner-origin checkout upgrades the SAME workspace, rather than
+        # provisioning a second organization. Preserve its previous plan and
+        # billing snapshot so a canceled founder subscription restores beta.
+        # Never trust a single out-of-order cancellation when another verified
+        # recurring checkout is still active on this tenant.
+        if (order.offer_code == "operate" and order.offer_snapshot.get("checkout_origin")
+                in ("owner_workspace", "direct_payment_link")):
+            linked = db.scalars(select(BillingSubscription).join(
+                ServiceOrder, BillingSubscription.order_id == ServiceOrder.id).where(
+                BillingSubscription.org_id == org.id,
+                ServiceOrder.offer_code == "operate")).all()
+            active_pair = next(((sub, db.get(ServiceOrder, sub.order_id)) for sub in linked
+                                if sub.order_id and _effective_entitlement(db, sub, current)), None)
+            if active_pair is not None:
+                active_sub, active_order = active_pair
+                if "owner_checkout_previous_plan" not in state:
+                    state["owner_checkout_previous_plan"] = org.plan
+                    state["owner_checkout_previous_billing"] = dict(state.get("billing") or {})
+                org.plan = "operate"
+                state["billing"] = {
+                    "order_id": str(active_order.id),
+                    "paid": True,
+                    "offer": active_order.offer_snapshot.get("name", "Ongoing workspace"),
+                    "amount_cents": active_order.settled_amount_cents
+                        if active_order.settled_amount_cents is not None else active_order.amount_cents,
+                    "discount_cents": active_order.discount_amount_cents or 0,
+                    "tax_cents": active_order.tax_amount_cents or 0,
+                    "subscription_id": active_sub.stripe_subscription_id,
+                }
+            elif "owner_checkout_previous_plan" in state:
+                org.plan = state.pop("owner_checkout_previous_plan")
+                state["billing"] = state.pop("owner_checkout_previous_billing", {"paid": False})
         org.settings = state
     db.set_context(previous_org, None)
 
@@ -253,6 +310,29 @@ def _process_checkout(db: TenantSession, event: dict, obj: dict) -> str:
         # Otherwise remain pending until an authoritative subscription webhook.
         _reconcile_subscription(db, row)
     return "paid"
+
+
+def _process_checkout_expired(db: TenantSession, event: dict, obj: dict) -> str:
+    """Fail closed on Stripe's authenticated Checkout Session expiration.
+
+    Only the exact Checkout Session ID bound to our original server-created
+    order may end a payment_pending checkout. This never revokes a completed
+    signed purchase merely because an old expiration event arrives late.
+    """
+    session_id = obj.get("id")
+    if not isinstance(session_id, str) or not session_id.startswith("cs_"):
+        return "invalid_checkout_id"
+    order = db.scalar(select(ServiceOrder).where(
+        ServiceOrder.provider_ref == session_id).with_for_update())
+    if order is None:
+        return "unknown_order"
+    if order.status != "payment_pending":
+        return "not_pending"
+    order.status = "cancelled"
+    # The signed Stripe event is persisted as PaymentEvent by handle_stripe_event.
+    # This webhook has no owner tenant context, so inserting a tenant audit row
+    # here would violate FORCE RLS; do not relax that security boundary.
+    return "checkout_expired"
 
 
 def _process_subscription(db: TenantSession, event: dict, obj: dict) -> str:
@@ -353,7 +433,13 @@ def handle_stripe_event(db: TenantSession, event: dict) -> str:
         return "malformed_object"
     kind = event["type"]
     if kind == "checkout.session.completed":
-        return _process_checkout(db, event, obj)
+        outcome = _process_checkout(db, event, obj)
+        if outcome == "unknown_order" and obj.get("payment_link"):
+            from .payment_link_claims import from_signed_checkout
+            return from_signed_checkout(db, event, obj)
+        return outcome
+    if kind == "checkout.session.expired":
+        return _process_checkout_expired(db, event, obj)
     if kind in ("customer.subscription.created", "customer.subscription.updated",
                 "customer.subscription.deleted"):
         return _process_subscription(db, event, obj)

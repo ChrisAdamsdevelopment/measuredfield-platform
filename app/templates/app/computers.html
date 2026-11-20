@@ -40,12 +40,27 @@
 {% else %}<p class="empty">No computers are connected.</p>{% endif %}
 </section>
 
+<section class="card actions" aria-labelledby="work-heading">
+<h2 id="work-heading">Pending computer work</h2>
+<p class="small muted">Only authorized Work-mode projects can change files. A queued request can be cancelled before the computer claims it. To stop already-running work, disconnect that computer.</p>
+{% if pending_work %}
+<div class="scroll"><table><thead><tr><th scope="col">Requested</th><th scope="col">Operation</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>
+{% for job in pending_work %}
+<tr><td>{{ job.created_at.strftime('%b %d, %H:%M UTC') }}</td><td>{{ 'Create or edit file' if job.action == 'write_file' else 'Create folder' }}</td><td>{{ job.status|capitalize }}</td>
+<td>{% if job.status == 'queued' %}
+<form method="post" action="/app/computers/work/{{ job.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="btn danger small" type="submit">Cancel queued work</button></form>
+{% else %}<span class="small muted">Disconnect computer to stop further work</span>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">No pending computer work.</p>{% endif %}
+</section>
+
 <section class="card actions" aria-labelledby="activity-heading">
 <h2 id="activity-heading">What happened on your computers</h2>
-<p class="small muted">Reported by each connected computer. This is a summary only: we never receive your files or their locations, and a change is only made on a computer after you approve it there.</p>
+<p class="small muted">Reported by each connected computer. This summary never includes file contents or full paths. Suggest mode requires approval for each change; Work mode can save actual files only during an owner-approved project session.</p>
 {% if activity %}<div class="scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Computer</th><th scope="col">What</th><th scope="col">Project</th><th scope="col">Result</th></tr></thead><tbody>
 {% for e, name in activity %}<tr><td>{{ e.occurred_at.strftime('%b %d, %H:%M') }}</td><td>{{ name }}</td>
-<td>{{ {'connection_started':'Connection started','connection_ended':'Connection ended','folder_shared':'Folder shared','folder_unshared':'Folder no longer shared','file_read':'Files read','change_proposed':'Change suggested','change_approved':'Change approved by you','change_rejected':'Change declined'}[e.action] }}{% if e.count > 1 %} &times; {{ e.count }}{% endif %}</td>
+<td>{{ {'connection_started':'Connection started','connection_ended':'Connection ended','folder_shared':'Folder shared','folder_unshared':'Folder no longer shared','file_read':'Files read','change_proposed':'Change suggested','change_approved':'Change approved by you','change_rejected':'Change declined','file_written':'File created or updated','directory_created':'Folder created'}[e.action] }}{% if e.count > 1 %} &times; {{ e.count }}{% endif %}</td>
 <td>{{ e.project_label or '' }}</td><td><span class="badge {{ 'done' if e.result == 'ok' else 'failed' }}">{{ {'ok':'Done','denied':'Not allowed','error':'Problem'}[e.result] }}</span></td></tr>{% endfor %}
 </tbody></table></div>{% else %}<p class="empty">Nothing reported yet.</p>{% endif %}
 </section>
@@ -61,6 +76,7 @@
 <fieldset><legend>What may an assistant do on it?</legend>
 <label><input type="radio" name="access" value="read" checked> <strong>Read only</strong> &mdash; look at the folders you choose. It cannot change anything.</label>
 <label><input type="radio" name="access" value="suggest"> <strong>Suggest changes</strong> &mdash; also prepare changes for you to review. Nothing changes until you approve it on that computer.</label>
+<label><input type="radio" name="access" value="work"> <strong>Work in approved projects</strong> &mdash; with a separately granted writable folder and time-limited work session, the assistant can create and edit actual files without approving every routine change. No whole-drive or automatic shell access.</label>
 </fieldset>
 <div class="actions"><button class="btn" type="submit">Get a connection code</button></div>
 </form>

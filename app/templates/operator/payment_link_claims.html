@@ -1,0 +1,24 @@
+{% extends "public/base.html" %}
+{% block title %}Payment Purchase Reviews | {{ brand }}{% endblock %}
+{% block content %}
+<section class="section"><div class="wrap">
+<p class="eyebrow">Platform administration</p>
+<h1>Unclaimed Stripe purchase reviews</h1>
+<p>This queue includes only expired or disputed direct-link purchases. Rechecking Stripe does not give the buyer account access; the verified account owner must still claim the purchase in their chosen workspace.</p>
+<p><a class="btn btn-secondary" href="/operator">Back to operator overview</a></p>
+{% if flash %}<div class="flash flash-ok card" role="status">{{ flash }}</div>{% endif %}
+{% if flash_error %}<div class="flash flash-error card" role="alert">{{ flash_error }}</div>{% endif %}
+{% if not claims %}<div class="card"><p>No expired or disputed direct purchases currently require review.</p></div>{% endif %}
+{% for c in claims %}
+<div class="card" style="margin:1rem 0">
+<h2>{{ c.offer_code }} — {{ c.status }}</h2>
+<p>Original total: {{ '$%.2f'|format(c.amount_total_cents / 100) }} · Stripe reference ending {{ c.checkout_session_id[-8:] }} · Verified {{ c.verified_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+<p>Account email: {{ c.billing_email }}. Never assign a business from the email alone.</p>
+<form method="post" action="/operator/payment-link-claims/{{ c.id }}/recheck">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Reason for re-verification <input name="reason" minlength="12" maxlength="300" required placeholder="Customer contacted support about reinstatement"></label>
+<button type="submit" class="btn">Recheck Stripe, then reopen if safe</button></form>
+</div>
+{% endfor %}
+</div></section>
+{% endblock %}

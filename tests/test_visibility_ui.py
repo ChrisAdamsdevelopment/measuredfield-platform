@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.module_catalog import catalog, connection_policy
-from app.services.visibility_lab import BENCHMARK_22, MARKETS, MODES
+from app.services.visibility_lab import BENCHMARK_22, MARKETS, MODES, tenant_lab_config
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -207,3 +207,76 @@ console.log("DRAFT_IMPORT_REVALIDATION_PASS");
         text=True, capture_output=True, check=True, timeout=15,
     )
     assert "DRAFT_IMPORT_REVALIDATION_PASS" in result.stdout
+
+
+def test_visibility_lab_never_renders_fixed_pilot_evidence_numbers_and_uses_tenant_counts():
+    """Claude MF-018 review #461 regression: never show the pilot's 60/22/78 cohort numbers
+    to every business; display the signed-in tenant's own recorded counts instead."""
+    env = _render_env()
+    org = SimpleNamespace(
+        name="Flagstaff Timber & Tile LLC",
+        status="active",
+        settings={"visibility_lab": {"markets": ["Flagstaff, Arizona", "Sedona, Arizona"]}},
+    )
+    cfg = tenant_lab_config(org)
+    ctx = _base_context("/app/modules/visibility")
+    ctx["org"] = org
+    html = env.get_template("app/visibility_lab.html").render(
+        **ctx,
+        questions=cfg.serialize()["questions"],
+        markets=list(cfg.markets),
+        modes=list(MODES),
+        evidence_counts={
+            "verified_provider": 3,
+            "captured_unverified": 7,
+            "historical_import": 4,
+            "quarantined_reconstruction": 1,
+            "synthetic_fixture": 2,
+            "total": 17,
+        },
+    )
+    # No fixed pilot counts or pilot company names in another tenant's rendered UI
+    for forbidden_pilot_text in (
+        "60 run-live records",
+        "58 grounded support",
+        "22 historical imported records (6 mentions)",
+        "22 quarantined reconstructions",
+        "78 code-built",
+        "run-fresh78",
+        "Prescotts Best Construction",
+        "Prescott Valley",
+    ):
+        assert forbidden_pilot_text not in html
+
+    # Signed-in tenant's actual counts and markets are rendered
+    assert "3 stored for Flagstaff Timber &amp; Tile LLC." in html
+    assert "7 stored for Flagstaff Timber &amp; Tile LLC." in html
+    assert "4 stored for Flagstaff Timber &amp; Tile LLC." in html
+    assert "1 quarantined · 2 synthetic stored for Flagstaff Timber &amp; Tile LLC." in html
+    assert 'value="Flagstaff, Arizona"' in html
+    assert 'value="Sedona, Arizona"' in html
+    assert "flagstaff general contractors" in html
+
+
+def test_plain_evidence_page_is_default_and_lab_is_framed_under_advanced_research():
+    """Claude MF-018 review #461 owner-experience follow-up: make the plain-English evidence
+    page the default owner view and frame the AI Visibility Lab under Advanced research."""
+    env = _render_env()
+    modules_html = env.get_template("app/modules.html").render(
+        **_base_context("/app/modules"),
+        modules=catalog(),
+        connection=connection_policy(),
+    )
+    assert 'href="/app/modules/visibility/evidence-health"' in modules_html
+    assert "Open AI Evidence Check (Default)" in modules_html
+    assert "Advanced research · Launch AI Visibility Lab" in modules_html
+
+    lab_html = env.get_template("app/visibility_lab.html").render(
+        **_base_context("/app/modules/visibility"),
+        questions=_benchmark_items(),
+        markets=list(MARKETS),
+        modes=list(MODES),
+    )
+    assert "Open AI Evidence Check (default owner view)" in lab_html
+    assert "Advanced research console" in lab_html
+    assert "0 stored for Example Remodeling LLC." in lab_html

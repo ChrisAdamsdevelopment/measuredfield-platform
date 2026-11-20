@@ -20,7 +20,7 @@ SERVICE_ID = "srv-dbrk59jrjlhs73bha8pg"
 SERVICE_NAME = "measuredfield-production-web"
 SERVICE_URL = "https://measuredfield-staging-web.onrender.com"
 REPO_URL = "https://github.com/ChrisAdamsdevelopment/measuredfield-platform"
-EXPECTED_BRANCH = "feature/measuredfield-asset-production-20261112"
+EXPECTED_BRANCH = "main"
 
 REQUIRED_NAMES = frozenset({
     "MF_CENSUS_API_KEY", "MF_ENABLE_REMOTE_MCP",

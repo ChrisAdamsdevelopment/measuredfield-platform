@@ -50,7 +50,7 @@ def public_sitemap():
     if settings.env != "production":
         raise HTTPException(404, "Not found")
     base = settings.public_base_url.rstrip("/")
-    paths = ["/", "/platform", "/assessment", "/signup", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
+    paths = ["/", "/platform", "/local/prescott", "/assessment", "/signup", "/visibility-preview", "/watch/measuredfield-business-launch", "/privacy", "/terms"]
     entries = []
     for path in paths:
         extra = ""
@@ -94,6 +94,12 @@ def terms(request: Request, principal: Principal | None = Depends(get_principal)
 def platform_overview(request: Request, principal: Principal | None = Depends(get_principal)):
     """Indexable, honest overview: public copy cannot grant private tool access."""
     return render(request, "public/platform.html")
+
+
+@router.get("/local/prescott")
+def prescott_local_growth(request: Request, principal: Principal | None = Depends(get_principal)):
+    """Public local service overview; never implies a verified storefront or live rank scan."""
+    return render(request, "public/local_prescott.html")
 
 
 # -------------------------------------------------------------------- free sample preview
@@ -327,8 +333,16 @@ def order_create(token: str, request: Request, db: TenantSession = Depends(get_d
         except payments.PaymentError:
             # Approval stays recorded; the status page explains that payment is still open.
             return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
+        # Never send a prospect to a look-alike host, even if a provider
+        # adapter or a synthetic transport is misconfigured. Approval remains
+        # recorded, but no payment is presumed and no subscription is created.
+        if not payments.hosted_checkout_session_valid(checkout):
+            return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
         order.provider_ref, order.payment_provider, order.status = checkout["id"], "stripe", "payment_pending"
-        return RedirectResponse(checkout["url"], status_code=303)
+        redirect = RedirectResponse(checkout["url"], status_code=303)
+        redirect.headers["Referrer-Policy"] = "no-referrer"
+        redirect.headers["Cache-Control"] = "no-store"
+        return redirect
     return RedirectResponse(f"/order/{order.id}?t={token}", status_code=303)
 
 
@@ -354,7 +368,15 @@ async def stripe_webhook(request: Request, db: TenantSession = Depends(get_db)):
         event = provider.verify_webhook(payload, request.headers.get("stripe-signature", ""))
     except payments.PaymentError:
         return JSONResponse({"error": "Invalid signature."}, status_code=400)
-    outcome = orders.handle_stripe_event(db, event)
+    try:
+        outcome = orders.handle_stripe_event(db, event)
+    except Exception as exc:
+        from ..services.payment_link_claims import PaymentLinkRetry
+        if not isinstance(exc, PaymentLinkRetry):
+            raise
+        # A transient Stripe API failure must not commit the event-ID ledger.
+        # The 503 rolls the entire request back so Stripe can retry this event.
+        return JSONResponse({"error": "Temporary payment verification failure"}, status_code=503)
     return JSONResponse({"received": True, "outcome": outcome})
 
 

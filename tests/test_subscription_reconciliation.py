@@ -28,9 +28,9 @@ def stripe(monkeypatch):
 
     def mock_send(request: httpx.Request):
         calls.append(request)
+        sid = "cs_test_" + uuid.uuid4().hex
         return httpx.Response(200, json={
-            "id": "cs_test_" + uuid.uuid4().hex,
-            "url": "https://checkout.stripe.com/test/fake"})
+            "id": sid, "url": "https://checkout.stripe.com/c/pay/" + sid})
 
     provider = payments.StripeProvider(
         "sk_test_fictional", SECRET,

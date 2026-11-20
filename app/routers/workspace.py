@@ -18,11 +18,11 @@ from sqlalchemy import func, select
 from ..config import get_settings
 from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
-from ..models import (AssessmentReport, AuditEvent, Customer, DataRequest, Document, Improvement, Lead,
-                      LeadNote, LessonCandidate, Membership, MemoryItem, Project, Proposal, SiteVersion,
-                      User, now)
+from ..models import (AssessmentReport, AuditEvent, ConnectedDevice, Customer, DataRequest, DeviceWorkRequest,
+                      Document, Improvement, Lead, LeadNote, LeadReply, LessonCandidate, McpIdentityLink,
+                      Membership, MemoryItem, Project, Proposal, SiteVersion, User, WebsiteWorkRequest, now)
 from ..security import ROLES, digest, new_token, valid_email
-from ..services import growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data
+from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data, website_work
 from ..services.audit import audit
 from .auth import list_orgs
 
@@ -92,8 +92,13 @@ def inquiry(lead_id: str, request: Request, db: TenantSession = Depends(get_db),
     lead = _get(db, Lead, lead_id)
     notes = db.execute(select(LeadNote, User.name).outerjoin(User, User.id == LeadNote.author_id)
                        .where(LeadNote.lead_id == lead.id).order_by(LeadNote.created_at)).all()
+    replies = db.scalars(select(LeadReply).where(LeadReply.lead_id == lead.id)
+                         .order_by(LeadReply.created_at.desc()).limit(100)).all()
+    settings = get_settings()
+    provider_ready = bool(settings.email_provider == "resend" and settings.resend_api_key and settings.email_from)
     return _page(request, db, p, "app/inquiry.html", {
-        "lead": lead, "notes": notes, "members": _members(db), "statuses": LEAD_STATUSES,
+        "lead": lead, "notes": notes, "replies": replies, "provider_ready": provider_ready,
+        "members": _members(db), "statuses": LEAD_STATUSES,
         "timings": sitegen.TIMINGS})
 
 
@@ -146,6 +151,63 @@ def inquiry_note(lead_id: str, body: str = Form(""), db: TenantSession = Depends
     return back(f"/app/inquiries/{lead.id}", ok="Note added")
 
 
+@router.post("/app/inquiries/{lead_id}/reply/draft")
+def inquiry_reply_draft(
+    lead_id: str, subject: str = Form(""), body: str = Form(""),
+    db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("leads.write")),
+):
+    """Save a reply without contacting a customer."""
+    lead = _get(db, Lead, lead_id)
+    subject, body = subject.strip(), body.strip()
+    if (not 1 <= len(subject) <= 200 or "\n" in subject or "\r" in subject
+            or "\x00" in subject or not 1 <= len(body) <= 4000 or "\x00" in body):
+        return back(f"/app/inquiries/{lead.id}", err="Use a subject up to 200 characters and a message up to 4000.")
+    if not valid_email(lead.email):
+        return back(f"/app/inquiries/{lead.id}", err="This inquiry has no valid reply email address.")
+    reply = LeadReply(
+        org_id=p.org.id, lead_id=lead.id, created_by=p.user.id,
+        to_email=lead.email, subject=subject, body=body, status="draft",
+    )
+    db.add(reply)
+    db.flush()
+    audit(db, p.org.id, p.user.id, "lead.reply_drafted", "lead_reply", reply.id,
+          {"lead_id": str(lead.id)})
+    return back(f"/app/inquiries/{lead.id}", ok="Draft saved. Nothing has been sent.")
+
+
+@router.post("/app/inquiries/{lead_id}/reply/{reply_id}/approve")
+def inquiry_reply_approve(
+    lead_id: str, reply_id: str,
+    db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("leads.write")),
+):
+    """Only an owner/admin may explicitly approve queued customer contact."""
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator approval is required.")
+    lead = _get(db, Lead, lead_id)
+    reply = db.scalar(select(LeadReply).where(
+        LeadReply.id == parse_uuid(reply_id), LeadReply.org_id == p.org.id,
+        LeadReply.lead_id == lead.id).with_for_update())
+    if reply is None:
+        raise HTTPException(404, "Not found")
+    if reply.status != "draft":
+        return back(f"/app/inquiries/{lead.id}", err="This draft has already been handled.")
+    if reply.to_email != lead.email or not valid_email(lead.email):
+        return back(f"/app/inquiries/{lead.id}", err="The inquiry email changed; create a new draft.")
+    settings = get_settings()
+    if settings.email_provider != "resend" or not settings.resend_api_key or not settings.email_from:
+        return back(f"/app/inquiries/{lead.id}", err="Email is not configured. Draft preserved; nothing sent.")
+    reply.approved_by, reply.approved_at, reply.status = p.user.id, now(), "queued"
+    db.flush()
+    jobs.enqueue(db, "send_lead_reply", {"reply_id": str(reply.id)},
+                 key=f"lead_reply:{reply.id}", org_id=p.org.id)
+    audit(db, p.org.id, p.user.id, "lead.reply_approved", "lead_reply", reply.id,
+          {"lead_id": str(lead.id)})
+    return back(f"/app/inquiries/{lead.id}",
+                ok="Reply approved and queued. Delivery is not yet confirmed.")
+
+
 @router.post("/app/inquiries/{lead_id}/convert")
 def inquiry_convert(lead_id: str, db: TenantSession = Depends(get_db),
                     p: Principal = Depends(member_post("customers.write"))):
@@ -183,6 +245,85 @@ def website(request: Request, db: TenantSession = Depends(get_db), p: Principal 
         "colors": sitegen.COLORS, "industries": sitegen.INDUSTRIES, "windows": sitegen.RESPONSE_WINDOWS,
         "suggested_slug": sitegen.slugify(p.org.name), "base_domain": get_settings().sites_base_domain,
         "hosts": sites.list_hosts(db, site) if site else [], "dirty": dirty})
+
+
+@router.get("/app/website/studio")
+def website_studio(request: Request, db: TenantSession = Depends(get_db),
+                   p: Principal = Depends(member())):
+    """Private website workbench: authentic published/saved vs draft previews.
+
+    Reads tenant-isolated immutable snapshots; simply opening it never writes,
+    starts a connected device, sends email, or changes the public site.
+    """
+    site = sites.get_site(db)
+    versions = (db.scalars(select(SiteVersion).where(
+        SiteVersion.site_id == site.id).order_by(
+            SiteVersion.number.desc()).limit(20)).all() if site else [])
+    live = (db.get(SiteVersion, site.published_version_id)
+            if site and site.published_version_id else None)
+    if live is not None and (live.site_id != site.id or live.org_id != p.org.id):
+        live = None
+    # Saved prior version when nothing is live; never invent a baseline.
+    baseline = live or (next(
+        (v for v in versions if v.content != site.draft), None)
+        if site else None)
+    linked = db.scalar(select(McpIdentityLink.id).where(
+        McpIdentityLink.user_id == p.user.id,
+        McpIdentityLink.revoked_at.is_(None)).limit(1)) is not None
+    devices = db.scalars(select(ConnectedDevice).where(
+        ConnectedDevice.org_id == p.org.id,
+        ConnectedDevice.status == "active",
+    ).order_by(ConnectedDevice.confirmed_at.desc()).limit(8)).all()
+    receipts = db.scalars(select(DeviceWorkRequest).where(
+        DeviceWorkRequest.org_id == p.org.id,
+        DeviceWorkRequest.created_by == p.user.id,
+    ).order_by(DeviceWorkRequest.created_at.desc()).limit(5)).all()
+    return _page(request, db, p, "app/website_studio.html", {
+        "site": site, "versions": versions, "baseline": baseline,
+        "baseline_is_live": bool(live),
+        "draft_saved": bool(site and versions and versions[0].content == site.draft),
+        "linked_identity": linked, "devices": devices,
+        "work_devices": [device for device in devices if device.access == "work"],
+        "work_receipts": receipts,
+        "website_requests": db.scalars(select(WebsiteWorkRequest).where(
+            WebsiteWorkRequest.org_id == p.org.id, WebsiteWorkRequest.created_by == p.user.id,
+        ).order_by(WebsiteWorkRequest.created_at.desc()).limit(12)).all(),
+        "website_host": sites.subdomain_host(site.slug) if site else "",
+    })
+
+
+@router.post("/app/website/studio/requests")
+def website_studio_submit(
+    instruction: str = Form(""), db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("site.edit")),
+):
+    """An actual persistent owner task for ChatGPT to pick up via OAuth."""
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator access required")
+    site = sites.get_site(db)
+    if site is None:
+        return back("/app/website/studio", err="Create your website draft first")
+    try:
+        website_work.enqueue(db, p.org.id, p.user.id, site, instruction)
+    except website_work.WebsiteWorkDenied as exc:
+        return back("/app/website/studio", err=str(exc))
+    return back("/app/website/studio",
+                ok="Website work queued. Open ChatGPT with MeasuredField connected to perform it.")
+
+
+@router.post("/app/website/studio/requests/{request_id}/cancel")
+def website_studio_cancel(
+    request_id: str, db: TenantSession = Depends(get_db),
+    p: Principal = Depends(member_post("site.edit")),
+):
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator access required")
+    try:
+        website_work.cancel_for_owner(
+            db, org_id=p.org.id, actor=p.user.id, request_id=request_id)
+    except website_work.WebsiteWorkDenied as exc:
+        return back("/app/website/studio", err=str(exc))
+    return back("/app/website/studio", ok="Website work request cancelled")
 
 
 @router.post("/app/website/save")
@@ -643,7 +784,18 @@ def team_remove(membership_id: str, db: TenantSession = Depends(get_db),
 @router.get("/app/settings")
 def settings_page(request: Request, db: TenantSession = Depends(get_db), p: Principal = Depends(member())):
     settings = get_settings()
+    active_workspace = orders.active_subscription_for(db, p.org.id, "operate")
+    pending_workspace = orders.pending_owner_checkout(db, p.org.id)
+    billing_linked = billing_portal.verified_customer_for(db, p.org.id) is not None if active_workspace else False
+    offer = settings.offer("operate")
+    checkout_available = bool(settings.payment_provider == "stripe" and settings.stripe_secret_key
+                              and settings.stripe_webhook_secret and offer
+                              and offer.get("billing") == "monthly" and offer.get("stripe_price_id")
+                              and offer.get("allow_promotion_codes") is True
+                              and type(offer.get("price_cents")) is int and offer["price_cents"] > 0)
     return _page(request, db, p, "app/settings.html", {
+        "subscription_active": active_workspace, "subscription_linked": billing_linked,
+        "checkout_pending": pending_workspace is not None, "checkout_available": checkout_available,
         "billing": (p.org.settings or {}).get("billing", {}),
         "deletion": db.scalar(select(DataRequest).where(DataRequest.kind == "delete", DataRequest.status == "requested")),
         "email_live": settings.email_provider != "none", "payments_live": settings.payment_provider != "none",

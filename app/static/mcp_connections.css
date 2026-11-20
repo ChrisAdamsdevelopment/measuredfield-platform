@@ -58,3 +58,26 @@
 @media(max-width:880px){.mfcp-hero{grid-template-columns:1fr}.mfcp-hero-figure{min-height:105px}.mfcp-panels,.mfcp-trust{grid-template-columns:1fr}.mfcp-trust-side{padding:20px 0 0;border-left:0;border-top:1px solid #bfd5cb}}
 @media(max-width:620px){.mfcp-hero{padding:24px;border-radius:18px}.mfcp-hero h1{font-size:2rem}.mfcp-hero-figure{display:none}.mfcp-steps,.mfcp-panel,.mfcp-trust{border-radius:16px;padding:18px}.mfcp-step{grid-template-columns:34px minmax(0,1fr);gap:10px}.mfcp-number{width:32px;height:32px;border-radius:10px}.mfcp-step-state{grid-column:2;justify-self:start;margin:0}.mfcp-section-heading{gap:9px}.mfcp-section-heading>p{max-width:none}.mfcp-table-scroll{overflow-x:visible}.mfcp-table,.mfcp-table tbody{display:block}.mfcp-table thead{position:absolute;clip:rect(0,0,0,0);width:1px;height:1px;overflow:hidden}.mfcp-table tbody tr{display:block;border:1px solid #deebe4;border-radius:12px;padding:12px;margin-bottom:12px}.mfcp-table tbody td{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:0;text-align:right}.mfcp-table tbody td:before{content:attr(data-label);text-align:left;color:#627873;font-weight:700;font-size:.78rem;flex-shrink:0}.mfcp-table td form{text-align:right}.mfcp-table .btn{white-space:normal;text-align:center}}
 @media(prefers-reduced-motion:reduce){.mfcp *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* 2026-11-19 owner-reviewed MeasuredField illustration and visual system.
+   The artwork is decorative. OAuth/device states are live server-rendered data. */
+.mfcp-hero{background:linear-gradient(112deg,#f8f6ff 0%,#eeebff 53%,#e9efff 100%);color:#282344;border:1px solid #e1dbf8}
+.mfcp-hero:before,.mfcp-hero:after{border-color:rgba(112,72,218,.12)}
+.mfcp-hero .mfcp-eyebrow{color:#6d40de}
+.mfcp-hero h1{color:#242541}
+.mfcp-lead{color:#5a607a}
+.mfcp-permission-line span{border-color:#d8cafa;color:#5d42a4;background:rgba(255,255,255,.65)}
+.mfcp-hero-figure{display:flex;flex-direction:column;gap:0;min-height:210px}
+.mfcp-hero-figure img{width:min(100%,350px);height:auto;object-fit:contain;filter:drop-shadow(0 12px 20px rgba(105,61,160,.09))}
+.mfcp-hero-figure p{color:#665c90;font-weight:730;font-size:.75rem}
+.mfcp-steps,.mfcp-panel{border-color:#e5e0f4}
+.mfcp-eyebrow{color:#7050bc}
+.mfcp-number{background:#f0edff;color:#6c45be}
+.mfcp-step-done .mfcp-number{background:#e7defb;color:#633cb7}
+.mfcp-step-state{background:#edf8f0;color:#276d4c}
+.mfcp-panel-next{background:#f6f2ff}
+.mfcp-subtle-link{color:#6440c5;border-bottom-color:#c3b0eb}
+.mfcp-subtle-link:hover{color:#482aa2;border-bottom-color:#6746b4}
+.mfcp-trust{background:#f1effd}
+.mfcp-trust-side{border-left-color:#d6ccf1}
+@media(max-width:880px){.mfcp-trust-side{border-top-color:#d6ccf1}}

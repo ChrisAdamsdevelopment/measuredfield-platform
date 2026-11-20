@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-PRODUCTION_ORIGIN = "https://measuredfield-staging-web.onrender.com"
+PRODUCTION_ORIGIN = "https://spectracleanse.com"
 MAX_BODY = 32_768
 
 
@@ -73,9 +73,14 @@ def analyze(responses: dict[str, PublicResult]) -> dict:
 
     bearer = mcp.headers.get("www-authenticate", "").lower()
     checks["mcp_denies_anonymous"] = mcp.status == 401
-    checks["mcp_bearer_challenge"] = (mcp.status == 401 and
-                                     "bearer" in bearer and
-                                     "resource_metadata=" in bearer)
+    expected_resource_metadata = (
+        f'resource_metadata="{PRODUCTION_ORIGIN}/'
+        '.well-known/oauth-protected-resource/mcp"'
+    )
+    checks["mcp_bearer_challenge"] = (
+        mcp.status == 401 and "bearer" in bearer
+        and expected_resource_metadata.lower() in bearer
+    )
 
     metadata_valid = False
     if meta.status == 200 and len(meta.body) <= MAX_BODY:

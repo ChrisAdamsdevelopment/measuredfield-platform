@@ -226,7 +226,7 @@ class Assessment(Base):
 class ServiceOrder(Base):
     __tablename__ = "service_orders"
     id: Mapped[uuid.UUID] = PK()
-    assessment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assessments.id", ondelete="CASCADE"), index=True)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assessments.id", ondelete="CASCADE"), index=True, nullable=True)
     offer_code: Mapped[str] = mapped_column(String(40), nullable=False)
     offer_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -246,6 +246,74 @@ class ServiceOrder(Base):
     org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"))
     provisioned_at: Mapped[datetime | None] = OPT_TS()
     created_at: Mapped[datetime] = TS()
+
+
+class PendingPaymentLinkClaim(Base):
+    """Platform-only Stripe direct checkout awaiting verified owner election.
+
+    No tenant resources are provisioned from a billing email. This row becomes
+    claimable only through a signed event, verified Stripe API evidence and an
+    authenticated owner with verified mailbox control.
+    """
+    __tablename__ = "payment_link_claims"
+    id: Mapped[uuid.UUID] = PK()
+    checkout_session_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_subscription_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    stripe_customer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stripe_payment_link_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stripe_price_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    offer_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    billing_email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
+    amount_subtotal_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    discount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    stripe_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    subscription_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending_claim", nullable=False)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"))
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_orders.id", ondelete="SET NULL"), unique=True)
+    claimed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[datetime] = TS()
+    claimed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        CheckConstraint("status IN ('pending_claim', 'claimed', 'expired', 'needs_review')",
+                        name="ck_payment_link_claim_status"),
+        CheckConstraint("amount_subtotal_cents > 0 AND amount_total_cents >= 0 "
+                        "AND discount_cents BETWEEN 0 AND amount_subtotal_cents "
+                        "AND tax_cents >= 0 AND "
+                        "amount_total_cents = amount_subtotal_cents - discount_cents + tax_cents",
+                        name="ck_payment_link_claim_amounts"),
+        Index("ix_payment_link_claims_status", "status"),
+    )
+
+
+class PaymentLinkClaimReview(Base):
+    """Immutable platform review trail for disputed direct Stripe purchases.
+
+    No tenant RLS: operators can inspect pending unassigned transactions, but
+    must never see tenant content or grant access without a verified owner claim.
+    """
+    __tablename__ = "payment_link_claim_reviews"
+    id: Mapped[uuid.UUID] = PK()
+    claim_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payment_link_claims.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
+    reviewer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        CheckConstraint("action = 'recheck'", name="ck_payment_link_review_action"),
+        CheckConstraint("outcome IN ('reopened', 'needs_review', 'unavailable')",
+                        name="ck_payment_link_review_outcome"),
+    )
 
 
 class PaymentEvent(Base):
@@ -444,6 +512,36 @@ class SiteVersion(Base):
     __table_args__ = (UniqueConstraint("site_id", "number"),)
 
 
+class WebsiteWorkRequest(Base):
+    """User-submitted website work for a separately authorized ChatGPT tool.
+
+    Instructions are not an execution receipt. Completion requires a real
+    version-checked draft mutation; publishing is a separate human action.
+    """
+    __tablename__ = "website_work_requests"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    site_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued", nullable=False)
+    expected_draft_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    applied_payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    resulting_draft_sha256: Mapped[str | None] = mapped_column(String(64))
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = TS()
+    completed_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        ForeignKeyConstraint(["site_id", "org_id"], ["sites.id", "sites.org_id"],
+                             name="fk_website_work_owner_site", ondelete="CASCADE"),
+        CheckConstraint("status IN ('queued', 'completed', 'cancelled')",
+                        name="ck_website_work_status"),
+        Index("ix_website_work_queue", "org_id", "status", "created_at"),
+    )
+
+
 class SiteEvent(Base):
     """Cookie-less daily aggregate counters from published sites. No visitor identifiers."""
     __tablename__ = "site_events"
@@ -477,6 +575,7 @@ class Lead(Base):
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = TS()
+    __table_args__ = (UniqueConstraint("org_id", "id", name="uq_leads_org_id"),)
 
 
 class LeadNote(Base):
@@ -487,6 +586,76 @@ class LeadNote(Base):
     author_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = TS()
+
+
+class LeadReply(Base):
+    """Tenant-scoped inquiry reply. Provider acceptance is NOT final delivery."""
+    __tablename__ = "lead_replies"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
+    to_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="draft", server_default="draft", nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255))
+    last_error: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = TS()
+    approved_at: Mapped[datetime | None] = OPT_TS()
+    accepted_at: Mapped[datetime | None] = OPT_TS()
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "lead_id"], ["leads.org_id", "leads.id"],
+                             ondelete="CASCADE", name="fk_lead_reply_same_org"),
+        CheckConstraint("status IN ('draft','queued','accepted','failed','not_configured')",
+                        name="ck_lead_reply_status"),
+        CheckConstraint("char_length(subject) BETWEEN 1 AND 200", name="ck_lead_reply_subject"),
+        CheckConstraint("char_length(body) BETWEEN 1 AND 4000", name="ck_lead_reply_body"),
+        CheckConstraint(
+            "(status = 'draft' AND approved_by IS NULL AND approved_at IS NULL) OR "
+            "(status <> 'draft' AND approved_by IS NOT NULL AND approved_at IS NOT NULL)",
+            name="ck_lead_reply_explicit_approval"),
+        Index("ix_lead_replies_org_lead_date", "org_id", "lead_id", "created_at"),
+    )
+
+
+class McpActionDraft(Base):
+    """Tenant-scoped draft proposed through OAuth. NO external effect on creation.
+
+    A separate MeasuredField owner session must approve or decline the draft.
+    Models and MCP OAuth clients never receive approval or publishing authority.
+    """
+    __tablename__ = "mcp_action_drafts"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    oauth_client_id: Mapped[str] = mapped_column(String(250), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, default="inquiry_reply")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    body_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending_review")
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reviewed_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    __table_args__ = (
+        UniqueConstraint("org_id", "created_by", "idempotency_key",
+                         name="uq_mcp_draft_actor_idempotency"),
+        ForeignKeyConstraint(["org_id", "lead_id"], ["leads.org_id", "leads.id"],
+                             ondelete="CASCADE", name="fk_mcp_draft_lead_same_org"),
+        CheckConstraint("kind = 'inquiry_reply'", name="ck_mcp_draft_kind"),
+        CheckConstraint("status IN ('pending_review', 'approved', 'declined')",
+                        name="ck_mcp_draft_status"),
+        CheckConstraint("char_length(body) BETWEEN 1 AND 4000",
+                        name="ck_mcp_draft_body_length"),
+        CheckConstraint("char_length(idempotency_key) BETWEEN 12 AND 80",
+                        name="ck_mcp_draft_idempotency_length"),
+        Index("ix_mcp_drafts_org_status_created", "org_id", "status", "created_at"),
+    )
 
 
 class Customer(Base):
@@ -802,7 +971,7 @@ class ConnectedDevice(Base):
     name: Mapped[str] = mapped_column(String(80), nullable=False)             # chosen by the owner
     reported_name: Mapped[str] = mapped_column(String(80), default="", server_default="", nullable=False)  # claimed by the computer
     platform: Mapped[str] = mapped_column(String(20), nullable=False)
-    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest
+    access: Mapped[str] = mapped_column(String(10), nullable=False)           # read | suggest | work
     status: Mapped[str] = mapped_column(String(12), nullable=False)
     credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     check_number: Mapped[str] = mapped_column(String(6), default="", server_default="", nullable=False)
@@ -817,8 +986,75 @@ class ConnectedDevice(Base):
     revoked_reason: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
     __table_args__ = (
         UniqueConstraint("credential_hash", name="uq_connected_devices_credential_hash"),
-        CheckConstraint("access IN ('read', 'suggest')", name="ck_connected_devices_access"),
+        UniqueConstraint("org_id", "id", name="uq_connected_devices_org_id_id"),
+        CheckConstraint("access IN ('read', 'suggest', 'work')", name="ck_connected_devices_access"),
         CheckConstraint("status IN ('pending', 'active', 'revoked', 'expired')", name="ck_connected_devices_status"),
+    )
+
+
+class DeviceWorkProject(Base):
+    """Short-lived, device-reported metadata for an owner-approved local grant.
+
+    No filesystem paths, credentials or file contents ever leave the computer.
+    This roster helps OAuth clients choose opaque local project identifiers;
+    actual writes still require the live local pairing and directory checks.
+    """
+    __tablename__ = "device_work_projects"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(24), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)
+    reported_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "device_id"],
+                             ["connected_devices.org_id", "connected_devices.id"],
+                             name="fk_device_work_projects_device", ondelete="CASCADE"),
+        UniqueConstraint("org_id", "device_id", "project_id",
+                         name="uq_device_work_projects_identity"),
+        CheckConstraint("access IN ('readwrite')",
+                        name="ck_device_work_projects_access"),
+        Index("ix_device_work_projects_fresh", "org_id", "device_id", "expires_at"),
+    )
+
+
+class DeviceWorkRequest(Base):
+    """Tenant-isolated encrypted queued work for one owner-linked computer.
+
+    A token-carrying local companion, not the OAuth caller, may lease/complete
+    work for its own device. Payload never appears as plaintext in database.
+    """
+    __tablename__ = "device_work_requests"
+    id: Mapped[uuid.UUID] = PK()
+    org_id: Mapped[uuid.UUID] = org_fk()
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    oauth_client_id: Mapped[str] = mapped_column(String(250), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued", nullable=False)
+    lease_hash: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = OPT_TS()
+    created_at: Mapped[datetime] = TS()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = OPT_TS()
+    result_hash: Mapped[str | None] = mapped_column(String(64))
+    result_status: Mapped[str | None] = mapped_column(String(30))
+    __table_args__ = (
+        ForeignKeyConstraint(["org_id", "device_id"],
+                             ["connected_devices.org_id", "connected_devices.id"],
+                             name="fk_device_work_owner_device", ondelete="CASCADE"),
+        UniqueConstraint("org_id", "created_by", "request_key",
+                         name="uq_device_work_request_idempotency"),
+        CheckConstraint("action IN ('write_file', 'make_directory')", name="ck_device_work_action"),
+        CheckConstraint("status IN ('queued', 'leased', 'succeeded', 'failed', 'cancelled', 'expired')",
+                        name="ck_device_work_status"),
+        Index("ix_device_work_claim", "org_id", "device_id", "status", "created_at"),
     )
 
 
@@ -857,21 +1093,24 @@ class DevicePairingCode(Base):
 # Order matters for deletion (children before parents).
 TENANT_TABLES = [
     "visibility_research_reservations", "visibility_research_budgets",
-    "device_events", "connected_devices",
+    "website_work_requests", "device_work_requests", "device_work_projects", "device_events", "connected_devices",
     "visibility_observations", "visibility_experiments", "visibility_questions", "visibility_gsc_snapshots",
-    "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
+    "mcp_action_drafts", "lead_replies", "lead_notes", "leads", "proposals", "projects", "customers", "memory_items", "documents",
     "lesson_candidates", "assessment_reports", "improvements", "site_events", "site_versions",
     "sites", "data_requests", "audit_events", "memberships",
 ]
 TENANT_MODELS = {
     "visibility_research_reservations": VisibilityResearchReservation,
     "visibility_research_budgets": VisibilityResearchBudget,
+    "website_work_requests": WebsiteWorkRequest,
+    "device_work_requests": DeviceWorkRequest,
+    "device_work_projects": DeviceWorkProject,
     "device_events": DeviceEvent, "connected_devices": ConnectedDevice,
     "visibility_observations": VisibilityObservation,
     "visibility_experiments": VisibilityExperiment,
     "visibility_questions": VisibilityQuestion,
     "visibility_gsc_snapshots": VisibilityGscSnapshot,
-    "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
+    "mcp_action_drafts": McpActionDraft, "lead_replies": LeadReply, "lead_notes": LeadNote, "leads": Lead, "proposals": Proposal, "projects": Project,
     "customers": Customer, "memory_items": MemoryItem, "documents": Document,
     "lesson_candidates": LessonCandidate, "assessment_reports": AssessmentReport,
     "improvements": Improvement, "site_events": SiteEvent, "site_versions": SiteVersion,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from app.local_connect import AccessDenied, LocalConnect
+from app.local_connect import AccessDenied, LocalConnect, is_reparse_point
 from app.local_connect_ui.pairing_controller import PairingOwnerController
 from app.paired_connect.registry import PairingRegistry
 
@@ -69,7 +69,7 @@ class AccountLinkController:
             # On a non-Windows test runner the DPAPI implementation is deliberately
             # unavailable; an absent file still represents a pristine local pilot.
             if isinstance(self.secrets, WindowsCredentialStore):
-                return self.secrets.file.exists()
+                return self.secrets.file.exists() or is_reparse_point(self.secrets.file)
             return True  # Unknown secret store failure is never permission to write.
 
     @staticmethod
@@ -79,7 +79,7 @@ class AccountLinkController:
                 "business": "", "name": ""}
 
     def _load(self) -> dict:
-        if self.path.is_symlink():
+        if is_reparse_point(self.path):
             return self._empty_state(unverified=True)
         try:
             source = json.loads(self.path.read_text(encoding="utf-8"))
@@ -103,13 +103,13 @@ class AccountLinkController:
         return values
 
     def _save(self) -> None:
-        if self.path.is_symlink():
+        if is_reparse_point(self.path):
             raise AccessDenied("Account state cannot be a symbolic link.")
         # Whitelist fields so neither the pairing code nor device credential can be saved.
         fields = ("status", "server_url", "device_id", "access", "business", "name")
         payload = {key: self._state.get(key, "") for key in fields}
         temporary = self.home / "account_connection.tmp"
-        if temporary.is_symlink():
+        if is_reparse_point(temporary):
             raise AccessDenied("Account state cannot use a symbolic link.")
         with temporary.open("w", encoding="utf-8") as stream:
             json.dump(payload, stream, separators=(",", ":"))
@@ -125,7 +125,11 @@ class AccountLinkController:
         # Existing local pilot remains usable unlinked. Once account-linked,
         # active Suggest changes is required for local proposal permissions.
         return self._state["status"] == "not_connected" or (
-            self._state["status"] == "active" and self._state["access"] == "suggest")
+            self._state["status"] == "active" and self._state["access"] in ("suggest", "work"))
+
+    def can_work(self) -> bool:
+        """Direct changes only when a real linked computer has Work permission."""
+        return self._state["status"] == "active" and self._state["access"] == "work"
 
     def _stop_local_connections(self) -> None:
         # Revoke ALL local MCP pairing capabilities, including previously issued sessions.
@@ -137,9 +141,13 @@ class AccountLinkController:
         status = self._state["status"]
         if status in ("pending", "unverified", "revoked"):
             self._stop_local_connections()
-        elif status == "active" and self._state["access"] != "suggest":
+        elif status == "active":
+            access = self._state["access"]
             for row in self.registry.list():
-                if row["status"] == "active" and row["can_suggest_edits"]:
+                if row["status"] != "active":
+                    continue
+                if ((access == "read" and row["can_suggest_edits"])
+                        or (access != "work" and row.get("can_write", False))):
                     self.registry.revoke(row["pairing_id"])
 
     def _revoke(self, notice: str) -> AccountView:
@@ -271,8 +279,9 @@ class AccountBoundPairingController(PairingOwnerController):
         self.account = account
 
     def pair(self, name: str, project_ids: list[str], *, minutes: int = 15,
-             allow_suggestions: bool = False, confirmed: bool = False,
-             confirmed_suggestions: bool = False) -> dict:
+             allow_suggestions: bool = False, allow_writes: bool = False,
+             confirmed: bool = False, confirmed_suggestions: bool = False,
+             confirmed_writes: bool = False) -> dict:
         state = self.account.view().status
         if state != "not_connected":
             # Re-check each account-linked pairing at the time of the consequential action.
@@ -282,5 +291,9 @@ class AccountBoundPairingController(PairingOwnerController):
             raise AccessDenied("This computer must be confirmed and connected before sharing folders.")
         if allow_suggestions and not self.account.can_suggest_edits():
             raise AccessDenied("Your account is Read only or pending confirmation; suggested edits are disabled.")
+        if allow_writes and not self.account.can_work():
+            raise AccessDenied("This computer must have owner-approved Work mode before direct edits.")
         return super().pair(name, project_ids, minutes=minutes, allow_suggestions=allow_suggestions,
-                            confirmed=confirmed, confirmed_suggestions=confirmed_suggestions)
+                            allow_writes=allow_writes, confirmed=confirmed,
+                            confirmed_suggestions=confirmed_suggestions,
+                            confirmed_writes=confirmed_writes)

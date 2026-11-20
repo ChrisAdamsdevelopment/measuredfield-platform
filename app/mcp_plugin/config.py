@@ -45,6 +45,8 @@ class McpPluginSettings:
     jwks_url: str
     resource_url: str
     read_scope: str = "mf:read"
+    # Separate, explicit owner-granted scope. Never implied by mf:read alone.
+    write_scope: str = "mf:drafts.write"
 
     @classmethod
     def from_env(cls) -> "McpPluginSettings":

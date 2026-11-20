@@ -101,7 +101,7 @@ def _callback(client, state, **extra):
 
 def test_session_bound_oidc_flow_creates_verified_link_once(platform, synthetic_idp):
     owner, uid = _owner(platform, "success")
-    assert "Verify and connect my account" in owner.get("/app/connections").text
+    assert "Verify and link my account" in owner.get("/app/connections").text
     state = _start(owner, synthetic_idp)
     with session_scope() as db:
         row = db.scalar(select(McpOwnerOIDCChallenge).where(

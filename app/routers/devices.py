@@ -21,7 +21,7 @@ from ..db import TenantSession, get_db
 from ..deps import Principal, back, client_key, member, member_post, parse_uuid
 from ..models import ConnectedDevice, Organization, User
 from ..security import rate_limited
-from ..services import devices
+from ..services import devices, device_work
 from .workspace import _page
 
 router = APIRouter()
@@ -37,7 +37,10 @@ def _computers_page(request: Request, db: TenantSession, p: Principal, *, issued
     return _page(request, db, p, "app/computers.html", {
         "devices": rows, "people": people, "codes": devices.open_codes(db, p.org.id), "issued": issued,
         "access_levels": devices.ACCESS_LEVELS, "activity": devices.recent_activity(db, 30),
-        "can_manage": p.can("devices.manage")}, status_code=status_code)
+        "can_manage": p.can("devices.manage"),
+        "pending_work": device_work.pending_for_owner(db, p.user.id)
+        if p.role in ("owner", "admin") and p.can("devices.manage") else [],
+    }, status_code=status_code)
 
 
 @router.get("/app/computers")
@@ -94,6 +97,20 @@ def computer_disconnect(device_id: str, db: TenantSession = Depends(get_db),
     return back("/app/computers", ok="Disconnected. That computer can no longer reach your business.")
 
 
+@router.post("/app/computers/work/{job_id}/cancel")
+def computer_work_cancel(job_id: str, db: TenantSession = Depends(get_db),
+                         p: Principal = Depends(member_post("devices.manage"))):
+    """Owner action: stop a queued work request before the desktop claims it."""
+    if p.role not in ("owner", "admin"):
+        raise HTTPException(403, "Owner or administrator access required")
+    try:
+        device_work.cancel_for_owner(
+            db, org_id=p.org.id, owner_id=p.user.id, job_id=job_id)
+    except device_work.WorkQueueDenied:
+        return back("/app/computers", err="Cannot cancel this work request. It may already be running.")
+    return back("/app/computers", ok="Pending computer work cancelled")
+
+
 # -------------------------------------------------------------------------- device API
 
 class PairRequest(BaseModel):
@@ -106,7 +123,8 @@ class PairRequest(BaseModel):
 class ActivityEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["connection_started", "connection_ended", "folder_shared", "folder_unshared",
-                    "file_read", "change_proposed", "change_approved", "change_rejected"]
+                    "file_read", "change_proposed", "change_approved", "change_rejected",
+                    "file_written", "directory_created"]
     result: Literal["ok", "denied", "error"]
     project_label: str = Field(default="", max_length=80)
     count: int = Field(default=1, ge=0, le=10_000)
@@ -212,3 +230,70 @@ def api_activity(body: ActivityBatch, db: TenantSession = Depends(get_db),
         raise HTTPException(422, str(exc)) from None
     devices.touch(device)
     return {"stored": stored}
+
+# ----------------------------------------------------------------- queued owner Work mode
+
+class WorkFinishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=40, max_length=128)
+    succeeded: bool
+    result_sha256: str | None = Field(default=None, max_length=64)
+    error_code: str | None = Field(default=None, max_length=30)
+
+
+class WorkProjectItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str = Field(min_length=24, max_length=24, pattern=r"^[0-9a-f]{24}$")
+    name: str = Field(min_length=1, max_length=100)
+    access: Literal["readwrite"]
+
+
+class WorkProjectReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projects: list[WorkProjectItem] = Field(max_length=8)
+
+
+@router.post("/api/device/v1/work/projects")
+def api_report_work_projects(body: WorkProjectReport, db: TenantSession = Depends(get_db),
+                             device: ConnectedDevice = Depends(device_auth)):
+    """Expose only an active paired device's owner-chosen project labels and IDs.
+
+    This is a metadata heartbeat, never an authorization to access a folder.
+    """
+    _active(device)
+    try:
+        stored = devices.report_work_projects(
+            db, device, [item.model_dump() for item in body.projects])
+    except devices.DeviceError:
+        raise HTTPException(422, "Invalid owner-approved project roster") from None
+    devices.touch(device)
+    return JSONResponse({"reported": stored}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/device/v1/work/claim")
+def api_claim_work(db: TenantSession = Depends(get_db),
+                   device: ConnectedDevice = Depends(device_auth)):
+    """Device-only outbound polling: no browser cookies or unsanctioned tunnel."""
+    _active(device)
+    try:
+        job = device_work.claim(db, device)
+    except device_work.WorkQueueDenied:
+        raise HTTPException(403, "Computer work is not currently available") from None
+    devices.touch(device)
+    return JSONResponse({"job": job}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/device/v1/work/{job_id}/finish")
+def api_finish_work(job_id: str, body: WorkFinishRequest,
+                    db: TenantSession = Depends(get_db),
+                    device: ConnectedDevice = Depends(device_auth)):
+    """Receipt accepted only with an active, device-bound short-lived lease."""
+    _active(device)
+    try:
+        result = device_work.finish(
+            db, device, job_id, body.lease_token, body.succeeded,
+            body.result_sha256, body.error_code)
+    except device_work.WorkQueueDenied:
+        raise HTTPException(403, "Work lease is not valid") from None
+    devices.touch(device)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})

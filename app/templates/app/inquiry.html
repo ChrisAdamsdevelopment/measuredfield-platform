@@ -12,7 +12,39 @@
 {% if lead.timing %}<dt>Timing</dt><dd>{{ timings.get(lead.timing, lead.timing) }}</dd>{% endif %}
 <dt>Source</dt><dd>{{ lead.source }}</dd></dl>
 <p class="wrap-text actions">{{ lead.message }}</p>
-<p class="small muted">Replying happens from your own email or phone for now. Record it here by changing the status so the response is counted.</p>
+<p class="small muted">Draft a reply below for owner approval. The first response is recorded only if the email provider accepts the send.</p>
+</div>
+<div class="card actions"><h2>Reply to this inquiry</h2>
+<p class="small muted">Replies are drafts until an owner or administrator approves them. Provider acceptance is not proof of mailbox delivery.</p>
+{% if can('leads.write') %}
+<form method="post" action="/app/inquiries/{{ lead.id }}/reply/draft">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="reply_subject">Subject</label><input id="reply_subject" name="subject" maxlength="200" required value="Re: Your inquiry">
+<label for="reply_body">Message</label><textarea id="reply_body" name="body" maxlength="4000" rows="6" required></textarea>
+<div class="actions"><button class="btn" type="submit">Save reply draft</button></div>
+</form>
+{% else %}<p class="muted">Your access is read-only.</p>{% endif %}
+{% if not provider_ready %}<p class="small muted">Email sending is not configured. You can save drafts, but approval and sending are disabled.</p>{% endif %}
+<h3>Reply history</h3>
+{% for reply in replies %}
+<div class="note-item">
+<div class="meta">{{ reply.created_at.strftime('%b %d, %H:%M UTC') }} ·
+{% if reply.status == 'accepted' %}Accepted by provider (delivery unverified)
+{% elif reply.status == 'queued' %}Approved; queued, not yet sent
+{% elif reply.status == 'draft' %}Draft — unsent
+{% elif reply.status == 'failed' %}Provider acceptance failed — review required
+{% elif reply.status == 'not_configured' %}Not sent — email provider unavailable
+{% endif %}</div>
+<p><strong>{{ reply.subject }}</strong> · To: {{ reply.to_email }}</p>
+<div class="wrap-text">{{ reply.body }}</div>
+{% if reply.status == 'draft' and role in ('owner', 'admin') and provider_ready %}
+<form method="post" action="/app/inquiries/{{ lead.id }}/reply/{{ reply.id }}/approve">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="actions"><button class="btn" type="submit">Approve and queue this exact reply</button></div>
+</form>
+{% endif %}
+</div>
+{% else %}<p class="muted">No reply drafts or send attempts yet.</p>{% endfor %}
 </div>
 <div class="card actions"><h2>Notes</h2>
 {% for note, author in notes %}<div class="note-item"><div class="meta">{{ author or 'Team member' }} &middot; {{ note.created_at.strftime('%b %d, %H:%M') }}</div><div class="wrap-text">{{ note.body }}</div></div>

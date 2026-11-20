@@ -3,6 +3,12 @@
 {% block content %}
 <header><div><h1>Good to see you{% if principal.user.name %}, {{ principal.user.name.split(' ')[0] }}{% endif %}</h1><p>Here's what needs attention at {{ org.name }}.</p></div></header>
 
+<section class="card actions mf-workbench-entry" aria-label="Website design and ChatGPT work">
+  <div class="row mf-workbench-entry-row">
+    <div><h2>Build, improve, compare. Then make it real.</h2><p class="small muted">Open your live before-and-after website workbench, prepare ChatGPT work and inspect actual results.</p></div>
+    <a class="btn" href="/app/website/studio">Open Website Workbench</a>
+  </div>
+</section>
 <div class="grid g4">
 <div class="card stat"><div class="n">{{ lead_counts.get('new', 0) }}</div><div class="l">New inquiries</div><div class="src"><span class="badge recorded">Recorded here</span></div></div>
 <div class="card stat"><div class="n">{{ due }}</div><div class="l">Follow-ups due today or overdue</div><div class="src"><span class="badge recorded">Recorded here</span></div></div>

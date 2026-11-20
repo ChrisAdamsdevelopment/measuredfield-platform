@@ -77,7 +77,7 @@ def test_latest_source_is_not_same_as_running_revision():
 
 def test_wrong_service_host_branch_or_repo_are_all_denied():
     bad = _service(id="different", repo="https://attacker.invalid",
-                   branch="main", serviceDetails={"url": "https://fake.invalid"})
+                   branch="feature/unreviewed-production", serviceDetails={"url": "https://fake.invalid"})
     result = _report(service=bad)
     assert set(result["blockers"]) >= {
         "WRONG_RENDER_SERVICE", "REPO_MISMATCH", "PRODUCTION_BRANCH_CHANGED",
