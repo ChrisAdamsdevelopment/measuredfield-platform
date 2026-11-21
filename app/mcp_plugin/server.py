@@ -113,7 +113,8 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     class LinkedTokenVerifier:
         async def verify_token(self, token: str):
             try:
-                verified = await asyncio.to_thread(jwt_verifier.verify, token)
+                verified = await asyncio.to_thread(
+                    jwt_verifier.verify, token, require_read_scope=False)
             except OAuthAccessDenied:
                 return None
             return AccessToken(
