@@ -7,6 +7,14 @@ from app.local_connect import LocalConnect, AccessDenied, ConflictError
 from app.local_connect.cli import parser
 
 
+def _tool_failed(result):
+    """MCP 2.x exposes is_error; legacy 1.x exposes isError."""
+    for field in ("is_error", "isError"):
+        if hasattr(result, field):
+            return bool(getattr(result, field))
+    raise AssertionError("MCP response did not expose an error status")
+
+
 @pytest.fixture
 def env(tmp_path):
     root = tmp_path / "project"
@@ -264,7 +272,7 @@ def test_real_stdio_mcp_handshake_and_read(env):
                     "read_project_file",
                     {"grant_id": gid, "relative_path": "readme.md"},
                 )
-                assert returned.isError is not True
+                assert _tool_failed(returned) is False
                 assert "Before" in str(returned.content)
     asyncio.run(exercise())
 

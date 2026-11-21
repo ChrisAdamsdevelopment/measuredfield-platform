@@ -169,7 +169,7 @@ def test_config_only_may_show_owner_oidc_button_but_not_plugin_install_success()
     assert 'value="CONNECT READ ONLY"' in page
     assert "Not verified" in page
     assert "Not tested" in page
-    assert "Your verified identity" in page
+    assert "Auth0 is a secure login service" in page
     assert "Identity linked" not in page
 
 
