@@ -90,6 +90,150 @@ def test_forged_signature_or_unlinked_subject_is_refused(keys):
         _validator(keys, resolver=lambda *_: None).verify(_token(keys))
 
 
+def test_verify_require_read_scope_opt_out_preserves_security_checks(keys):
+    checks = []
+    verifier = _validator(keys, resolver=lambda i, s, t: checks.append((i, s, t)) or uuid.UUID(int=1))
+    unscoped_token = _token(keys, _claims(scope=""))
+    other_scope_token = _token(keys, _claims(scope="mf:drafts.write"))
+
+    # Default verification MUST keep rejecting missing mf:read at tool boundaries.
+    with pytest.raises(OAuthAccessDenied, match="read scope"):
+        verifier.verify(unscoped_token)
+    with pytest.raises(OAuthAccessDenied, match="read scope"):
+        verifier.verify(other_scope_token)
+
+    # Explicit opt-out accepts otherwise fully valid, linked signed JWTs without mf:read.
+    verified_empty = verifier.verify(unscoped_token, require_read_scope=False)
+    assert verified_empty.identity.issuer == ISSUER
+    assert verified_empty.identity.audience == RESOURCE
+    assert verified_empty.identity.subject == "oidc|fixture-owner"
+    assert verified_empty.identity.scopes == frozenset()
+    assert verified_empty.client_id == "https://chatgpt.com/oauth/client.json"
+    assert checks[0][0:2] == (ISSUER, "oidc|fixture-owner")
+
+    verified_other = verifier.verify(other_scope_token, require_read_scope=False)
+    assert verified_other.identity.scopes == frozenset({"mf:drafts.write"})
+
+    # Opt-out MUST NOT bypass signature, link, audience, issuer, resource, client or scope-format checks.
+    forged = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    with pytest.raises(OAuthAccessDenied):
+        verifier.verify(_token(forged, _claims(scope="")), require_read_scope=False)
+    with pytest.raises(OAuthAccessDenied, match="linked"):
+        _validator(keys, resolver=lambda *_: None).verify(unscoped_token, require_read_scope=False)
+    for bad_change in (
+        {"scope": "", "aud": "https://different.example/mcp"},
+        {"scope": "", "iss": "https://evil.example"},
+        {"scope": "", "resource": "https://different.example/mcp"},
+        {"scope": "", "client_id": ""},
+        {"scope": {"unsafe": "mapping"}},
+    ):
+        with pytest.raises(OAuthAccessDenied):
+            verifier.verify(_token(keys, _claims(**bad_change)), require_read_scope=False)
+
+
+def test_only_linked_token_verifier_opts_out_of_read_scope():
+    import ast
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "app" / "mcp_plugin" / "server.py").read_text(encoding="utf-8")
+    assert source.count("require_read_scope") == 1
+    module = ast.parse(source)
+    factory = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == "create_server")
+    verifier_cls = next(n for n in factory.body if isinstance(n, ast.ClassDef) and n.name == "LinkedTokenVerifier")
+    verify_token_fn = next(n for n in verifier_cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "verify_token")
+    verifier_seg = ast.get_source_segment(source, verify_token_fn)
+    assert "require_read_scope=False" in verifier_seg
+    checked_fn = next(n for n in factory.body if isinstance(n, ast.FunctionDef) and n.name == "checked_bearer")
+    checked_seg = ast.get_source_segment(source, checked_fn)
+    assert "jwt_verifier.verify(verified.token)" in checked_seg
+    assert "require_read_scope" not in checked_seg
+
+
+def test_mcp_http_unscoped_linked_bearer_returns_403_insufficient_scope(keys):
+    from importlib.metadata import version
+
+    # Production requires MCP SDK v2. Main app suite may run under legacy v1;
+    # the SDK v2 gate executes this real ASGI HTTP test end-to-end.
+    if not version("mcp").startswith("2."):
+        return
+
+    from urllib.parse import urlsplit
+    from mcp.server.transport_security import TransportSecuritySettings
+    from starlette.testclient import TestClient
+    from app.mcp_plugin.server import create_server
+
+    resource_host = urlsplit(RESOURCE).hostname
+    origin = f"https://{resource_host}"
+    server = create_server(SETTINGS, token_verifier=_validator(keys))
+    asgi_app = server.streamable_http_app(
+        json_response=True,
+        host=resource_host,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[resource_host, f"{resource_host}:443"],
+            allowed_origins=[origin, f"{origin}:443"],
+        ),
+    )
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "fixture", "version": "1.0"},
+        },
+    }
+    base_headers = {"Accept": "application/json, text/event-stream"}
+    forged = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    with TestClient(asgi_app, base_url=origin) as client:
+        # Anonymous request remains 401.
+        anon = client.post("/mcp", json=payload, headers=base_headers)
+        assert anon.status_code == 401
+
+        # Invalid or forged bearer remains 401.
+        invalid = client.post(
+            "/mcp", json=payload,
+            headers={**base_headers, "Authorization": "Bearer not-a-valid-jwt"},
+        )
+        assert invalid.status_code == 401
+
+        forged_resp = client.post(
+            "/mcp", json=payload,
+            headers={**base_headers, "Authorization": f"Bearer {_token(forged, _claims(scope=''))}"},
+        )
+        assert forged_resp.status_code == 401
+
+        # Valid, signed, linked bearer missing mf:read reaches SDK scope enforcement -> 403 insufficient_scope.
+        unscoped_resp = client.post(
+            "/mcp", json=payload,
+            headers={**base_headers, "Authorization": f"Bearer {_token(keys, _claims(scope=''))}"},
+        )
+        assert unscoped_resp.status_code == 403
+        www_auth = unscoped_resp.headers.get("www-authenticate", "")
+        assert "insufficient_scope" in www_auth or "insufficient_scope" in unscoped_resp.text
+
+    # Unlinked bearer without mf:read must still be rejected as 401, not 403.
+    unlinked_server = create_server(
+        SETTINGS, token_verifier=_validator(keys, resolver=lambda *_: None))
+    unlinked_app = unlinked_server.streamable_http_app(
+        json_response=True,
+        host=resource_host,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[resource_host, f"{resource_host}:443"],
+            allowed_origins=[origin, f"{origin}:443"],
+        ),
+    )
+    with TestClient(unlinked_app, base_url=origin) as client:
+        unlinked_resp = client.post(
+            "/mcp", json=payload,
+            headers={**base_headers, "Authorization": f"Bearer {_token(keys, _claims(scope=''))}"},
+        )
+        assert unlinked_resp.status_code == 401
+
+
 @pytest.mark.parametrize("header", [
     {"jku": "https://attacker.invalid/keys"},
     {"jwk": {"kty": "RSA"}},
