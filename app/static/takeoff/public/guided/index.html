@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#123533"><meta name="robots" content="noindex,nofollow">
+  <title>MeasuredField Remodel — Guided Takeoff</title>
+  <meta name="description" content="MeasuredField Remodel private pilot — source-linked remodeling takeoff with transparent measurements and contractor-confirmed quantities.">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./guided.css">
+  <script type="module" src="./guided.mjs"></script>
+</head>
+<body>
+<a href="#content" class="skip-link">Skip to workspace</a>
+<div class="shell">
+  <aside class="sidebar" aria-label="Main navigation">
+    <div class="brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="brand-text">measured<span>field</span><small>REMODEL ESTIMATING</small></div></div>
+    <div class="sidebar-group"><span class="sidebar-kicker">WORKSPACE</span>
+      <button class="side-link active" id="nav-home" type="button"><span aria-hidden="true">▦</span> Projects</button>
+      <button class="side-link" id="nav-plan" type="button"><span aria-hidden="true">▤</span> Drawings & scope</button>
+      <button class="side-link" id="nav-pricing" type="button"><span aria-hidden="true">▧</span> Materials & pricing</button>
+    </div>
+    <div class="sidebar-bottom"><div class="ridge-art" aria-hidden="true"><span class="ridge ridge-back"></span><span class="ridge ridge-front"></span></div><div class="sidebar-loc">BUILT FOR THE WORK<br><strong>PRESCOTT · ARIZONA</strong></div><small>Private pilot · Not a final bid</small></div>
+  </aside>
+
+  <div class="app-column">
+    <header class="app-header">
+      <div class="breadcrumbs"><button id="back-projects" type="button">Projects</button><span aria-hidden="true">/</span><strong id="breadcrumb-project">New estimate</strong></div>
+      <div class="header-actions"><span class="privacy" title="PDF and projects are stored in this browser on this computer. Clearing browser storage deletes them.">◉ Private on this computer</span><span class="save-status" id="save-status">Ready to start</span><button class="button button-outline compact" id="export-project" type="button" disabled>Backup project</button></div>
+    </header>
+    <nav id="estimate-spine" class="spine" aria-label="Estimate steps" hidden>
+      <button data-step="plans" type="button"><span>01</span> Check plans & work</button>
+      <button data-step="measure" type="button"><span>02</span> Measure quantities</button>
+      <button data-step="materials" type="button"><span>03</span> Price materials</button>
+      <button data-step="labor" type="button"><span>04</span> Add labor & costs</button>
+      <button data-step="review" type="button"><span>05</span> Check estimate</button>
+    </nav>
+    <div class="app-body" id="content">
+      <div id="global-notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section class="screen screen-active" id="screen-home" aria-labelledby="home-title">
+        <div class="hero">
+          <div class="hero-copy"><div class="eyebrow">BUILT FOR THE WAY CONTRACTORS ACTUALLY WORK</div>
+          <h1 id="home-title">From your plans to <em>a clearer estimate.</em></h1>
+          <p>Add a PDF or measurements from the jobsite. We'll help you identify the work, measure quantities, build a materials list and spot what's missing before you prepare a bid.</p>
+          <button class="button button-terra button-large" id="new-estimate" type="button">+ Start a takeoff <span aria-hidden="true">→</span></button></div>
+          <div class="hero-graphic" aria-hidden="true"><div class="graphic-paper"><div class="graphic-line one"></div><div class="graphic-line two"></div><div class="graphic-box"></div><div class="graphic-dot"></div></div><div class="graphic-tick">✓</div><span class="graphic-label">MEASURED. ACCOUNTED FOR.</span></div>
+        </div>
+        <div class="section-top"><div><h2>Your takeoffs on this device</h2><p>Open a saved job or start another one. Drawings and measurements stay in this browser; they do not sync to another device yet.</p></div><button class="button button-outline" id="new-estimate-small" type="button">New project</button></div>
+        <div id="project-list" class="project-list"><div class="empty-projects"><div class="empty-symbol">▥</div><strong>Your first estimate starts here</strong><span>Create a project to begin.</span></div></div>
+        <div class="how-it-works"><span>HOW IT WORKS</span><div><b>01</b> Add plans or dimensions</div><div><b>02</b> Measure and check quantities</div><div><b>03</b> Confirm costs and review</div></div>
+      </section>
+
+      <section class="screen" id="screen-new" aria-labelledby="new-title">
+        <div class="page-heading"><span class="eyebrow">NEW PROJECT</span><h1 id="new-title">Which job are we estimating?</h1><p>A little project context is all we need to start. You can change it later.</p></div>
+        <div class="panel new-project-panel">
+          <div class="new-fields"><label>Project name<input id="new-name" placeholder="e.g. Main bathroom remodel" maxlength="120"></label><label>Type of work<select id="new-type"><option value="bath">Bathroom remodel</option><option value="kitchen">Kitchen remodel</option><option value="interior">Interior renovation</option><option value="garage">Garage conversion</option><option value="deck">Deck or patio</option></select></label></div>
+          <h2>How would you like to start?</h2>
+          <div class="start-cards">
+            <button class="start-card" type="button" id="start-plans"><span class="start-icon">▤</span><strong>I have drawings or a PDF</strong><small>Check the pages, identify the work, then measure from the drawing.</small><span class="start-action">Upload my plans <span>→</span></span></button>
+            <button class="start-card" type="button" id="start-dimensions"><span class="start-icon">▧</span><strong>I have room measurements</strong><small>Enter a known area, length or item count. Add PDF plans later.</small><span class="start-action">Enter dimensions <span>→</span></span></button>
+          </div>
+          <p class="help-note">Both paths feed the same estimate. Prices are never guessed; missing costs are clearly marked.</p>
+        </div>
+      </section>
+
+      <section class="screen" id="screen-plans" aria-labelledby="plans-title">
+        <div class="page-heading"><span class="eyebrow">STEP 1 / 5 · PLANS & SCOPE</span><h1 id="plans-title">Check the plans and what's included.</h1><p>Add the plan set, confirm which drawings are current, and review the suggested work. The app will not treat a note or printed area as a finished measurement.</p></div>
+        <div class="document-bar" id="document-bar">
+          <div class="doc-status-icon">▤</div><div class="document-bar-content"><strong id="pdf-loaded-title">No PDF added yet</strong><small id="pdf-loaded-description">You can upload a multipage PDF; we'll show each page separately.</small></div>
+          <label class="button button-terra upload-button">+ Add PDF <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden></label>
+        </div>
+        <div class="capability-strip"><span id="status-file"><i class="dot dot-neutral"></i> PDF: not loaded</span><span id="status-pages"><i class="dot dot-neutral"></i> Pages: —</span><span id="status-text"><i class="dot dot-neutral"></i> Text: not examined</span><span id="status-measure"><i class="dot dot-amber"></i> Measurements: not started</span><span id="status-pricing"><i class="dot dot-amber"></i> Pricing: not started</span></div>
+        <div id="intake-summary" class="intake-summary" hidden aria-live="polite"></div>
+        <section id="job-scope" class="job-scope" hidden aria-label="Job scope from your plans"></section>
+        <section id="revision-panel" class="revision-panel panel" hidden aria-label="Which drawings are current"></section>
+        <div id="contact-instructions" class="section-top"><div><h2>Your drawing pages</h2><p id="page-count-help">Once your actual PDF is loaded, every page appears here. The app will inspect its selectable text and show what it found, without inventing quantities.</p></div></div>
+        <div id="pages-grid" class="pages-grid"><div class="page-empty"><div class="page-empty-icon">▤</div><h3>Upload your actual drawing file</h3><p>The app starts empty. Every page in the PDF you choose will appear separately. Nothing is preloaded, measured, or priced automatically.</p><label class="button button-outline upload-button">Choose a PDF<input type="file" id="pdf-input-alt" accept=".pdf,application/pdf" hidden></label></div></div>
+        <div class="after-pages"><p><strong>Don't have a plan for this job?</strong> You can still start from the dimensions you took on site.</p><button class="button button-outline" id="from-plans-manual" type="button">Enter a known measurement →</button></div>
+        <div class="step-footer"><button class="button button-outline" id="plans-back" type="button">← Projects</button><button class="button button-dark" id="plans-next" type="button">Measure a quantity →</button></div>
+      </section>
+
+      <section class="screen" id="screen-measure" aria-labelledby="measure-title">
+        <div class="page-heading compact-heading"><span class="eyebrow">STEP 2 / 5 · MEASURE & VERIFY</span><h1 id="measure-title">Measure the work shown on the plans.</h1><p id="measure-caption">Select the correct drawing, confirm its scale and measure. Already measured at the jobsite? You can enter that quantity instead.</p></div>
+        <div class="measure-layout">
+          <div class="measure-main">
+            <div class="sheet-nav"><div class="sheet-nav-heading"><strong>Drawing pages</strong><button id="measure-to-pages" type="button">← Back to drawing pages</button></div><div id="mini-pages" class="mini-pages"><p>No plan loaded; enter room dimensions below.</p></div></div>
+            <div id="selected-view-summary" class="selected-view-summary" hidden>
+              <div><strong id="selected-view-title">Selected drawing view</strong><p id="selected-view-note">Confirm the scope and scale before measuring.</p></div>
+              <button class="button button-outline compact" type="button" id="choose-other-view">Change view</button>
+            </div>
+            <div class="measure-intro" id="measure-work-anchor"><div class="measure-intro-top"><strong id="measure-view-label">Choose a work item on this drawing, then verify scale.</strong><button id="measure-back-to-pages" class="button button-outline compact" type="button">← All drawing pages</button></div><p>The app calculates quantities from the area or line you trace. Nothing is assumed to be flooring, demolition, or new construction.</p></div>
+            <div id="sheet-status" class="sheet-status" hidden role="status"></div>
+            <div id="scope-todo" class="scope-todo" hidden aria-live="polite"></div>
+            <div class="measure-settings"><label>1. What work are you measuring?<select id="measure-assembly"></select></label><label>2. Is this new work, demolition or existing?<select id="measure-layer"><option value="new">New work</option><option value="demolish">Demolition</option><option value="existing">Existing / remain</option><option value="field_verify">Verify in field</option></select></label></div>
+            <div class="measure-toolbar"><div class="toolset">
+              <button class="measure-tool active" type="button" data-tool="inspect" aria-pressed="true">Explore</button>
+              <button class="measure-tool" type="button" data-tool="calibrate" aria-pressed="false">Set/verify scale</button>
+              <button class="measure-tool" type="button" data-tool="polygon" aria-pressed="false">Measure area</button>
+              <button class="measure-tool" type="button" data-tool="line" aria-pressed="false">Measure length</button>
+              <button class="measure-tool" type="button" data-tool="count" aria-pressed="false">Count items</button>
+            </div><div class="drawing-display-controls"><div class="zoom-controls"><button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button type="button" id="zoom-fit" title="Fit whole page">Fit</button><button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button></div><span class="scale-pill" id="scale-pill">Scale not set</span></div></div>
+            <div class="recal-impact" id="recal-impact" hidden role="alertdialog" aria-labelledby="recal-title"></div><div class="scale-guide" id="scale-guide" hidden><div class="guide-count">1–2</div><div class="guide-copy"><strong id="scale-guide-title">Set and verify drawing scale</strong><p id="scale-guide-copy">A printed drawing scale is a helpful start but must be verified against a dimension.</p><div class="dimension-assist" id="dimension-assist" hidden aria-live="polite"></div><p id="scale-check-result" class="scale-check-result" hidden role="status"></p><div class="printed-scale-option" id="printed-scale-option" hidden><p id="printed-scale-explanation"></p><button id="use-printed-scale" class="button button-terra" type="button">Use this printed scale as a starting point</button></div><div class="guide-input"><label>Feet on printed dimension<input id="known-feet" type="number" min="0" max="100000" step="1" placeholder="e.g. 8" required></label><label>Remaining inches<input id="known-inches" type="number" min="0" max="11.999" step=".125" placeholder="0 if exact feet"></label><button class="button button-outline" id="switch-scale-check" type="button">Change scale method</button></div><div class="draft-scale-choice" id="draft-scale-choice" hidden><strong>Want a first quantity before checking accuracy?</strong><p>You can trace using the printed scale for a preliminary estimate. Every quantity will be marked unverified and the estimate cannot be considered bid-ready until you check a dimension.</p><button id="continue-draft-scale" type="button" class="button button-outline">Continue with unverified draft quantities</button></div></div></div>
+            <div class="drawing-holder" id="drawing-holder">
+              <div id="drawing-empty" class="drawing-empty"><div class="drawing-placeholder">▧</div><h3>No sheet selected</h3><p>Select a drawing page above or add a known quantity below. You don't need a PDF to begin planning.</p><button class="button button-outline" id="drawing-add-pdf" type="button">View drawings</button></div>
+              <div class="canvas-wrap" id="canvas-wrap" hidden><canvas id="pdf-canvas"></canvas><canvas id="overlay-canvas" tabindex="0" aria-label="Interactive measuring overlay"></canvas></div>
+            </div>
+            <div class="canvas-caption"><span id="drawing-hint">Choose a page or enter known dimensions.</span><button id="finish-area" type="button" class="button button-outline compact" disabled>Finish area</button><button id="cancel-measure" type="button" class="button button-quiet compact">Cancel drawing</button></div>
+            <details class="assembly-detail"><summary>More material and installation options <span>(check product specifications)</span></summary><div id="assembly-parameters" class="parameter-grid"></div></details>
+            <details class="manual-entry panel" id="manual-entry-panel"><summary>Alternative: No dimensions on the PDF? Enter a field measurement instead</summary><div class="manual-entry-heading"><div><strong>Already know a quantity?</strong><p>Use your tape/laser measurements directly. These will be labeled <em>field-entered</em>, not plan-verified.</p></div></div>
+              <div class="manual-fields"><label>Measurement type<select id="manual-kind" aria-label="Choose area length or count"></select></label><label>Actual measured quantity<input id="manual-quantity" type="number" min=".01" step=".01" placeholder="Enter a measurement from the jobsite"></label><div id="manual-unit" class="manual-unit">square feet</div><button id="add-manual" class="button button-terra" type="button">Add separately measured quantity →</button></div>
+            </details>
+            <div class="recorded-list"><div class="section-top"><div><h2>Measured so far</h2><p id="recorded-count">No quantities recorded yet</p></div></div><div id="recorded-items" class="list-rows"></div></div>
+          </div>
+          <aside class="rail-card" id="measure-rail"><h3>YOUR ESTIMATE SO FAR</h3><div class="rail-total"><small>Priced subtotal <span>· includes allowances, not a final bid</span></small><strong id="measure-cost">$—</strong></div><div id="measure-lines" class="rail-lines"><p>Trace an area or enter a known dimension to start your material list.</p></div><div class="rail-pending"><span>Still needs prices</span><strong id="measure-pending">0</strong></div><button id="measure-next" type="button" class="button button-terra button-wide">Price these materials →</button></aside>
+        </div>
+      </section>
+
+      <section class="screen" id="screen-materials" aria-labelledby="materials-title">
+        <div class="page-heading"><span class="eyebrow">STEP 3 / 5 · MATERIALS & QUOTES</span><h1 id="materials-title">Check materials and what they cost.</h1><p>Use prices you've confirmed, enter an agreed allowance, or mark an item as waiting on a quote. Missing prices are never $0.</p></div>
+        <div class="pricebook-upload panel"><div><h2>Compare product prices (optional)</h2><p>Bring in saved Home Depot, Lowe's, or supplier observations. Matched products appear next to your measured materials. These are dated research prices—not confirmed local bids.</p></div><button id="load-research-prices" class="button button-terra" type="button">Show saved retailer prices</button><label class="button button-outline upload-button">Import my supplier price list<input id="retail-price-file" type="file" accept=".csv,text/csv" hidden></label><div id="pricebook-summary" class="pricebook-summary">No sourced price observations imported in this project.</div></div>
+        <div class="stat-row"><div class="stat"><small>Materials calculated</small><strong id="stat-lines">0</strong></div><div class="stat"><small>Lines with prices or allowances</small><strong id="stat-priced">0</strong></div><div class="stat"><small>Awaiting a price</small><strong id="stat-pending">0</strong></div></div>
+        <div class="panel materials-panel"><div class="section-top"><div><h2>Materials from your measurements</h2><p>Quantities below come from your measured work. Compare sourced product observations, add a real quote, or leave the item pending; you do not have to write a separate material list.</p></div><button id="materials-back-to-measure" class="button button-outline" type="button">+ Add quantity</button></div>
+          <div id="materials-list" class="materials-list"><p class="soft-empty">Your material list appears after your first measurement.</p></div>
+        </div>
+        <div class="step-footer"><button class="button button-outline" id="materials-back" type="button">← Measurements</button><button class="button button-terra" id="materials-next" type="button">Continue to labor →</button></div>
+      </section>
+
+      <section class="screen" id="screen-labor" aria-labelledby="labor-title">
+        <div class="page-heading"><span class="eyebrow">STEP 4 / 5 · LABOR & BUSINESS COSTS</span><h1 id="labor-title">Add labor and other job costs.</h1><p>Enter labor hours and rates, subcontractor costs, delivery, taxes and markup. Use your real numbers rather than assumptions.</p></div>
+        <div class="labor-grid">
+          <div class="panel"><h2>Labor and subcontractor work</h2><p class="subtle">Use your actual rates and quotes. Unentered work is not assumed to be free.</p>
+            <div class="labor-entry"><label>Task or trade<input id="labor-name" placeholder="e.g. Tile installation" maxlength="120"></label><label>Estimated hours<input id="labor-hours" type="number" min=".01" step=".01" placeholder="Hours"></label><label>Cost per hour<input id="labor-rate" type="number" min=".01" step=".01" placeholder="$"></label><button class="button button-terra" id="labor-add" type="button">+ Add task</button></div><div id="labor-list" class="labor-list"></div>
+            <label class="checkline"><input type="checkbox" id="labor-reviewed"> I reviewed labor and subcontractor coverage for the full job.</label>
+          </div>
+          <div class="panel"><h2>Pricing decisions</h2><p class="subtle">These numbers are internal. They will not be visible in a homeowner preview.</p>
+            <div class="price-settings"><label>Sales tax (%) <small>blank if unknown</small><input id="tax-rate" type="number" min="0" max="100" step=".01" placeholder="Confirm rate"></label><label>Delivery / shipping <small>enter 0 only if verified</small><input id="shipping" type="number" min="0" step=".01" placeholder="Not confirmed"></label><label>Markup (%)<input id="markup" type="number" min="0" max="1000" step=".1" value="0"></label><label>Contingency (%)<input id="contingency" type="number" min="0" max="1000" step=".1" value="0"></label></div>
+            <p class="margin-note" id="margin-note">0% markup on costs = 0% gross margin before overhead.</p>
+          </div>
+        </div><div class="step-footer"><button class="button button-outline" id="labor-back" type="button">← Materials</button><button class="button button-terra" id="labor-next" type="button">Review my estimate →</button></div>
+      </section>
+
+      <section class="screen" id="screen-review" aria-labelledby="review-title">
+        <div class="page-heading"><span class="eyebrow">STEP 5 / 5 · REVIEW & PROPOSAL</span><h1 id="review-title">Check the job before you quote it.</h1><p>Review missing quantities, prices, scope choices and plan revisions. You decide when the numbers are ready to use in a customer quote.</p></div>
+        <div class="review-grid"><div class="panel review-main"><div class="section-top"><div><h2>Before you send a price</h2><p>Resolve these issues or clearly label the estimate preliminary.</p></div><span id="review-state" class="readiness-badge">Draft</span></div><div id="review-blockers" class="review-blockers"></div>
+          <h3>What the price includes and excludes</h3><div id="scope-list" class="scope-list"></div>
+        </div><div class="panel review-side"><small>PRICED & ALLOWANCE SUBTOTAL</small><strong id="review-total">$—</strong><p>Not a fixed-price bid when quotes or scope are still outstanding.</p><div id="review-breakdown" class="review-breakdown"></div><button id="preview-proposal" class="button button-terra button-wide" type="button">Preview homeowner summary →</button><button id="back-to-materials" class="button button-outline button-wide" type="button">Revisit material prices</button><div class="review-packet-action">
+              <h3>Want ChatGPT to double-check your takeoff?</h3>
+              <p>It can review the work list and measurements you recorded, flag possible omissions and help research materials that still need prices.</p>
+              <button id="export-review-packet" class="button button-outline button-wide" type="button">1. Download takeoff details</button>
+              <a class="button button-outline button-wide" href="https://chatgpt.com/plugins/plugin_asdk_app_6b03fca4b22481919ce99c1c8e681dee" target="_blank" rel="noopener noreferrer">2. Open MeasuredField in ChatGPT</a>
+              <p class="chatgpt-instructions"><strong>In ChatGPT:</strong> select <em>Try in chat</em>, attach the downloaded JSON file and ask: "Which work items or prices need checking?"</p>
+              <small>ChatGPT does not automatically see your takeoff yet. This file includes plan notes, recorded quantities and missing-price items, but no PDFs, raw drawing coordinates or internal dollar totals. Check the plan notes before sharing. Its suggestions will not change the estimate until you review them here.</small>
+            </div><div class="pilot-feedback"><h3>Tell us what should work better</h3><label>Reviewer (optional)<input id="pilot-feedback-reviewer" maxlength="80" placeholder="Your name or role"></label><label>What needs attention?<select id="pilot-feedback-kind"><option value="usability">Confusing workflow or screen</option><option value="missing_item">Missing scope or material</option><option value="wrong_assumption">Incorrect assumption</option><option value="pricing">Pricing issue</option><option value="other">Other feedback</option></select></label><label>What happened, or what should work differently?<textarea id="pilot-feedback-comment" rows="4" maxlength="4000" placeholder="Tell us what you tried, what the app showed, and what you expected."></textarea></label><button class="button button-outline button-wide" id="export-pilot-feedback" type="button">Save feedback to send us</button><small>Downloads your comments and a project reference for our review. No drawing PDF or supplier quote is included. You decide whether to share the file; nothing is sent automatically.</small></div></div></div>
+      </section>
+
+      <section class="screen" id="screen-proposal" aria-labelledby="proposal-title">
+        <div class="proposal-toolbar"><button id="proposal-back" type="button" class="button button-outline">← Back to review</button><button id="proposal-print" type="button" class="button button-terra">Print / Save as PDF</button></div>
+        <div id="client-document" class="client-document"><div class="client-header"><div><span class="proposal-brand">MEASUREDFIELD <b>REMODEL</b></span><p>Project estimate summary · Preview only</p></div><span id="proposal-date"></span></div>
+          <h1 id="proposal-title">Project estimate</h1><div id="proposal-label" class="proposal-label">PRELIMINARY — NOT A FIXED PRICE</div>
+          <div id="proposal-scope" class="proposal-section"></div><div id="proposal-amount" class="proposal-amount"></div><div id="proposal-conditions" class="proposal-section"></div>
+          <footer class="client-footer">Prepared for contractor review. This preview is not a signed contract, structural design, code compliance determination, or a binding price offer.</footer>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden aria-live="polite"></div>
+</body>
+</html>

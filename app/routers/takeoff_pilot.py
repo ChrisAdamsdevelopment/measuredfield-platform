@@ -1,0 +1,119 @@
+"""Authenticated, initially unlisted takeoff page on the EXISTING MeasuredField host.
+
+Only the HTML route is account-protected; /static/takeoff holds public,
+secret-free software assets. Projects/PDFs are never sent to the server here;
+browser IndexedDB is partitioned by the current signed-in user+organization.
+"""
+from __future__ import annotations
+
+import hashlib
+import html
+import os
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from ..deps import BASE_DIR, LoginRequired, Principal, get_principal
+
+router = APIRouter()
+PILOT_HTML = BASE_DIR / "static" / "takeoff" / "public" / "guided" / "index.html"
+CSP = (
+    "default-src 'none'; "
+    "script-src 'self' 'wasm-unsafe-eval'; "
+    "worker-src 'self' blob:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+def _pilot_org_ids() -> set[uuid.UUID]:
+    raw = os.getenv("MF_TAKEOFF_PILOT_ORG_IDS", "")
+    try:
+        return {uuid.UUID(item.strip()) for item in raw.split(",") if item.strip()}
+    except (ValueError, AttributeError):
+        # Invalid configuration must not become an open pilot.
+        return set()
+
+
+def pilot_enabled() -> bool:
+    return os.getenv("MF_TAKEOFF_PILOT_ENABLED", "false") == "true"
+
+
+def render_takeoff_page(principal: Principal) -> str:
+    """Small, audited adaptation of the *same* verified guided-app HTML."""
+    if principal.org is None:
+        raise HTTPException(403, "A MeasuredField business membership is required.")
+    if not PILOT_HTML.is_file():
+        raise HTTPException(503, "The takeoff page is not deployed.")
+    source = PILOT_HTML.read_text(encoding="utf-8")
+    if source.count("<head>") != 1 or source.count('<div class="shell">') != 1:
+        raise HTTPException(503, "Takeoff application assets are not ready.")
+    scope = hashlib.sha256(
+        (str(principal.user.id) + ":" + str(principal.org.id)).encode("ascii")
+    ).hexdigest()[:32]
+    metadata = (
+        '<meta name="mf-takeoff-storage-scope" content="' + scope + '">'
+        '<base href="/static/takeoff/public/guided/">'
+    )
+    source = source.replace("<head>", "<head>" + metadata, 1)
+    # A document <base> otherwise redirects this skip link to the asset URL.
+    source = source.replace('href="#content"', 'href="/takeoff#content"', 1)
+    identity = (
+        '<div class="mf-takeoff-account" role="status">'
+        'MeasuredField business: <strong>' + html.escape(principal.org.name) +
+        '</strong> · Signed in as <strong>' + html.escape(principal.user.name) +
+        '</strong> · Projects and plan files stay in this browser, under this account.'
+        '</div>'
+    )
+    source = source.replace('<div class="shell">', identity + '<div class="shell">', 1)
+    return source
+
+
+@router.get("/takeoff", include_in_schema=False)
+@router.get("/takeoff/", include_in_schema=False)
+def takeoff_page(
+    request: Request,
+    principal: Principal | None = Depends(get_principal),
+):
+    # No public navigation link or indexable route during the contractor pilot.
+    if not pilot_enabled():
+        raise HTTPException(404, "Not found")
+    if principal is None:
+        raise LoginRequired("/takeoff")
+    if principal.org is None or not principal.can("read"):
+        raise HTTPException(403, "Access to a MeasuredField business is required.")
+    if principal.org.id not in _pilot_org_ids():
+        raise HTTPException(404, "Not found")
+    content = render_takeoff_page(principal)
+    response = HTMLResponse(content)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Content-Security-Policy"] = CSP
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+@router.get("/api/capabilities", include_in_schema=False)
+def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
+    """Return a real capability check, not a false promise of AI inference.
+
+    No NVIDIA request is permitted on this first authenticated site pilot.
+    Model calls require a separately reviewed CSRF, quota and provider proxy.
+    """
+    if not pilot_enabled():
+        raise HTTPException(404, "Not found")
+    if (principal is None or principal.org is None or
+            not principal.can("read") or principal.org.id not in _pilot_org_ids()):
+        raise HTTPException(401, "Sign in to an authorized business.")
+    response = JSONResponse({
+        "ai_review": False, "provider": None,
+        "mode": "disabled_pending_secure_provider_adapter", "writes": False
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response

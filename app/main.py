@@ -35,7 +35,7 @@ from .routers import (
     auth, beta_signup, billing_portal, census_market, devices, feedback, growth_journey,
     lead_rescue, mcp_account_settings, mcp_actions, module_lab, operator, owner_checkout,
     payment_link_claims, public, site_host, visibility_store, visibility_execution,
-    visibility_owner_snapshot, visual_preview, workspace,
+    visibility_owner_snapshot, visual_preview, workspace, takeoff_pilot,
 )
 from .services import jobs
 
@@ -114,7 +114,7 @@ def create_main_app() -> FastAPI:
         public, auth, beta_signup, billing_portal, owner_checkout, payment_link_claims,
         mcp_actions, workspace, feedback, census_market, operator, growth_journey,
         module_lab, visibility_store, visibility_execution, visibility_owner_snapshot,
-        lead_rescue, devices, mcp_account_settings, visual_preview,
+        lead_rescue, devices, mcp_account_settings, visual_preview, takeoff_pilot,
     ):
         app.include_router(module.router)
 
