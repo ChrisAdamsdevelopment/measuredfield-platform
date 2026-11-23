@@ -57,8 +57,10 @@ def stage(from_bundle: Path) -> dict:
         data[str(Path(*path.parts[1:])).replace("\\", "/")] = payload
     if total > MAX_TOTAL:
         raise ValueError("Preview assets exceed expected size")
-    if not any(k.endswith("public/guided/index.html") for k in data):
+    page = data.pop("public/guided/index.html", None)
+    if page is None:
         raise ValueError("Guided page missing")
+    template = ROOT / "app" / "templates" / "takeoff_pilot.html"
     if TARGET.exists():
         if not (TARGET / SENTINEL).is_file():
             raise ValueError("Refusing to overwrite an unmanaged static directory")
@@ -69,7 +71,9 @@ def stage(from_bundle: Path) -> dict:
         output = TARGET / name
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(payload)
-    print("TAKEOFF_ASSETS_STAGED", len(data), "files", total, "bytes")
+    # The launch HTML is private, not remotely readable through /static.
+    template.write_bytes(page)
+    print("TAKEOFF_ASSETS_STAGED", len(data), "static files, private HTML", total, "bytes")
     return {"files":len(data),"bytes":total}
 
 

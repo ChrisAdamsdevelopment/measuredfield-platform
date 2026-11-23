@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ..deps import BASE_DIR, LoginRequired, Principal, get_principal
 
 router = APIRouter()
-PILOT_HTML = BASE_DIR / "static" / "takeoff" / "public" / "guided" / "index.html"
+PILOT_HTML = BASE_DIR / "templates" / "takeoff_pilot.html"
 CSP = (
     "default-src 'none'; "
     "script-src 'self' 'wasm-unsafe-eval'; "

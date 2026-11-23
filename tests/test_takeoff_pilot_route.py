@@ -78,6 +78,7 @@ def test_account_scoped_html_uses_real_guided_app_with_strict_csp(monkeypatch):
         token = re.search(r'name="mf-takeoff-storage-scope" content="([a-f0-9]{32})"', html)
         assert token is not None
         assert client.get("/takeoff/").status_code == 200
+        assert client.get("/static/takeoff/public/guided/index.html").status_code == 404
         page = client.get("/static/takeoff/public/guided/guided.mjs")
         assert page.status_code == 200
         assert 'application/javascript' in page.headers["content-type"] or "javascript" in page.headers["content-type"]
