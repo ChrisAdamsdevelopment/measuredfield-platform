@@ -53,8 +53,12 @@ jobs:
           python -m compileall -q app tests scripts
           node --check app/vendor/growth_cli.mjs
           node --check app/vendor/growth_engine.mjs
+      - name: Install virtual display for REAL Tk desktop tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
       - name: Run ALL PostgreSQL and HTTP tests (skips forbidden)
-        run: python -B scripts/ci_full_check.py
+        run: xvfb-run -a python -B scripts/ci_full_check.py
       - name: Verify Render Blueprint configuration
         run: |
           python - <<'PY'
