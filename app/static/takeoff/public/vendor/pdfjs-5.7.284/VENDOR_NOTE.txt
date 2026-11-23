@@ -1,0 +1,1 @@
+pdfjs-dist 5.7.284 (Apache-2.0), legacy build, from https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-5.7.284.tgz (npm integrity verified by npm pack). Copied unmodified: legacy/build/pdf.min.mjs, legacy/build/pdf.worker.min.mjs, standard_fonts/, wasm/, LICENSE.
