@@ -113,7 +113,8 @@ def create_server(settings: McpPluginSettings, *, gateway=None, token_verifier=N
     class LinkedTokenVerifier:
         async def verify_token(self, token: str):
             try:
-                verified = await asyncio.to_thread(jwt_verifier.verify, token)
+                verified = await asyncio.to_thread(
+                    jwt_verifier.verify, token, require_read_scope=False)
             except OAuthAccessDenied:
                 return None
             return AccessToken(
@@ -501,8 +502,12 @@ def create_app():
         allowed_origins=[origin, f"{origin}:443"],
     )
     server = create_server(settings)
-    return server.streamable_http_app(
+    app = server.streamable_http_app(
         json_response=True,
         host=resource_host,
         transport_security=transport_security,
     )
+    # ChatGPT discovers tool schemas before a user grants OAuth. Keep all real
+    # data/tool executions under SDK auth, but expose safe protocol bootstrap.
+    from .discovery import enable_anonymous_mcp_discovery
+    return enable_anonymous_mcp_discovery(app)

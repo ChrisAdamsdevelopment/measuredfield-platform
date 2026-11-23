@@ -1,6 +1,8 @@
 """Production MeasuredField image integration and structured data regression tests."""
 from __future__ import annotations
-import html,json,re
+import html
+import json
+import re
 from pathlib import Path
 
 from .conftest import client_for
@@ -67,7 +69,10 @@ def test_optimized_media_is_served_from_main_app(platform):
             assert manifest["name"]=="MeasuredField"
             assert len(manifest["icons"])>=2
         else:
-            assert response.headers["content-type"].split(";")[0]==mime, (path,response.headers["content-type"])
+            actual_mime = response.headers["content-type"].split(";")[0]
+            # Python/OS MIME databases legitimately use either ICO media type.
+            expected_mimes = {"image/x-icon", "image/vnd.microsoft.icon"} if path.endswith(".ico") else {mime}
+            assert actual_mime in expected_mimes, (path, actual_mime)
 
 
 def test_no_private_case_study_asset_in_published_media():

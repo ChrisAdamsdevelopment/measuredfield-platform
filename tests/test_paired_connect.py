@@ -10,8 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from app.local_connect import AccessDenied, LocalConnect
+from app.local_connect import AccessDenied
 from app.paired_connect.registry import BoundSession, PairingRegistry
+
+
+def _tool_failed(result):
+    """Support error status on pinned MCP 2.x and legacy 1.x."""
+    for field in ("is_error", "isError"):
+        if hasattr(result, field):
+            return bool(getattr(result, field))
+    raise AssertionError("MCP response did not expose an error status")
 
 
 @pytest.fixture
@@ -254,28 +262,28 @@ def test_actual_mcp_client_stdio_pairing_scope_and_live_revoke(setup, monkeypatc
                 assert "read_project_file" in names
                 assert "approve_project_edit" not in names
                 allowed = await client.call_tool("list_granted_projects", {})
-                assert allowed.isError is not True
+                assert _tool_failed(allowed) is False
                 assert alpha in str(allowed.content)
                 assert beta not in str(allowed.content)
                 read = await client.call_tool("read_project_file", {
                     "grant_id": alpha, "relative_path": "note.txt"
                 })
-                assert read.isError is not True
+                assert _tool_failed(read) is False
                 assert "alpha" in str(read.content)
                 outside = await client.call_tool("read_project_file", {
                     "grant_id": beta, "relative_path": "note.txt"
                 })
-                assert outside.isError is True
+                assert _tool_failed(outside) is True
                 denied = await client.call_tool("propose_project_edit", {
                     "grant_id": alpha, "relative_path": "note.txt",
                     "new_content": "Must not edit"
                 })
-                assert denied.isError is True
+                assert _tool_failed(denied) is True
                 assert registry.revoke(pair_id)
                 after = await client.call_tool("read_project_file", {
                     "grant_id": alpha, "relative_path": "note.txt"
                 })
-                assert after.isError is True
+                assert _tool_failed(after) is True
     asyncio.run(exercise())
 
 

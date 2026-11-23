@@ -33,7 +33,7 @@ class OAuthJWTVerifier:
                      PyJWKClient(settings.jwks_url, cache_jwk_set=True, lifespan=300, timeout=5))
         self.resolve_subject = resolve_subject
 
-    def verify(self, token: str) -> VerifiedBearer:
+    def verify(self, token: str, *, require_read_scope: bool = True) -> VerifiedBearer:
         if not isinstance(token, str) or not 30 <= len(token) <= 8192:
             raise OAuthAccessDenied("Invalid OAuth access token.")
         try:
@@ -65,7 +65,7 @@ class OAuthJWTVerifier:
             scopes = frozenset(raw_scopes)
         else:
             raise OAuthAccessDenied("Malformed OAuth permissions.")
-        if self.settings.read_scope not in scopes:
+        if require_read_scope and self.settings.read_scope not in scopes:
             raise OAuthAccessDenied("OAuth read scope is missing.")
         client_id = claims.get("client_id", claims.get("azp"))
         if not isinstance(client_id, str) or not client_id or len(client_id) > 250:
