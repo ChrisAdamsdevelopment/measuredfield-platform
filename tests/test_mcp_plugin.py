@@ -291,3 +291,67 @@ def test_plugin_no_anonymous_fallback_or_write_dispatch():
     for forbidden in ("send_email(", "publish_site(", "subprocess.run(",
                       "requests.post(", "httpx.post(", "OPENAI_API_KEY"):
         assert forbidden not in server
+
+def test_chatgpt_can_discover_tools_before_oauth_but_cannot_call_them(keys):
+    """Actual MCP2 ASGI transport: anonymous bootstrap only, protected business tools."""
+    from importlib.metadata import version
+    if not version("mcp").startswith("2."):
+        return
+    from mcp.server.transport_security import TransportSecuritySettings
+    from starlette.testclient import TestClient
+    from app.mcp_plugin.server import create_server
+    from app.mcp_plugin.discovery import enable_anonymous_mcp_discovery
+    from urllib.parse import urlsplit
+
+    host = urlsplit(RESOURCE).hostname
+    origin = f"https://{host}"
+    server = create_server(SETTINGS, token_verifier=_validator(keys))
+    app = enable_anonymous_mcp_discovery(server.streamable_http_app(
+        json_response=True, host=host,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[host, f"{host}:443"],
+            allowed_origins=[origin, f"{origin}:443"],
+        ),
+    ))
+    init = {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {}, "clientInfo": {"name": "ChatGPT-probe", "version": "1"},
+        },
+    }
+    common = {"Accept": "application/json, text/event-stream"}
+    with TestClient(app, base_url=origin) as client:
+        response = client.post("/mcp", json=init, headers=common)
+        assert response.status_code == 200, response.text[:400]
+        session_headers = {}
+        if response.headers.get("mcp-session-id"):
+            session_headers["Mcp-Session-Id"] = response.headers["mcp-session-id"]
+        listing = client.post("/mcp", json={
+            "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+        }, headers={**common, **session_headers})
+        assert listing.status_code == 200, listing.text[:400]
+        assert "list_my_businesses" in listing.text
+        # No input, no alias, no schema trick can access actual tenant data.
+        denied = client.post("/mcp", json={
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "list_my_businesses", "arguments": {}},
+        }, headers={**common, **session_headers})
+        assert denied.status_code == 401
+        assert "www-authenticate" in denied.headers
+        invalid = client.post("/mcp", json=init, headers={
+            **common, "Authorization": "Bearer not-a-valid-jwt",
+        })
+        assert invalid.status_code == 401
+        bogus = client.post("/mcp", json={
+            "jsonrpc": "2.0", "id": 4, "method": "resources/read",
+            "params": {"uri": "file:///D:/private"},
+        }, headers=common)
+        assert bogus.status_code == 401
+        batch = client.post("/mcp", json=[
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+             "params": {"name": "list_my_businesses", "arguments": {}}},
+        ], headers=common)
+        assert batch.status_code == 401
