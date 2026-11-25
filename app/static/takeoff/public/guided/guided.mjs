@@ -27,6 +27,9 @@ import {draftReference,correctFieldQuantity} from "../../src/takeoff-draft.mjs";
 import {auditCurrentPacket,failedSkillReview,SKILL_FINDING_LABELS} from "../../src/skill-assurance.mjs";
 import {reconcileEstimate,ASSURANCE_LABELS} from "../../src/estimate-assurance.mjs";
 import {lineBasis,scopeCoverage} from "../../src/bid-readiness.mjs";
+import {REFERENCE_COUNT,searchReferences,referenceAllowance} from "../../src/reference-integration.mjs";
+import {createQuote,transition,allowedActions,effectiveStatus} from "../../src/quotes.mjs";
+import {CHOICE_LEVELS,materialChoice,changeMaterialChoice,materialImpactPending,reviewMaterialImpact,remodelDecisionQueue} from "../../src/remodel-choices.mjs";
 import {checkEstimateTotals} from "../../src/estimate-total-check.mjs";
 import {checkOperationCoverage} from "../../src/operation-coverage.mjs";
 import {createLaborActivity,effectiveLaborItems} from "../../src/labor-activity.mjs";
@@ -1320,7 +1323,7 @@ function calculate(){
   try{
     state.estimate=buildEstimate({
       lines:state.takeoff.lines,selections:state.project.selections,
-      catalog:state.project.catalog,quotes:state.project.quotes,settings:{...state.project.settings,labor:effectiveLaborItems(state.project.settings.labor,state.takeoff.lines)},
+      catalog:state.project.catalog,quotes:(state.project.quotes||[]).filter(q=>q.guided_quantity_basis&&q.line_ids.length===1&&state.takeoff.lines.some(l=>l.line_id===q.line_ids[0]&&lineBasis(l)===q.guided_quantity_basis)),settings:{...state.project.settings,labor:effectiveLaborItems(state.project.settings.labor,state.takeoff.lines)},
       asOf:today()
     });
   }catch(err){state.estimate=null;say("Estimate calculations need attention: "+err.message,true);}
@@ -1445,6 +1448,155 @@ function refreshMeasureScreen(){
   if(!hasPage)state.viewport=null;
   renderSheetStatus();updateTool();renderRail();renderScopeTodoPanel();
 }
+let materialQueueView={projectId:null,filter:"all",limit:6};
+function materialChoicePanel(line){
+  const choice=materialChoice(state.project,line),panel=document.createElement("details");
+  panel.className="remodel-choice-panel";panel.open=Boolean(choice);
+  const summary=document.createElement("summary");
+  summary.textContent=choice?("Selection: "+CHOICE_LEVELS.find(x=>x[0]===choice.level)[1]+(materialImpactPending(state.project,line)?" - check installation impact":"")):"Choose product or upgrade (optional)";
+  panel.append(summary);
+  const fields=document.createElement("div");fields.className="remodel-choice-fields";
+  const level=document.createElement("select");level.setAttribute("aria-label","Product selection level for "+line.description);
+  for(const [value,label] of CHOICE_LEVELS)level.add(new Option(label,value));
+  level.value=choice?.level||"as_specified";
+  const specification=document.createElement("input");specification.type="text";specification.maxLength=500;specification.value=choice?.specification||"";
+  specification.placeholder="Product, model, finish, size or custom specification";specification.setAttribute("aria-label","Product specification for "+line.description);
+  const supplier=document.createElement("input");supplier.type="text";supplier.maxLength=160;supplier.value=choice?.supplier||"";
+  supplier.placeholder="Preferred supplier (optional)";supplier.setAttribute("aria-label","Preferred supplier for "+line.description);
+  const save=document.createElement("button");save.type="button";save.className="button button-outline compact";
+  save.textContent="Save selection and reopen pricing";
+  const help=document.createElement("small");help.textContent="A changed product selection clears only this line's old price and cost classification. Measurements stay intact. Custom items wait for a supplier quote; no automatic premium multiplier.";
+  const projectId=state.project.id, basis=lineBasis(line);
+  const currentLine=()=>{const current=state.takeoff.lines.find(l=>l.line_id===line.line_id);if(state.project?.id!==projectId||!current||lineBasis(current)!==basis)throw Error("Project or quantity changed; reopen the current line");return current;};
+  save.onclick=()=>{
+    try{const current=currentLine(),next=changeMaterialChoice(state.project,current,{level:level.value,specification:specification.value,supplier:supplier.value});
+    if(next===state.project)return say("Selection unchanged.");
+    state.project=next;calculate();saveSoon();say("Selection saved. Get the new price and review installation requirements before final bid.");}
+    catch(e){say(e.message,true);}
+  };
+  fields.append(level,specification,supplier,save,help);
+  if(choice){
+    const note=document.createElement("input");note.type="text";note.maxLength=500;note.value=choice.review?.note||"";
+    note.placeholder="Review preparation, waste, labor, compatibility and lead time";note.setAttribute("aria-label","Installation impact for "+line.description);
+    const review=document.createElement("button");review.type="button";review.className="button button-outline compact";review.textContent="Record installation review";
+    review.onclick=()=>{try{state.project=reviewMaterialImpact(state.project,currentLine(),note.value);calculate();saveSoon();}catch(e){say(e.message,true);}};
+    fields.append(note,review);
+  }
+  panel.append(fields);return panel;
+}
+function referenceSearchPanel(line){
+ const details=document.createElement("details");details.className="remodel-choice-panel";
+ const heading=document.createElement("summary");heading.textContent="Search full planning price library ("+REFERENCE_COUNT+" references)";details.append(heading);
+ const search=document.createElement("input");search.type="search";search.placeholder="Search by material, product type or category";search.setAttribute("aria-label","Search planning references for "+line.description);
+ const results=document.createElement("div");results.className="remodel-reference-results";details.append(search,results);
+ const id=state.project.id,basis=lineBasis(line);
+ function render(){
+  results.replaceChildren();
+  const matches=searchReferences(search.value);
+  if(!matches.length){const msg=document.createElement("small");msg.textContent=search.value.trim()?"No matching reference. Use a supplier quote or sourced allowance.":"Search for the selected material, not a generic upgrade multiplier.";results.append(msg);}
+  for(const r of matches){
+   const box=document.createElement("details");box.className="retail-line-matches";
+   const title=document.createElement("summary");title.textContent=r.name+" ? "+r.source_unit+" ? "+cash(r.low_cents)+" to "+cash(r.high_cents);box.append(title);
+   const note=document.createElement("small");note.textContent="National planning range, NOT a local quote or grade classification. "+r.attribution;box.append(note);
+   const source=document.createElement("a");source.href=r.url;source.target="_blank";source.rel="noopener noreferrer";source.textContent="Source and license";box.append(source);
+   if(r.status!=="planning_only"||!r.price_cents){const n=document.createElement("p");n.textContent="Reference unresolved; no price can be applied.";box.append(n);results.append(box);continue;}
+   const fields=document.createElement("div");fields.className="remodel-choice-fields";
+   const band=document.createElement("select");band.setAttribute("aria-label","Planning price point");for(const [v,t] of [["low","Low "+cash(r.low_cents)],["mid","Typical "+cash(r.price_cents)],["high","High "+cash(r.high_cents)]])band.add(new Option(t,v));band.value="mid";
+   const qty=document.createElement("input");qty.type="number";qty.min=".0001";qty.step="any";qty.placeholder="Purchase quantity in "+r.source_unit;qty.setAttribute("aria-label","Purchase quantity in "+r.source_unit);
+   const basisNote=document.createElement("input");basisNote.placeholder="Explain unit conversion, product and price basis";basisNote.maxLength=400;basisNote.setAttribute("aria-label","Reference quantity and scope basis");
+   const inc=document.createElement("select");inc.setAttribute("aria-label","Reference cost coverage");for(const [v,t] of [["","Confirm cost coverage"],["supply_only","Supply only"],["installed","Supply and installation"],["other_nonlabor","Other nonlabor cost"]])inc.add(new Option(t,v));
+   const refTax=document.createElement("input");refTax.type="checkbox";refTax.setAttribute("aria-label","Apply purchase tax to reference allowance");const refTaxLabel=document.createElement("label");refTaxLabel.append(refTax,document.createTextNode("Apply material purchase tax"));
+   const confirm=document.createElement("input");confirm.type="checkbox";const label=document.createElement("label");label.append(confirm,document.createTextNode("I verified product suitability, price coverage and purchase units"));
+   const b=document.createElement("button");b.type="button";b.className="button button-outline compact";b.textContent="Record source-backed allowance";
+   b.onclick=()=>{try{
+    const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);
+    if(state.project.id!==id||!current||lineBasis(current)!==basis)throw Error("Project or quantity changed; reopen the material");
+    if(planningPriceProtected(current,selectedPrice(current),state.project.quotes||[],estimateLine(current)))throw Error("Existing price or quote protected. Clear the price first if replacing it.");
+    const sel=referenceAllowance(current,{referenceId:r.id,band:band.value,sourceQuantity:Number(qty.value),sourceBasis:basisNote.value,confirmed:confirm.checked,scopeReviewed:confirm.checked,costInclusion:inc.value});
+    sel.operation_id=selectedPrice(current)?.operation_id||null;sel.taxable=refTax.checked;
+    state.project.selections=state.project.selections.filter(x=>x.line_id!==current.line_id).concat(sel);state.project.labor_scope_reviewed=false;
+    calculate();saveSoon();say("Source-backed planning allowance saved; not a confirmed supplier quote.");
+   }catch(e){say(e.message,true);}};
+   fields.append(band,qty,basisNote,inc,refTaxLabel,label,b);box.append(fields);results.append(box);
+  }
+ }
+ search.oninput=render;render();return details;
+}
+function supplierQuotePanel(line){
+ const details=document.createElement("details");details.className="remodel-choice-panel";
+ const q=(state.project.quotes||[]).find(x=>x.line_ids.includes(line.line_id));
+ const heading=document.createElement("summary");heading.textContent=q?"Supplier quote ? "+effectiveStatus(q,today()).replaceAll("_"," "):"Get or record a supplier quote";details.append(heading);
+ const fields=document.createElement("div");fields.className="remodel-choice-fields";details.append(fields);
+ const id=state.project.id,basis=lineBasis(line);
+ const vendor=document.createElement("input");vendor.placeholder="Supplier name";vendor.value=q?.vendor_name||materialChoice(state.project,line)?.supplier||"";vendor.maxLength=160;vendor.setAttribute("aria-label","Quote supplier");
+ const scope=document.createElement("input");scope.placeholder="Quote specification and coverage";scope.value=q?.scope||line.description+" ? "+line.qty_with_waste+" "+line.unit+(materialChoice(state.project,line)?.specification?" ? "+materialChoice(state.project,line).specification:"");scope.maxLength=500;scope.setAttribute("aria-label","Quote specification");
+ const amount=document.createElement("input");amount.type="number";amount.min=".01";amount.step=".01";amount.placeholder="Written quote total ($)";amount.setAttribute("aria-label","Written quote total");
+ const expiry=document.createElement("input");expiry.type="date";expiry.setAttribute("aria-label","Quote valid through");
+ const evidence=document.createElement("input");evidence.placeholder="Quote number or document reference";evidence.maxLength=300;evidence.setAttribute("aria-label","Quote source");
+ const exclusions=document.createElement("input");exclusions.placeholder="Exclusions, delivery, tax or lead time notes";exclusions.maxLength=400;exclusions.setAttribute("aria-label","Quote exclusions");
+ const actor=document.createElement("input");actor.placeholder="Reviewer / approver name";actor.maxLength=100;actor.setAttribute("aria-label","Quote reviewer");
+ const inclusion=document.createElement("select");inclusion.setAttribute("aria-label","Quote cost coverage");
+ for(const [v,t] of [["","Confirm cost coverage"],["supply_only","Materials only"],["installed","Supply and installation"],["other_nonlabor","Other nonlabor"]])inclusion.add(new Option(t,v));
+ const tax=document.createElement("input");tax.type="checkbox";const taxLabel=document.createElement("label");taxLabel.append(tax,document.createTextNode("Apply material purchase tax (not included in quote)"));
+ const check=()=>{const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);if(state.project.id!==id||!current||lineBasis(current)!==basis)throw Error("Project or quantity changed; reopen the material");return current;};
+ function store(next,sel){
+  state.project.quotes=(state.project.quotes||[]).filter(x=>x.id!==next.id).concat(next);
+  if(sel)state.project.selections=state.project.selections.filter(x=>x.line_id!==line.line_id).concat(sel);
+  state.project.labor_scope_reviewed=false;calculate();saveSoon();
+ }
+ const button=(label,fn)=>{const b=document.createElement("button");b.type="button";b.className="button button-outline compact";b.textContent=label;b.onclick=()=>{try{check();fn();}catch(e){say(e.message,true);}};fields.append(b);};
+ const archive=()=>{
+  const current=state.project.quotes.find(x=>x.id===q.id);if(!current||JSON.stringify(current)!==JSON.stringify(q))throw Error("Quote changed; reopen");
+  const ids=new Set(current.line_ids),prior=(state.project.selections||[]).filter(x=>ids.has(x.line_id));
+  state.project.quote_archive=[...(state.project.quote_archive||[]),{quote:current,selections:prior,archived_at:new Date().toISOString()}];
+  state.project.quotes=state.project.quotes.filter(x=>x.id!==q.id);
+  state.project.selections=state.project.selections.filter(x=>!ids.has(x.line_id)).concat(current.line_ids.map(line_id=>({line_id,mode:"unpriced",operation_id:prior.find(x=>x.line_id===line_id)?.operation_id||null})));
+  state.project.labor_scope_reviewed=false;calculate();saveSoon();say("Offer archived; all covered lines need new prices.");
+ };
+ if(q){
+  const archiveCheck=document.createElement("input");archiveCheck.type="checkbox";archiveCheck.setAttribute("aria-label","Confirm archive entire supplier offer");
+  const archiveLabel=document.createElement("label");archiveLabel.append(archiveCheck,document.createTextNode("Archive this entire offer and reopen all "+q.line_ids.length+" covered line(s)"));
+  fields.append(archiveLabel);
+  button("Archive offer and reopen pricing",()=>{if(!archiveCheck.checked)throw Error("Confirm archiving the entire offer");archive();});
+ }
+ if(q&&(q.line_ids.length!==1||q.guided_quantity_basis!==basis)){
+  const n=document.createElement("p");n.textContent="Quote quantity basis missing, changed or multi-line legacy coverage. This offer is not included in current cost; archive and obtain a reviewed replacement.";fields.append(n);return details;
+ }
+ if(!q){
+  fields.append(vendor,scope);
+  const replace=document.createElement("input");replace.type="checkbox";replace.setAttribute("aria-label","Confirm replace existing price with pending quote");
+  const replaceLabel=document.createElement("label");replaceLabel.append(replace,document.createTextNode("Replace an existing price with a pending quote (old price retained in history)"));fields.append(replaceLabel);
+  button("Prepare quote request (not sent)",()=>{
+   if(!vendor.value.trim()||!scope.value.trim())throw Error("Enter supplier and quote scope");
+   if(state.project.quotes.some(x=>x.line_ids.includes(line.line_id)))throw Error("A quote is already linked");
+   const prior=selectedPrice(line);
+   if(prior?.quote_id)throw Error("Existing quote reference must be resolved");
+   if(prior&&!["unpriced","supplier_quote"].includes(prior.mode)&&!replace.checked)throw Error("Confirm replacing the existing price before preparing the request");
+   const next=createQuote({id:newId("quote"),line_ids:[line.line_id],scope:scope.value.trim(),vendor_name:vendor.value.trim(),created_at:new Date().toISOString()});
+   if(prior&&!["unpriced","supplier_quote"].includes(prior.mode))next.prior_selection=structuredClone(prior);
+   next.guided_quantity_basis=basis;
+   store(next,{line_id:line.line_id,mode:"supplier_quote",quote_id:next.id,operation_id:selectedPrice(line)?.operation_id||null});
+   say("Quote request prepared locally. Contact the supplier yourself; nothing was sent.");
+  });return details;
+ }
+ const summary=document.createElement("small");summary.textContent=(q.vendor_name||"Supplier")+" ? "+q.scope+(q.amount_cents!=null?" ? "+cash(q.amount_cents)+" through "+q.valid_until:"")+(q.attachment_ref?" ? source "+q.attachment_ref:"");fields.append(summary);
+ const quoteTime=()=>{const d=new Date(),o=-d.getTimezoneOffset(),a=Math.abs(o);return today()+"T"+d.toTimeString().slice(0,8)+(o<0?"-":"+")+String(Math.floor(a/60)).padStart(2,"0")+":"+String(a%60).padStart(2,"0");};
+ const actions=allowedActions(q,quoteTime());
+ const act=(name,payload,sel)=>{const current=state.project.quotes.find(x=>x.id===q.id);if(!current||JSON.stringify(current)!==JSON.stringify(q))throw Error("Quote changed; reopen the current offer");const next=transition(current,name,payload,quoteTime());store(next,sel);};
+ if(actions.includes("request"))button("Record request sent to supplier",()=>act("request",{}));
+ if(actions.includes("receive")){
+  fields.append(amount,expiry,evidence,exclusions,inclusion,taxLabel);
+  button("Record written supplier offer",()=>{
+   if(!evidence.value.trim()||!inclusion.value)throw Error("Enter written source and cost coverage");
+   const cents=toCents(amount.value);if(!Number.isSafeInteger(cents)||cents<=0)throw Error("Enter positive quote amount");
+   act("receive",{amount_cents:cents,valid_until:expiry.value,attachment_ref:evidence.value.trim(),exclusions:exclusions.value.trim()?[exclusions.value.trim()]:[]},{line_id:line.line_id,mode:"supplier_quote",quote_id:q.id,cost_inclusion:inclusion.value,taxable:tax.checked,operation_id:selectedPrice(line)?.operation_id||null});
+  });
+ }
+ if(actions.includes("review")){fields.append(actor);button("Mark offer reviewed",()=>act("review",{reviewed_by:actor.value.trim()}));}
+ if(actions.includes("approve")){fields.append(actor);button("Approve reviewed offer for estimate",()=>act("approve",{approved_by:actor.value.trim()}));}
+ if(actions.includes("reject"))button("Reject offer and request replacement",()=>act("reject",{}));
+ return details;
+}
 function makeMaterialRow(line){
   const estimate=estimateLine(line),selection=selectedPrice(line);
   const row=document.createElement("div");row.className="material-row";
@@ -1491,6 +1643,7 @@ function makeMaterialRow(line){
   function commit(kind="price"){
     try{
       const metadata={operation_id:operation.value.trim()||null,cost_inclusion:inclusion.value||null};
+      if(kind==="price"&&((state.project.quotes||[]).some(q=>q?.line_ids?.includes(line.line_id))||selectedPrice(line)?.quote_id))throw Error("Linked supplier quote protected; review the quote first.");
       // Metadata edits must not renew a stale quantity basis or replace source/quote provenance.
       if(kind==="metadata"||kind==="source"){
         const previous=selectedPrice(line);
@@ -1524,8 +1677,10 @@ function makeMaterialRow(line){
   inclusion.value=selection?.cost_inclusion||"";
   operation.onchange=()=>commit("metadata");inclusion.onchange=()=>commit("metadata");
   controls.append(mode,rateLabel,rate,source,operation,inclusion);
-  row.append(summary,qty,controls);
-  const options=planningOptions(line);
+  row.append(summary,qty,controls,materialChoicePanel(line),supplierQuotePanel(line),referenceSearchPanel(line));
+  const choice=materialChoice(state.project,line);
+  const specificChoice=choice&&(choice.level==="premium"||choice.level==="custom"||choice.specification||choice.supplier);
+  const options=specificChoice?[]:planningOptions(line);
   if(options.length){
     const details=document.createElement("details");details.className="retail-line-matches";
     const heading=document.createElement("summary");heading.textContent="Compare "+options.length+" national planning reference(s)";details.append(heading);
@@ -1555,7 +1710,7 @@ function makeMaterialRow(line){
     if(selection?.planning_reference){const note=document.createElement("small");note.textContent="Saved planning source: "+selection.planning_reference.reference_id+" · "+selection.planning_reference.version;details.append(note);}
     row.append(details);
   }
-  const products=(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
+  const products=specificChoice?[]:(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
   if(products.length){
     const refs=document.createElement("details");refs.className="retail-line-matches";
     const heading=document.createElement("summary");
@@ -1581,7 +1736,10 @@ function makeMaterialRow(line){
         const allow=document.createElement("button");allow.type="button";
         allow.className="button button-outline compact";
         allow.textContent="Record "+cash(reference.amount_cents)+" as PRELIMINARY allowance";
+        allow.disabled=planningPriceProtected(line,selection,state.project.quotes||[],estimate);
         allow.onclick=()=>{
+          const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);
+          if(!current||lineBasis(current)!==lineBasis(line)||planningPriceProtected(current,selectedPrice(current),state.project.quotes||[],estimateLine(current)))return say("Current price, quantity or linked quote changed. Reopen the material.",true);
           const s={line_id:line.line_id,mode:"allowance",
             allowance_cents:reference.amount_cents,allowance_basis:"quantity_bound",quantity_basis:lineBasis(line),
             source_ref:"PRELIMINARY unconfirmed retail observation "+obs.observed_at+
@@ -1613,10 +1771,25 @@ function renderMaterials(){
   $("stat-priced").textContent=String(pricedCount());
   $("stat-pending").textContent=String(pendingCount());
   if(!lines.length){
+    $("remodel-queue-toolbar").replaceChildren();$("remodel-queue-more").replaceChildren();
     const p=document.createElement("p");p.className="soft-empty";
     p.textContent="No measurements yet. Go back to Measure, trace an area, or type a known quantity to begin.";area.append(p);return;
   }
-  for(const line of lines)area.append(makeMaterialRow(line));
+  const queue=remodelDecisionQueue(state.project,lines,state.estimate);
+  if(materialQueueView.projectId!==state.project.id)materialQueueView={projectId:state.project.id,filter:"all",limit:6};
+  const toolbar=$("remodel-queue-toolbar");toolbar.replaceChildren();
+  const counts={all:queue.length,attention:queue.filter(x=>x.group!=="ready").length,quote:queue.filter(x=>x.group==="quote").length,selection:queue.filter(x=>x.selection||x.impact).length};
+  for(const [key,label] of [["all","All"],["attention","Needs attention"],["quote","Supplier quotes"],["selection","Selections & upgrades"]]){
+    const b=document.createElement("button");b.type="button";b.className="button button-outline compact";
+    b.textContent=label+" ("+counts[key]+")";b.setAttribute("aria-pressed",String(materialQueueView.filter===key));
+    b.onclick=()=>{materialQueueView.filter=key;materialQueueView.limit=6;renderMaterials();};toolbar.append(b);
+  }
+  const filtered=queue.filter(x=>materialQueueView.filter==="all"||materialQueueView.filter==="attention"&&x.group!=="ready"||materialQueueView.filter==="quote"&&x.group==="quote"||materialQueueView.filter==="selection"&&(x.selection||x.impact));
+  for(const {line} of filtered.slice(0,materialQueueView.limit))area.append(makeMaterialRow(line));
+  const more=$("remodel-queue-more");more.replaceChildren();
+  const count=document.createElement("small");count.textContent="Showing "+Math.min(filtered.length,materialQueueView.limit)+" of "+filtered.length+" relevant material lines";more.append(count);
+  if(filtered.length>materialQueueView.limit){const button=document.createElement("button");button.type="button";button.className="button button-outline compact";button.textContent="Show 6 more";button.onclick=()=>{materialQueueView.limit+=6;renderMaterials();};more.append(button);}
+  if(!filtered.length){const p=document.createElement("p");p.className="soft-empty";p.textContent="No items in this view.";area.append(p);}
 }
 function renderLabor(){
   const area=$("labor-list");area.replaceChildren();
@@ -1720,6 +1893,7 @@ function assuranceReview(){
 }
 function reviewBlockers(){
   const blockers=[];
+  for(const line of state.takeoff.lines)if(materialImpactPending(state.project,line))blockers.push("Review product selection installation impact: "+line.description);
   for(const f of assuranceReview().findings.filter(f=>f.severity==="block")){
     const scope=state.project.scope_items?.find(s=>s.id===f.scope_id);
     const refs=[...f.measurement_ids,...f.line_ids].join(", ");

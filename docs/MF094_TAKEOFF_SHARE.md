@@ -94,3 +94,26 @@ challenge checked for exact additional scope and error. Independent Argon Low
 review PID16840 APPROVE. Actual Auth0 permission issuance and live reconnect
 must still be tested; the metadata mismatch is a verified defect, not proof
 of the only cause of the reconnect loop.
+
+## MF-098 adaptive remodel product choices
+
+Website stage 3 now prioritizes existing measured material lines in a six-at-a-time queue:
+all, attention, supplier quotes, selections/upgrades. No project-specific item catalog,
+no automatic premium markup, no private case amounts encoded. Works over any existing
+assembly, including kitchen, bath, interior, garage conversion and deck.
+A saved product level/specification/supplier is browser-local project data and survives
+backup serialization. Explicit selection change clears its old price/cost classification,
+not geometry or other rows, and requires installation-impact and labor review. Linked
+quotes are protected. Specific selections suppress generic planning references; contractor
+can source actual prices. Installation review is tied to current line quantity basis.
+This is not a complete product dependency engine: no automatic change to substrate,
+labor or other quantities, no supplier request/receipt UI yet, and no new MCP tool or
+shared editable project. Private selection text is not exported through the MCP snapshot.
+Tests: 35 Node tests pass; existing synthetic-owner real Chrome smoke PID29584 pass;
+new real Chrome kitchen queue/custom selection/persistence/mobile PID20788 10 passed,
+including ADAPTIVE_REMODEL_SELECTION_REAL_CHROME_PASS. Initial browser test failed only
+on the local Puppeteer import path; corrected and rerun. Production deployment separate.
+
+## MF-099: restore actual existing pricing and quote workflow
+Canonical app now exports all 189 CC BY research references (188 priced, one unresolved), with original source units and ranges, source and attribution. Database SHA256 793641cf6a65bea4a5110a5a7dcdb7faa1408de26299afba6cac2fc48daa31a7. No restricted retailer records included. Explicit reviewed conversion and cost coverage required before applying a reference allowance. Source quantity is entered in original unit; low/typical/high are price points, not certified grades. Existing quote engine now exposed for single-line request preparation, external request recording, offer receipt, review, approval, expiry, rejection and archive. Old price evidence retained after explicit replacement. Missing or changed quote basis and legacy multi-line quote cannot enter guided estimate. Multi-line replacement currently requires new individual quotes; archive retains original. Browser-local save; no supplier communication is sent. Existing 13 automatic mapping references unchanged.
+Evidence: PID2596 13 Node tests; PID12980 14 browser-enabled tests passed, PID29124 corrected browser 4 passed including replacement consent and persistence. Independent review PID12252 requested changes, corrected; PID29408 APPROVE. Remaining: commercial reuse review for 5964 supplier candidates, 45 specialty refs; detailed labor reference search and planner, full multi-line procurement, cloud editable project and MCP pricing proposals, independent real-plan comparison. No new paid acquisition.
