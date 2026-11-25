@@ -182,7 +182,9 @@ def test_runtime_routes_require_workspace_membership_and_are_dev_only():
 
 
 def test_pilot_org_retains_seeded_benchmark_markets_and_aliases():
-    pilot_cfg = tenant_lab_config(business_name="Prescott's Best Construction")
+    from uuid import uuid4
+    org = SimpleNamespace(id=uuid4(), name="Prescott's Best Construction", settings={})
+    pilot_cfg = tenant_lab_config(org, pilot_org_id=str(org.id))
     assert pilot_cfg.is_pilot is True
     assert pilot_cfg.questions == BENCHMARK_22
     assert pilot_cfg.markets == MARKETS
@@ -387,3 +389,33 @@ def test_authenticated_multi_tenant_visibility_lab_isolates_org_configs_and_mark
     assert "Flagstaff, Arizona" not in tucson_page
     assert "Prescott Valley, Arizona" not in tucson_page
     assert "Tucson Adobe Builders" in tucson_page
+
+
+def test_pilot_preset_uses_only_configured_immutable_org_id():
+    from uuid import uuid4
+    pilot_id, other_id = uuid4(), uuid4()
+    org = SimpleNamespace(id=other_id, name="Prescott's Best Construction", settings={"pilot_org": True, "visibility_lab": {"is_pilot": True}})
+    for configured_id in (None, "", "invalid", str(pilot_id)):
+        cfg = tenant_lab_config(org, pilot_org_id=configured_id)
+        assert not cfg.is_pilot
+        assert cfg.markets != MARKETS
+        assert cfg.questions != BENCHMARK_22
+    # Renaming a legitimately configured workspace does not change its stable identity.
+    org.id = pilot_id
+    org.name = "Renamed Synthetic Organization"
+    assert tenant_lab_config(org, pilot_org_id=str(pilot_id)).is_pilot
+
+
+def test_pilot_route_configuration_checks_actual_tenant_id(platform, monkeypatch):
+    from .conftest import onboard_business
+    a, org_a, _ = onboard_business(platform, business="Prescotts Best Construction", owner_email="pilot-identity-a@example.invalid")
+    b, org_b, _ = onboard_business(platform, business="Prescott's Best Construction", owner_email="pilot-identity-b@example.invalid")
+    assert org_a != org_b
+    monkeypatch.setenv("MF_VISIBILITY_LAB_PILOT_ORG_ID", str(org_a))
+    path = "/api/v1/modules/visibility/config"
+    first = a.get(path)
+    second = b.get(path)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["config"]["is_pilot"] is True
+    assert second.json()["config"]["is_pilot"] is False
+    assert second.json()["config"]["markets"] != list(MARKETS)
