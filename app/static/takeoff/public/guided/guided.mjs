@@ -109,6 +109,8 @@ function show(screen){
   const id="screen-"+screen;
   for(const e of document.querySelectorAll(".screen"))e.classList.toggle("screen-active",e.id===id);
   state.activeScreen=screen;
+  if($("chatgpt-share-consent"))$("chatgpt-share-consent").checked=false;
+  if(screen==="review"&&state.chatgptShareAvailable)refreshSharedReviews();
   $("estimate-spine").hidden=!state.project||["home","new","proposal"].includes(screen);
   for(const btn of document.querySelectorAll(".spine button")){
     btn.classList.toggle("active",btn.dataset.step===screen);
@@ -1931,6 +1933,55 @@ async function exportPilotFeedback(){
     toast("Feedback downloaded. Send the JSON file to the team; nothing was uploaded.");
   }catch(err){say("Could not export feedback: "+err.message,true);}
 }
+const shareEndpoint="/api/takeoff/shared-reviews";
+function shareHeaders(){
+  return {"Content-Type":"application/json","X-CSRF-Token":document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||""};
+}
+async function shareRequest(path,options={}){
+  const res=await fetch(path,{credentials:"same-origin",cache:"no-store",...options,signal:AbortSignal.timeout(15000)});
+  const body=await res.json();
+  if(!res.ok)throw Error(typeof body.detail==="string"?body.detail:"Sharing request failed");
+  return body;
+}
+async function refreshSharedReviews(){
+  if(!state.chatgptShareAvailable)return;
+  const list=$("chatgpt-shared-reviews");
+  try{
+    const data=await shareRequest(shareEndpoint);
+    list.replaceChildren();
+    for(const receipt of data.snapshots){
+      const row=document.createElement("div"), label=document.createElement("p"), btn=document.createElement("button");
+      label.textContent="Shared "+receipt.shared_at+" | Snapshot "+receipt.snapshot_id;
+      btn.type="button";btn.className="button button-outline";btn.textContent="Revoke snapshot";
+      btn.addEventListener("click",async()=>{
+        btn.disabled=true;
+        try{
+          await shareRequest(shareEndpoint+"/"+encodeURIComponent(receipt.snapshot_id),{method:"DELETE",headers:shareHeaders()});
+          $("chatgpt-share-status").textContent="Snapshot revoked from future MCP access.";
+          await refreshSharedReviews();
+        }catch(e){$("chatgpt-share-status").textContent=e.message;btn.disabled=false;}
+      });
+      row.append(label,btn);list.append(row);
+    }
+    if(!data.snapshots.length)list.textContent="No shared snapshots yet.";
+  }catch(e){list.textContent="Could not list shared snapshots: "+e.message;}
+}
+async function shareCurrentReview(){
+  if(!state.chatgptShareAvailable||!state.project)return;
+  const consent=$("chatgpt-share-consent"), status=$("chatgpt-share-status"), btn=$("share-review-packet");
+  if(!consent.checked){status.textContent="Confirm sharing consent first.";return;}
+  btn.disabled=true;consent.checked=false;
+  try{
+    calculate();
+    const packet=currentReviewPacket();
+    try{packet.local_skill_assurance=auditCurrentPacket(packet);}
+    catch(e){packet.local_skill_assurance=failedSkillReview();}
+    const result=await shareRequest(shareEndpoint,{method:"POST",headers:shareHeaders(),body:JSON.stringify({consent:true,packet})});
+    status.textContent="Shared immutable snapshot "+result.snapshot_id+". Ask MeasuredField in ChatGPT to read it.";
+    await refreshSharedReviews();
+  }catch(e){status.textContent="Snapshot not confirmed: "+e.message;}
+  finally{btn.disabled=false;}
+}
 function exportChatGptReviewPacket(){
   if(!state.project)return;
   try{
@@ -1986,6 +2037,7 @@ for(const btn of document.querySelectorAll(".spine button"))
 on("export-project",backup);
 on("restore-project",e=>{const file=e.target.files?.[0];e.target.value="";restoreBackup(file);},"change");
 on("export-review-packet",exportChatGptReviewPacket);
+  on("share-review-packet",shareCurrentReview);
 on("export-pilot-feedback",exportPilotFeedback);
 on("plans-back",()=>show("home"));
 on("plans-next",()=>{
@@ -2234,6 +2286,9 @@ async function initialize(){
     const res=await fetch("/api/capabilities",{cache:"no-store"});
     const capabilities=res.ok?await res.json():{};
     state.aiAvailable=capabilities.ai_review===true&&capabilities.mode==="real_remote_inference";
+    state.chatgptShareAvailable=capabilities.chatgpt_snapshot_share===true;
+    $("chatgpt-share-panel").hidden=!state.chatgptShareAvailable;
+    if(state.chatgptShareAvailable)refreshSharedReviews();
     state.assistantAvailable=capabilities.assistant===true;state.assistantDemo=capabilities.assistant_demo===true;
   }catch{state.aiAvailable=false;}
   show("home");

@@ -65,6 +65,7 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         "queue_project_file_write",
         "queue_project_directory", "get_project_work_status", "cancel_project_work",
         "list_website_work_requests", "apply_website_work_request",
+        "list_takeoff_reviews", "get_takeoff_review",
     }
     for name, decorator in tools.items():
         kwargs = {item.arg: item.value for item in decorator.keywords}

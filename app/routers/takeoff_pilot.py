@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ..deps import BASE_DIR, LoginRequired, Principal, get_principal, member_api
 from ..db import TenantSession, get_db
 from ..security import rate_limited
-from ..services import takeoff_assistant
+from ..services import takeoff_assistant, takeoff_share
 
 router = APIRouter()
 PILOT_HTML = BASE_DIR / "templates" / "takeoff_pilot.html"
@@ -119,6 +119,7 @@ def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
     response = JSONResponse({
         "ai_review": False, "provider": None,
         "mode": "disabled_pending_secure_provider_adapter", "writes": False,
+        "chatgpt_snapshot_share": getattr(principal, "role", None) == "owner" and getattr(principal.org, "status", None) == "active",
         "assistant": takeoff_assistant.enabled() and principal.can("documents.write"),
         "assistant_demo": takeoff_assistant.demo_enabled() and principal.can("documents.write"),
         "assistant_provider": "NVIDIA" if takeoff_assistant.enabled() else None
@@ -172,3 +173,48 @@ async def takeoff_chat(
         # Do not expose raw provider messages, supplied drawings, or credentials.
         raise HTTPException(502, "AI provider could not complete this request. Try a shorter question.") from None
     return JSONResponse({**result, "synthetic_demo": demo}, headers={"Cache-Control":"no-store"})
+
+
+def _share_owner(principal):
+    if not takeoff_share.enabled_for(principal.org.id):
+        raise HTTPException(404, "Not found")
+    if principal.role != "owner" or principal.org.status != "active":
+        raise HTTPException(403, "Only an active workspace owner can share takeoff evidence")
+
+
+@router.post("/api/takeoff/shared-reviews", include_in_schema=False)
+async def share_review(request: Request, principal: Principal = Depends(member_api("documents.write")),
+                       db: TenantSession = Depends(get_db)):
+    _share_owner(principal)
+    if request.headers.get("content-type", "").split(";")[0] != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > takeoff_share.MAX_BODY:
+            raise HTTPException(413, "Review snapshot too large")
+        raw.extend(chunk)
+    import json
+    try:
+        body = json.loads(raw)
+        if not isinstance(body, dict) or set(body) != {"consent", "packet"} or body["consent"] is not True:
+            raise takeoff_share.ShareError("Explicit sharing consent required")
+        result = takeoff_share.save(db, principal.org.id, principal.user.id, body["packet"])
+    except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+        raise HTTPException(400, str(exc) if isinstance(exc, takeoff_share.ShareError) else "Invalid review evidence") from None
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/takeoff/shared-reviews", include_in_schema=False)
+def list_reviews(principal: Principal = Depends(member_api("read")), db: TenantSession = Depends(get_db)):
+    _share_owner(principal)
+    return JSONResponse({"snapshots": takeoff_share.list_shared(db, principal.org.id, principal.user.id)},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/takeoff/shared-reviews/{snapshot_id}", include_in_schema=False)
+def revoke_review(snapshot_id: str, principal: Principal = Depends(member_api("documents.write")),
+                  db: TenantSession = Depends(get_db)):
+    _share_owner(principal)
+    if not takeoff_share.revoke(db, principal.org.id, principal.user.id, snapshot_id):
+        raise HTTPException(404, "Snapshot unavailable")
+    return JSONResponse({"revoked": True}, headers={"Cache-Control": "no-store"})
