@@ -37,6 +37,7 @@
 // that the percentages were applied to a partial base.
 
 import { UnitError, convert, normalizeUnit, packagesNeeded, sameDimension } from './units.mjs';
+import {lineBasis} from './bid-readiness.mjs';
 import { normalizedUnitCost, priceFreshness } from './catalog.mjs';
 import { QuoteError, quoteContribution, toCalendarDate } from './quotes.mjs';
 
@@ -616,6 +617,13 @@ function priceContractorRate(line, sel, ctx, r) {
 }
 
 function priceAllowance(line, sel, ctx, r) {
+  // Quantity-derived allowances must be reviewed again if the basis changes.
+  // Legacy fixed allowances remain supported; legacy generated allowances are not trusted.
+  if ((sel?.allowance_basis === 'quantity_bound' || sel?.quantity_basis != null ||
+      /^PRELIMINARY unconfirmed retail observation/.test(sel?.source_ref || '')) &&
+      sel.quantity_basis !== lineBasis(line)) {
+    return markMissing(r, PRICE_STATUS.UNPRICED, 'ALLOWANCE_BASIS_CHANGED', 'Reconfirm quantity and package pricing');
+  }
   const amount = sel?.allowance_cents ?? line.allowance_cents;
   if (amount === undefined || amount === null) return markMissing(r, PRICE_STATUS.UNPRICED, 'ALLOWANCE_AMOUNT_MISSING');
   if (!Number.isSafeInteger(amount) || amount < 0) return markMissing(r, PRICE_STATUS.UNPRICED, 'INVALID_AMOUNT', String(amount));
@@ -718,6 +726,8 @@ function priceLine(line, sel, ctx) {
   const mode = sel ? sel.mode : defaultMode(line, ctx);
   const r = emptyResult(mode ?? 'unpriced');
   r.selection_source = sel ? 'selection' : 'default';
+  r.operation_id = sel?.operation_id ?? line.operation_id ?? null;
+  r.cost_inclusion = sel?.cost_inclusion ?? line.cost_inclusion ?? null;
 
   try {
     priceByMode(mode, line, sel, ctx, r);
@@ -792,6 +802,7 @@ function priceLabor(items, ctx) {
     const out = {
       id,
       description: item?.description ?? null,
+      operation_id: item?.operation_id ?? null,
       hours: item?.hours ?? null,
       rate_cents_per_hour: item?.rate_cents_per_hour ?? null,
       amount_cents: null,

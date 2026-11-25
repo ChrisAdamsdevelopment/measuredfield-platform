@@ -250,3 +250,8 @@
 .mf-takeoff-account{padding:9px 18px;background:#e8f1ed;color:#16483a;border-bottom:1px solid #bed4c9;font-size:12px;line-height:1.5}
 .mf-takeoff-account strong{font-weight:700}
 @media(max-width:480px){.mf-takeoff-account{padding:9px 12px;font-size:11px}}
+
+.scope-cost-links{grid-column:1/-1;min-width:0;padding:10px;border:1px solid #d9e1db;border-radius:8px;background:#fafcf9}.scope-cost-links summary{cursor:pointer;font-size:12px;font-weight:700}.scope-cost-links fieldset{min-width:0;margin:8px 0;border:1px solid #d9e1db;padding:8px}.scope-cost-links legend{font-size:11px;font-weight:700}.scope-cost-links label{display:flex;flex-direction:row;align-items:center;gap:8px;padding:4px 0;overflow-wrap:anywhere}.scope-cost-links input[type=checkbox]{width:auto;min-height:0;flex:none}.scope-cost-links button{margin-top:8px}.scope-cost-links select,.scope-cost-links>input{margin-top:6px}
+
+/* Restore controls must not widen the mobile workspace. */
+@media(max-width:760px){.app-header{flex-wrap:wrap;align-items:flex-start;gap:8px}.breadcrumbs{min-width:0;max-width:100%;overflow-wrap:anywhere;flex-wrap:wrap}.breadcrumbs strong{min-width:0;overflow-wrap:anywhere}.header-actions{flex:1 1 100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:7px}.header-actions .button{white-space:normal;max-width:100%}.mf-takeoff-account{overflow-wrap:anywhere}.labor-row{flex-wrap:wrap;min-width:0}.labor-row input{max-width:100%;min-width:0}.material-controls>input,.material-controls>select,.scope-cost-links>input{min-width:0;max-width:100%}}

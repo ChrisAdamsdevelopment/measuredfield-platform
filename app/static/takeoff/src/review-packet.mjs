@@ -4,6 +4,7 @@
  * internal labor rates or bid totals. No secrets and no network upload.
  */
 import {measure as measureGeometry,calibrationStatus} from "./geometry.mjs";
+import {openNeeds} from "./scope-items.mjs";
 export const REVIEW_SCHEMA="mf.takeoff.review-packet/1";
 const txt=(v,n=180)=>{
  if(typeof v!=="string")return "";
@@ -44,8 +45,8 @@ export function buildReviewPacket({project,documents=[],manuals=[],takeoff,estim
  });
  const scopes=list(project.scope_items).map(s=>({
   id:token(s.id),title:txt(s.title),work_type:token(s.work_type),action:token(s.action),
-  status:token(s.status),quantity_confirmed:s.quantity_confirmed===true,
-  open_needs:list(s.needs,20).map(n=>typeof n==="string"?txt(n,80):txt(n?.type||n?.label,80)).filter(Boolean),
+  status:token(s.status),quantity_confirmed:typeof s.quantity_confirmed_at==="string"&&s.quantity_confirmed_at.length>0,
+  open_needs:list(openNeeds(s),20).map(n=>typeof n==="string"?txt(n,80):txt(n?.type||n?.label,80)).filter(Boolean),
   evidence:list(s.evidence,4).map(evidence)
  }));
  const measurements=list(project.measurements).map(m=>{
@@ -68,7 +69,7 @@ export function buildReviewPacket({project,documents=[],manuals=[],takeoff,estim
  const manualQuantities=list(manuals).map(m=>({id:token(m.id),scope_item_id:token(m.scope_item_id)||null,
   assembly_id:token(m.assemblyId),quantity:four(m.quantity),unit:txt(m.unit,40),
   source:"field_entered_unverified"}));
- const estimateMap=new Map(list(estimate?.lines).map(e=>[e.line_id,e]));
+ const estimateMap=new Map((estimate?.lines||[]).map(e=>[e.line_id,e]));
  const bom=list(takeoff.lines).map(line=>{
   const priced=estimateMap.get(line.line_id);
   return {line_id:token(line.line_id),assembly_id:token(line.assembly_id),
@@ -76,7 +77,7 @@ export function buildReviewPacket({project,documents=[],manuals=[],takeoff,estim
    unit:txt(line.unit,24),formula:txt(line.formula,300),
    measurement_ids:list(line.measurement_ids,30).map(x=>token(x)),flags:list(line.flags,20).map(x=>token(x)),
    price_status:token(priced?.price_status||"UNKNOWN"),
-   needs_price:priced?.extended_cents==null&&priced?.price_status!=="BY_OWNER",
+   needs_price:priced?.extended_cents==null&&priced?.price_status!=="BY_OWNER"&&!(priced?.price_status==="QUOTE_APPROVED"&&priced.quote_allocation==="included"),
    pricing_reason:txt(priced?.price_reason||priced?.reason||"",180)||null};
  });
  const printedAreas=docs.flatMap(d=>list(d.textScan?.facts?.areas,24)
@@ -84,7 +85,21 @@ export function buildReviewPacket({project,documents=[],manuals=[],takeoff,estim
   .map(a=>({label:txt(a.label,100),printed_sf:four(a.value),
    ...docRef(a.evidence?.doc_id??d.id,a.evidence?.page_index),
    verification:"PRINTED_NOT_MEASURED"})));
+ const counts={};const truncated=[];
+ const record=(key,source,exported)=>{counts[key]={source,exported};if(source>exported)truncated.push(key);};
+ record('documents',documents.length,docs.length);
+ record('drawing_register',project.sheet_register?.length||0,pages.length);
+ record('scope_items',project.scope_items?.length||0,scopes.length);
+ record('measurements',project.measurements.length,measurements.length);
+ record('field_entered_quantities',manuals.length,manualQuantities.length);
+ record('material_lines',takeoff.lines.length,bom.length);
+ record('estimate_lines',estimate?.lines?.length||0,estimate?.lines?.length||0);
+ record('warnings',takeoff.warnings?.length||0,list(takeoff.warnings,60).length);
+ record('scope_open_needs',(project.scope_items||[]).reduce((n,s)=>n+openNeeds(s).length,0),scopes.reduce((n,s)=>n+s.open_needs.length,0));
+ record('measurement_links',takeoff.lines.reduce((n,l)=>n+(l.measurement_ids?.length||0),0),bom.reduce((n,l)=>n+l.measurement_ids.length,0));
+ const unresolvedTotal=takeoff.lines.filter(l=>{const e=estimateMap.get(l.line_id);return e?.extended_cents==null&&e?.price_status!=='BY_OWNER'&&!(e?.price_status==='QUOTE_APPROVED'&&e.quote_allocation==='included');}).length;
  const packet={
+  export_manifest:{counts,truncated,complete:truncated.length===0,unresolved_material_count:unresolvedTotal},
   schema:REVIEW_SCHEMA,as_of:asOf,mode:"contractor_opt_in_read_only",
   project:{scope:txt(project.scope,40),code_basis:project.approved_plan_basis?.editions||null,
    // Do not export project/customer name or actual PDF filenames.
