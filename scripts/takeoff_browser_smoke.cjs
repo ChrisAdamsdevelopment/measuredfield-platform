@@ -62,6 +62,13 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     assert(packet.material_lines.length>0);
     assert(packet.field_entered_quantities.some(x=>x.quantity===15));
     assert(!JSON.stringify(packet).includes("Fictional Site Takeoff"));
+    // Wait for actual IndexedDB completion, not elapsed download time.
+    try{
+      await page.waitForFunction(()=>document.querySelector("#save-status")?.textContent==="Saved on this computer",{timeout:10000});
+    }catch(e){
+      console.log("SAVE_DIAGNOSTIC",await page.evaluate(()=>({status:document.querySelector("#save-status")?.textContent,notice:document.querySelector("#global-notice")?.textContent})));
+      throw e;
+    }
     await page.reload({waitUntil:"domcontentloaded",timeout:20000});
     await wait(1200);
     await page.waitForSelector(".project-card",{timeout:12000});

@@ -59,3 +59,18 @@ export async function deleteProject(id){
     tx.onerror=()=>reject(tx.error);
   });
 }
+
+/** Atomic, collision-refusing restore; no overwrite of existing projects or PDF records. */
+export async function restoreProjectBundle(record,pdfs){
+  const db=await openDatabase();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(["projects","pdfs"],"readwrite");
+    tx.oncomplete=()=>resolve(record.id);
+    tx.onabort=()=>reject(tx.error||Error("Restore aborted; existing records were preserved"));
+    tx.onerror=()=>{}; // IndexedDB aborts the entire transaction on a failed add.
+    try{
+      tx.objectStore("projects").add(record);
+      for(const pdf of pdfs)tx.objectStore("pdfs").add(pdf);
+    }catch(e){try{tx.abort()}catch{}reject(e);}
+  });
+}

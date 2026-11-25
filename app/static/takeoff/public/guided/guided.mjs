@@ -3,11 +3,15 @@
    validation remain in src/. This module is the new presentation/adapter layer.
    It never automatically identifies a plan scope or guesses material prices. */
 import * as pdfjs from "../vendor/pdfjs-5.7.284/pdf.min.mjs";
+import {extractStrokeEndpoints,chooseSnap} from "../../src/vector-snap.mjs";
+let snapData=null;
 import {createProject,newId,serializeProject,touchProject,validateProject} from "../../src/project.mjs";
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
 import {buildEstimate,formatCents} from "../../src/estimate.mjs";
-import {listProjects,getProject,saveProject,savePdf,getPdf,openDatabase} from "./storage.mjs";
+import {listProjects,getProject,saveProject,savePdf,getPdf,openDatabase,restoreProjectBundle} from "./storage.mjs";
+import {createBackup,readBackup} from "../../src/project-backup.mjs";
+import {quantityReviewItems,reviewedQuantity} from "../../src/quantity-review.mjs";
 import {inspectPdf,VIEW_TYPES} from "./pdf-intake.mjs";
 import {parsePriceObservations,wholePackageObservationCost} from "./price-observations.mjs";
 import {validateAiSuggestion,viewTypeForSuggestion} from "./ai-review.mjs";
@@ -17,6 +21,11 @@ import {syncRegister,duplicateGroups,linkSupersession,markDistinct,clearDecision
 import {renderRevisionPanel} from "./revision-panel.mjs";
 import {calibrationCandidates,checkCandidates,feetToFeetInches,formatFeetInches,recalibrationImpact,EXCLUSION_REASONS} from "../../src/dimension-assist.mjs";
 import {buildReviewPacket} from "../../src/review-packet.mjs";
+import {reconcileEstimate,ASSURANCE_LABELS} from "../../src/estimate-assurance.mjs";
+import {lineBasis,scopeCoverage} from "../../src/bid-readiness.mjs";
+import {checkEstimateTotals} from "../../src/estimate-total-check.mjs";
+import {checkOperationCoverage} from "../../src/operation-coverage.mjs";
+import {createLaborActivity,effectiveLaborItems} from "../../src/labor-activity.mjs";
 import {createFeedback,exportFeedbackPackage} from "../../src/feedback.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc="../vendor/pdfjs-5.7.284/pdf.worker.min.mjs";
 const $=id=>document.getElementById(id);
@@ -537,7 +546,7 @@ function allMeasuredForScope(){
       const cal=state.project.calibrations.find(c=>c.sheet_id===m.sheet_id);
       verified=Boolean(cal)&&calibrationStatus(cal,state.project.calibration_checks.filter(x=>x.sheet_id===m.sheet_id))==="verified";
     }
-    return {id:m.id,scope_item_id:m.scope_item_id,assembly:m.assembly,counted,verified};
+    return {id:m.id,scope_item_id:m.scope_item_id,assembly:m.assembly,counted,verified,sheet_id:m.sheet_id,layer:m.layer,kind:m.kind,points:m.points};
   });
   // Field-entered quantities were measured on site by the contractor: counted, labelled field-entered.
   const field=state.manuals.map(m=>({id:m.id,scope_item_id:m.scope_item_id,assembly:{id:m.assemblyId},counted:"yes",verified:true}));
@@ -778,6 +787,8 @@ function focusRegionForPage(page,viewport){
 async function renderPdfPage(){
   if(!state.docId){$("drawing-empty").hidden=false;$("canvas-wrap").hidden=true;return;}
   const seq=++state.renderSeq;
+  snapData=null;
+  $("snap-status").textContent=$("vector-snap").checked?"Checking drawing geometry…":"Free click";
   const pdf=await loadPdfDocument(state.docId),page=await pdf.getPage(state.pageIndex+1);
   const holder=$("drawing-holder");
   const old=state.viewport;
@@ -809,6 +820,16 @@ async function renderPdfPage(){
     holder.scrollTop=Math.max(0,cy*viewport.height-holder.clientHeight/2);
     state.focusNextRender=false;
     updateOverlay();updateTool();
+    if($("vector-snap").checked){
+      const docId=state.docId,pageIndex=state.pageIndex;
+      try{
+        const result=extractStrokeEndpoints(await page.getOperatorList(),pdfjs.OPS,{view:page.view});
+        if(seq===state.renderSeq&&docId===state.docId&&pageIndex===state.pageIndex&&$("vector-snap").checked){
+          snapData={...result,docId,pageIndex,seq};
+          $("snap-status").textContent=result.points.length?result.points.length+" vector endpoints · Shift for free click":"No supported vector endpoints · free click";
+        }
+      }catch{if(seq===state.renderSeq)$("snap-status").textContent="Vector extraction unavailable · free click";}
+    }
   }catch(err){if(seq===state.renderSeq)say("Drawing page could not be shown: "+err.message,true);}
 }
 function currentPoint(event){
@@ -817,6 +838,11 @@ function currentPoint(event){
   const x=event.clientX-box.left,y=event.clientY-box.top;
   if(x<0||y<0||x>box.width||y>box.height)throw Error("Outside drawing");
   const [px,py]=state.viewport.convertToPdfPoint(x,y);
+  if($("vector-snap").checked&&!event.shiftKey&&["calibrate","check","polygon","line"].includes(state.activeTool)&&snapData?.docId===state.docId&&snapData.pageIndex===state.pageIndex&&snapData.seq===state.renderSeq){
+    const hit=chooseSnap(snapData.points,state.viewport,x,y);
+    $("snap-status").textContent=hit?"Snapped to vector endpoint · Shift for free click":"No unambiguous endpoint nearby · free click";
+    if(hit)return {...hit.point};
+  }else if($("vector-snap").checked&&event.shiftKey)$("snap-status").textContent="Free click override";
   return{x:px,y:py};
 }
 // These values are parsed from the CURRENT uploaded PDF's own scale callout.
@@ -1259,7 +1285,7 @@ function calculate(){
   try{
     state.estimate=buildEstimate({
       lines:state.takeoff.lines,selections:state.project.selections,
-      catalog:state.project.catalog,quotes:state.project.quotes,settings:state.project.settings,
+      catalog:state.project.catalog,quotes:state.project.quotes,settings:{...state.project.settings,labor:effectiveLaborItems(state.project.settings.labor,state.takeoff.lines)},
       asOf:today()
     });
   }catch(err){state.estimate=null;say("Estimate calculations need attention: "+err.message,true);}
@@ -1270,7 +1296,7 @@ function calculate(){
 function selectedPrice(line){return state.project.selections.find(x=>x.line_id===line.line_id)||null}
 function estimateLine(line){return state.estimate?.lines.find(x=>x.line_id===line.line_id)||null}
 function pricedCount(){return(state.estimate?.lines||[]).filter(l=>l.extended_cents!==null&&l.price_status!=="BY_OWNER").length}
-function pendingCount(){return(state.estimate?.lines||[]).filter(l=>l.extended_cents===null).length}
+function pendingCount(){return state.estimate?.totals?.missing_lines??state.takeoff.lines.length}
 function renderRail(){
   const result=state.estimate,total=result?.totals;
   const known=pricedCount()>0||Boolean((total?.labor_cents||0)>0);
@@ -1429,13 +1455,14 @@ function makeMaterialRow(line){
   source.hidden=mode.value!=="contractor_rate";
   function commit(){
     try{
-      const sel={line_id:line.line_id,mode:mode.value};
+      const sel={line_id:line.line_id,mode:mode.value,operation_id:operation.value.trim()||null,cost_inclusion:inclusion.value||null};
       if(mode.value==="contractor_rate"){
         sel.rate_unit=line.unit;
         sel.source_ref=source.value.trim() || "Contractor-entered; source not independently verified.";
         if(rate.value.trim())sel.rate_cents_per_unit=toCents(rate.value);
       }else if(mode.value==="allowance"){
         sel.source_ref="Contractor-entered proposed allowance; requires client documentation.";
+        sel.allowance_basis="quantity_bound";sel.quantity_basis=lineBasis(line);
         if(rate.value.trim())sel.allowance_cents=toCents(rate.value);
       }
       state.project.selections=state.project.selections.filter(x=>x.line_id!==line.line_id).concat(sel);
@@ -1446,7 +1473,12 @@ function makeMaterialRow(line){
   mode.onchange=()=>{rate.value="";source.value="";commit();};
   rate.onchange=commit;
   source.onchange=commit;
-  controls.append(mode,rateLabel,rate,source);
+  const operation=document.createElement("input");operation.placeholder="Operation ID (same as related labor)";operation.maxLength=80;operation.value=selection?.operation_id||"";operation.setAttribute("aria-label","Operation ID for "+line.description);
+  const inclusion=document.createElement("select");inclusion.setAttribute("aria-label","Cost inclusion for "+line.description);
+  for(const [v,l] of [["","Cost inclusion unreviewed"],["supply_only","Materials only"],["installed","Supply and installation"],["labor_only","Labor only"],["other_nonlabor","Other nonlabor cost"]])inclusion.add(new Option(l,v));
+  inclusion.value=selection?.cost_inclusion||"";
+  operation.onchange=commit;inclusion.onchange=commit;
+  controls.append(mode,rateLabel,rate,source,operation,inclusion);
   row.append(summary,qty,controls);
   const products=(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
   if(products.length){
@@ -1476,7 +1508,7 @@ function makeMaterialRow(line){
         allow.textContent="Record "+cash(reference.amount_cents)+" as PRELIMINARY allowance";
         allow.onclick=()=>{
           const s={line_id:line.line_id,mode:"allowance",
-            allowance_cents:reference.amount_cents,
+            allowance_cents:reference.amount_cents,allowance_basis:"quantity_bound",quantity_basis:lineBasis(line),
             source_ref:"PRELIMINARY unconfirmed retail observation "+obs.observed_at+
               " · "+obs.supplier+" · "+obs.source_url};
           state.project.selections=state.project.selections.filter(x=>x.line_id!==line.line_id).concat(s);
@@ -1518,12 +1550,16 @@ function renderLabor(){
   $("markup").value=state.project.settings.markup_pct??0;
   $("contingency").value=state.project.settings.contingency_pct??0;
   $("labor-reviewed").checked=state.project.labor_scope_reviewed===true;
+  renderLaborActivityInput();
   for(const task of state.project.settings.labor||[]){
     const row=document.createElement("div");row.className="labor-row";
     const label=document.createElement("div");
     const strong=document.createElement("strong");strong.textContent=task.description;
     const detail=document.createElement("small");
-    detail.textContent=" · "+task.hours+" hr × "+cash(task.rate_cents_per_hour)+" = "+cash(Math.round(task.hours*task.rate_cents_per_hour));
+    const effective=effectiveLaborItems([task],state.takeoff.lines)[0];
+    detail.textContent=task.activity_basis
+      ? effective.activity_stale?" · Quantity or direct cost unresolved — remove and re-review activity":" · "+effective.hours+" paid person-hours · "+task.activity_basis.active_workdays+" active workdays · "+cash(effective.amount_cents)+" direct cost"
+      : " · "+task.hours+" hr × "+cash(task.rate_cents_per_hour)+" = "+cash(Math.round(task.hours*task.rate_cents_per_hour));
     label.append(strong,detail);
     const button=document.createElement("button");button.textContent="Remove";button.type="button";
     button.onclick=()=>{
@@ -1531,13 +1567,36 @@ function renderLabor(){
       state.project.labor_scope_reviewed=false;
       calculate();renderLabor();saveSoon();
     };
-    row.append(label,button);area.append(row);
+    const operation=document.createElement("input");operation.placeholder="Operation ID (match material or installed cost)";operation.maxLength=80;operation.value=task.operation_id||"";operation.setAttribute("aria-label","Operation ID for labor "+task.description);
+    operation.onchange=()=>{task.operation_id=operation.value.trim()||null;state.project.labor_scope_reviewed=false;calculate();saveSoon();};
+    row.append(label,operation,button);area.append(row);
   }
   const markup=Number($("markup").value);
   const gross=markup/(100+markup)*100;
   $("margin-note").textContent=Number.isFinite(gross)
    ?markup.toFixed(1)+"% markup on cost = "+gross.toFixed(1)+"% gross margin before overhead and other expenses."
    :"Enter a valid markup percentage.";
+}
+function renderLaborActivityInput(){
+  const picker=$("activity-line"),previous=picker.value;
+  picker.replaceChildren(new Option("Select measured activity basis",""));
+  for(const l of state.takeoff.lines)if(Number.isFinite(l.qty)&&l.qty>0)picker.add(new Option(l.description+" · "+l.qty+" "+l.unit+" net",l.line_id));
+  if([...picker.options].some(o=>o.value===previous))picker.value=previous;
+  const l=state.takeoff.lines.find(x=>x.line_id===picker.value);
+  $("activity-unit").textContent=l?"Person-hours per "+l.unit:"Person-hours per selected unit";
+}
+function addReviewedActivity(){
+  try{
+    const l=state.takeoff.lines.find(x=>x.line_id===$("activity-line").value);
+    const value=id=>$(id).value.trim(),n=id=>value(id)===""?NaN:Number(value(id));
+    const rate=value("activity-cost")===""?null:{cents:toCents(value("activity-cost")),basis:$("activity-rate-basis").value};
+    const crew={people:n("activity-crew"),paid_hours_per_day:n("activity-paid"),productive_hours_per_day:n("activity-productive"),billing_policy:"prorated",cost_rate:rate};
+    const row=createLaborActivity(l,{id:newId("labor"),description:value("activity-name"),operation_id:value("activity-operation"),evidence:value("activity-evidence"),reviewed:$("activity-reviewed").checked,person_hours_per_unit:n("activity-productivity"),crew,crew_efficiency:n("activity-efficiency")/100,max_workers:n("activity-capacity")});
+    if(state.project.settings.labor.some(x=>x.operation_id===row.operation_id&&x.activity_basis?.line_id===row.activity_basis.line_id))throw Error("Activity already linked to this operation and source. Remove the old one before replacing it.");
+    state.project.settings.labor.push(row);state.project.labor_scope_reviewed=false;
+    $("activity-reviewed").checked=false;calculate();renderLabor();saveSoon();
+    toast("Reviewed activity added. Direct cost only; selling rate is not marked up again.");
+  }catch(e){say(e.message,true);}
 }
 function addLabor(){
   try{
@@ -1578,29 +1637,65 @@ function scopeOpen(){
        (["excluded","allowance"].includes(s.status)&&(!s.note||s.note.trim().length<4));
   });
 }
+function assuranceReview(){
+  const fieldIds=new Set(state.manuals.map(m=>m.id));
+  const excludedIds=new Set((state.takeoff.excluded||[]).map(e=>e.measurement_id));
+  const measurements=allMeasuredForScope().map(m=>({...m,field_entered:fieldIds.has(m.id),counted:excludedIds.has(m.id)?"no":m.counted}));
+  return reconcileEstimate({scopeItems:state.project.scope_items||[],measurements,takeoff:state.takeoff,estimate:state.estimate});
+}
 function reviewBlockers(){
   const blockers=[];
+  for(const f of assuranceReview().findings.filter(f=>f.severity==="block")){
+    const scope=state.project.scope_items?.find(s=>s.id===f.scope_id);
+    const refs=[...f.measurement_ids,...f.line_ids].join(", ");
+    blockers.push("Estimate assurance: "+(ASSURANCE_LABELS[f.code]||f.code)+(scope?" — "+scope.title:"")+(refs?" ("+refs+")":""));
+  }
   if(!state.takeoff.lines.length)blockers.push("Add at least one measured or field-entered quantity.");
   if(pendingCount())blockers.push(pendingCount()+" material line(s) need a confirmed rate, supplier quote, allowance or explicit exclusion.");
   const missingRateSources=state.project.selections.filter(s=>
     s.mode==="contractor_rate" && (!s.source_ref || s.source_ref.startsWith("Contractor-entered") || s.source_ref.trim().length<4));
   if(missingRateSources.length)blockers.push(missingRateSources.length+" entered material rate(s) need a supplier, receipt or dated price-book source before final bid review.");
-  const measuredSheets=new Set(state.project.measurements.filter(m=>m.kind!=="count").map(m=>m.sheet_id));
+  const excludedIds=new Set(state.takeoff.excluded.map(e=>e.measurement_id));
+  const measuredSheets=new Set(state.project.measurements.filter(m=>m.kind!=="count"&&!excludedIds.has(m.id)).map(m=>m.sheet_id));
   const unverified=[...measuredSheets].filter(id=>{
     const cal=state.project.calibrations.find(c=>c.sheet_id===id);
     return !cal||calibrationStatus(cal,state.project.calibration_checks.filter(x=>x.sheet_id===id))!=="verified";
   });
   if(unverified.length)blockers.push(unverified.length+" measured drawing(s) still need an independent scale check.");
-  if(state.takeoff.excluded.length)blockers.push(state.takeoff.excluded.length+" measurement(s) were excluded from the takeoff; review them.");
+  for(const item of currentQuantityReviews())if(item.type==="revision"&&!reviewedQuantity(item,state.project.quantity_reviews))blockers.push("Excluded measurement needs review: "+item.label+" — "+item.description);
   if(state.takeoff.warnings.length)blockers.push(state.takeoff.warnings.length+" quantity warning(s) need investigation.");
   if(state.estimate?.errors?.length)blockers.push(state.estimate.errors.length+" pricing or unit error(s) require correction.");
   if(state.project.labor_scope_reviewed!==true)blockers.push("Review labor and subcontractor coverage.");
   if(state.project.settings.tax_rate_pct===null)blockers.push("Confirm the tax rate (0% only if genuinely applicable).");
   if(state.project.settings.shipping_cents===null)blockers.push("Confirm shipping or delivery charges (0 only if none applies).");
-  const open=scopeOpen();
-  if(open.length)blockers.push(open.length+" scope checklist item(s) still need a decision and short note.");
-  if(state.manuals.length)blockers.push("Some quantities came from field entry rather than independently verified plans; confirm them before fixed-price use.");
+  const coverage=scopeCoverage({titles:selectedScopeChoices(),choices:state.scopeChoices,estimate:state.estimate});
+  blockers.push(...coverage.issues);
+  for(const f of checkOperationCoverage(state.estimate))blockers.push("Cost ownership: "+f.code+" ("+f.ids.join(", ")+")");
+  for(const code of checkEstimateTotals(state.estimate))blockers.push("Estimate total reconciliation: "+code);
+  for(const s of state.project.selections.filter(s=>s.mode==="allowance"&&!s.quantity_basis))blockers.push("Legacy allowance requires re-entry against current quantity: "+s.line_id);
+  if(state.estimate?.totals?.missing_labor_items)blockers.push("Labor cost missing for "+state.estimate.totals.missing_labor_items+" task(s).");
+  for(const item of currentQuantityReviews())if(item.type==="field"&&!reviewedQuantity(item,state.project.quantity_reviews))blockers.push("Quantity from field entry needs documented verification: "+item.label);
   return blockers;
+}
+function currentQuantityReviews(){
+  return quantityReviewItems({manuals:state.manuals,excluded:state.takeoff.excluded,register:state.project.sheet_register,measurements:state.project.measurements});
+}
+function renderQuantityReviews(){
+  const area=$("quantity-review-list");area.replaceChildren();
+  for(const item of currentQuantityReviews()){
+    const row=document.createElement("div");row.className="scope-cost-links";
+    const h=document.createElement("strong");h.textContent=item.label+" — "+item.description;row.append(h);
+    if(!item.acknowledgeable){const p=document.createElement("p");p.textContent="Resolve the drawing conflict or missing evidence; acknowledgement cannot clear this issue.";row.append(p);}
+    else{
+      const current=state.project.quantity_reviews?.[item.key];
+      const note=document.createElement("input");note.placeholder=item.type==="field"?"Site measurement method, date, and who verified":"Replacement drawing and reviewed scope";note.maxLength=500;note.value=current?.note||"";
+      const button=document.createElement("button");button.type="button";button.className="button button-outline compact";button.textContent=reviewedQuantity(item,state.project.quantity_reviews)?"Reconfirm reviewed quantity":"Confirm with evidence";
+      button.onclick=()=>{if(note.value.trim().length<8)return say("Enter specific verification evidence first.",true);state.project.quantity_reviews={...state.project.quantity_reviews,[item.key]:{basis:item.basis,note:note.value.trim(),reviewed_on:today()}};saveSoon();renderReview();};
+      row.append(note,button);
+    }
+    area.append(row);
+  }
+  if(!area.children.length)area.textContent="No field entries or excluded measurements.";
 }
 function renderReview(){
   const blockers=reviewBlockers(),region=$("review-blockers");region.replaceChildren();
@@ -1627,6 +1722,7 @@ function renderReview(){
     ["Unpriced items",String(pendingCount())],
     ["Still to review",String(blockers.length)]
   ]){const row=document.createElement("div");row.textContent=name+" · "+value;breakdown.append(row);}
+  renderQuantityReviews();
   const scope=$("scope-list");scope.replaceChildren();
   for(const [i,title] of selectedScopeChoices().entries()){
     const current=state.scopeChoices[i]||{};
@@ -1637,15 +1733,40 @@ function renderReview(){
     choice.value=current.status||"";
     const note=document.createElement("input");note.placeholder="Reason for exclusion/allowance (optional otherwise)";note.maxLength=220;
     note.setAttribute("aria-label","Evidence for "+title);note.value=current.note||"";
-    function commit(){
-      state.scopeChoices[i]={status:choice.value,note:note.value.trim()};
+    function commit(extra={}){
+      state.scopeChoices[i]={...state.scopeChoices[i],status:choice.value,note:note.value.trim(),...extra};
       saveSoon();
-      // Avoid destroying an in-progress text field on each keystroke.
-      const open=scopeOpen();status.textContent=open.length?open.length+" scope item(s) still open":"Scope checklist reviewed";
     }
-    choice.onchange=()=>{commit();renderReview();};
-    note.onchange=()=>{commit();renderReview();};
-    row.append(strong,choice,note);scope.append(row);
+    choice.onchange=()=>{commit({coverage_basis:null,line_ids:[],labor_ids:[],labor_disposition:null,labor_note:""});renderReview();};
+    note.onchange=()=>{commit({coverage_basis:null});renderReview();};
+    row.append(strong,choice,note);
+    if(["included","allowance"].includes(choice.value)){
+      const links=document.createElement("details");links.className="scope-cost-links";
+      const h=document.createElement("summary");h.textContent="Link priced work and labor ("+(current.line_ids?.length||0)+" material / "+(current.labor_ids?.length||0)+" labor)";links.append(h);
+      const hint=document.createElement("small");hint.textContent="Select all relevant rows. Confirm each category against the current estimate; links alone do not prove full scope.";links.append(hint);
+      function picker(label,items,ids,key){
+        const group=document.createElement("fieldset"),legend=document.createElement("legend");legend.textContent=label;group.append(legend);
+        for(const item of items){
+          const tag=document.createElement("label"),check=document.createElement("input");check.type="checkbox";check.value=item.id;check.checked=(ids||[]).includes(item.id);
+          check.setAttribute("aria-label",title+" — "+item.label);
+          check.onchange=()=>{const next=Array.from(group.querySelectorAll("input:checked")).map(x=>x.value);commit({[key]:next,coverage_basis:null});status.textContent="Coverage changed — reconfirm";status.classList.remove("ready");};
+          tag.append(check,document.createTextNode(item.label));group.append(tag);
+        }
+        links.append(group);
+      }
+      picker("Material and quote rows",(state.estimate?.lines||[]).map(l=>({id:l.line_id,label:l.description+" · "+l.price_status+" · "+cash(l.extended_cents)})),current.line_ids,"line_ids");
+      picker("Labor rows",(state.estimate?.labor||[]).map(l=>({id:l.id,label:l.description+" · "+cash(l.amount_cents)})),current.labor_ids,"labor_ids");
+      const disposition=document.createElement("select");disposition.setAttribute("aria-label","Labor disposition: "+title);
+      for(const [v,l] of [["","Separate linked labor"],["included_in_quote","Labor included in approved quote"],["owner_or_external","Owner/external responsibility"],["not_required","No labor required"]])disposition.add(new Option(l,v));
+      disposition.value=current.labor_disposition||"";
+      const reason=document.createElement("input");reason.placeholder="Evidence for labor exception";reason.value=current.labor_note||"";reason.maxLength=220;
+      disposition.onchange=()=>{commit({labor_disposition:disposition.value,coverage_basis:null});status.classList.remove("ready");status.textContent="Coverage changed — reconfirm";};
+      reason.onchange=()=>{commit({labor_note:reason.value.trim(),coverage_basis:null});status.classList.remove("ready");status.textContent="Coverage changed — reconfirm";};
+      const confirm=document.createElement("button");confirm.type="button";confirm.textContent="Confirm current category coverage";confirm.className="button button-outline compact";
+      confirm.onclick=()=>{commit({labor_disposition:disposition.value,labor_note:reason.value.trim(),coverage_basis:scopeCoverage({estimate:state.estimate}).basis});renderReview();};
+      links.append(disposition,reason,confirm);row.append(links);
+    }
+    scope.append(row);
   }
 }
 function renderProposal(){
@@ -1654,13 +1775,15 @@ function renderProposal(){
   $("proposal-date").textContent=today();
   $("proposal-title").textContent=projectName();
   $("proposal-label").classList.toggle("ready",ready);
-  $("proposal-label").textContent=ready?"ESTIMATE DATA REVIEWED — CONTRACTOR APPROVAL REQUIRED":"PRELIMINARY — NOT A FIXED PRICE";
+  $("proposal-label").textContent=ready?"INTERNAL REVIEW — CONTRACTOR APPROVAL REQUIRED":"PRELIMINARY — NOT A FIXED PRICE — INTERNAL REVIEW ONLY";
   const body=$("proposal-scope");body.replaceChildren();
   const heading=document.createElement("h2");heading.textContent="Project scope and measured items";body.append(heading);
   const lines=document.createElement("ul");
   for(const item of state.takeoff.lines){
     const li=document.createElement("li");
-    li.textContent=item.description+" — "+Number(item.qty_with_waste).toLocaleString(undefined,{maximumFractionDigits:2})+" "+item.unit;
+    const p=estimateLine(item);
+    const label=p?.price_status==="BY_OWNER"?"OWNER SUPPLIED — installation separate":p?.price_status==="ALLOWANCE"?"ALLOWANCE (not firm) "+cash(p.extended_cents):p?.price_status==="QUOTE_APPROVED"&&p.quote_allocation==="included"?"Included in approved quote":p?.extended_cents==null?"UNPRICED":p.price_status+" "+cash(p.extended_cents);
+    li.textContent=item.description+" — "+Number(item.qty_with_waste).toLocaleString(undefined,{maximumFractionDigits:2})+" "+item.unit+" — "+label;
     lines.append(li);
   }
   body.append(lines);
@@ -1669,10 +1792,13 @@ function renderProposal(){
   const value=document.createElement("strong");
   value.textContent=cash(state.estimate?.totals?.grand_total_known_cents);
   total.append(left,value);
+  const costs=document.createElement("p");costs.textContent="Confirmed material/quote costs: "+cash(state.estimate?.totals?.confirmed_cents)+" · Allowances: "+cash(state.estimate?.totals?.allowance_cents)+" · Provisional: "+cash(state.estimate?.totals?.provisional_cents)+" · Labor: "+cash(state.estimate?.totals?.labor_cents);body.append(costs);
   const conditions=$("proposal-conditions");conditions.replaceChildren();
   const title=document.createElement("h2");title.textContent="Important terms and unresolved items";conditions.append(title);
   const all=document.createElement("ul");
   if(blockers.length){const li=document.createElement("li");li.textContent="Preliminary only: contractor must confirm outstanding scope, measurements, supplier prices and trade costs before issuing a formal quotation.";all.append(li);}
+  for(const issue of blockers){const li=document.createElement("li");li.textContent="Unresolved: "+issue;all.append(li);}
+  for(const item of currentQuantityReviews())if(reviewedQuantity(item,state.project.quantity_reviews)){const li=document.createElement("li");li.textContent="Contractor-recorded review: "+item.label+" — "+state.project.quantity_reviews[item.key].note;all.append(li);}
   for(const [i,t] of selectedScopeChoices().entries()){
     const s=state.scopeChoices[i];
     if(s&&["excluded","allowance"].includes(s.status)){
@@ -1723,15 +1849,26 @@ function exportChatGptReviewPacket(){
     toast("Review packet downloaded. Attach it to ChatGPT when ready; no files were uploaded.");
   }catch(err){say("Could not prepare review packet: "+err.message,true);}
 }
-function backup(){
+async function backup(){
   if(!state.project)return;
-  const data={
-    instructions:"Project data backup only. PDF files are stored in browser IndexedDB and are NOT in this JSON file.",
-    project:JSON.parse(serializeProject(state.project)),documents:state.documents,
-    manualInputs:state.manuals,scopeChoices:state.scopeChoices
-  };
-  downloadText("measuredfield-project-data-"+today()+".json",JSON.stringify(data,null,2));
-  toast("Project data exported. PDFs stay in this browser and must be backed up separately.");
+  try{
+    // Snapshot first so asynchronous file reads cannot mix project versions.
+    const record=structuredClone({id:state.project.id,project:JSON.parse(serializeProject(state.project)),documents:state.documents,manuals:state.manuals,scopeChoices:state.scopeChoices,updatedAt:Date.now()});
+    const pdfs=await Promise.all(record.documents.map(d=>getPdf(d.id)));
+    const blob=await createBackup(record,pdfs);
+    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="measuredfield-private-backup-"+today()+".mfbackup";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+    toast("Private, unencrypted backup exported with original PDFs. Keep it secure.");
+  }catch(e){say("Backup failed: "+e.message,true);}
+}
+async function restoreBackup(file){
+  if(!file)return;
+  try{
+    if(state.project){clearTimeout(state.saveTimer);await persist();}
+    const {record,pdfs}=await readBackup(file);
+    await restoreProjectBundle(record,pdfs);
+    await openExisting(record.id);
+    toast("Backup restored locally with original PDFs; existing projects unchanged.");
+  }catch(e){say("Restore refused: "+e.message,true);}
 }
 
 /* Wire the entire guided user journey. Every visible control has an action. */
@@ -1750,6 +1887,7 @@ on("start-dimensions",()=>{
 for(const btn of document.querySelectorAll(".spine button"))
   btn.addEventListener("click",()=>show(btn.dataset.step));
 on("export-project",backup);
+on("restore-project",e=>{const file=e.target.files?.[0];e.target.value="";restoreBackup(file);},"change");
 on("export-review-packet",exportChatGptReviewPacket);
 on("export-pilot-feedback",exportPilotFeedback);
 on("plans-back",()=>show("home"));
@@ -1813,24 +1951,15 @@ on("labor-next",()=>show("review"));
 on("back-to-materials",()=>show("materials"));
 on("preview-proposal",()=>show("proposal"));
 on("proposal-back",()=>show("review"));
-on("proposal-print",()=>window.print());
+on("proposal-print",()=>{calculate();renderProposal();window.print();});
 on("labor-add",addLabor);
+on("activity-line",renderLaborActivityInput,"change");
+on("activity-add",addReviewedActivity);
 on("labor-reviewed",()=>{state.project.labor_scope_reviewed=$("labor-reviewed").checked;saveSoon();});
 for(const id of ["tax-rate","shipping","markup","contingency"])on(id,saveSettings,"change");
 for(const id of ["pdf-input","pdf-input-alt"]){
   on(id,event=>{const f=event.target.files?.[0];if(f)ingestPdf(f);event.target.value="";},"change");
 }
-on("load-research-prices",async()=>{
-  if(!state.project)return say("Create or open an estimate before loading price research.",true);
-  try{
-    const response=await fetch("./retail_price_observations_20261122.csv",{cache:"no-store"});
-    if(!response.ok)throw Error("Unable to load the saved retailer research CSV");
-    const rows=parsePriceObservations(await response.text());
-    state.project.retail_observations=rows;
-    saveSoon();renderMaterials();
-    say("Loaded "+rows.length+" date-stamped Home Depot/Lowe's product observations. They are optional research, not live local prices and not automatically inserted as bid costs.");
-  }catch(e){say("Retail price research unavailable: "+e.message,true);}
-});
 on("retail-price-file",async event=>{
   const input=event.target,selected=input.files?.[0];input.value="";
   if(!selected||!state.project)return;
@@ -1846,6 +1975,11 @@ on("measure-assembly",renderAssemblyParams,"change");
 on("manual-kind",()=>{$("manual-unit").textContent=assemblyUnit();},"change");
 on("add-manual",recordManual);
 on("overlay-canvas",handleCanvasClick);
+on("vector-snap",()=>{
+  snapData=null;
+  $("snap-status").textContent=$("vector-snap").checked?"Select a drawing to load endpoints":"Free click";
+  if($("vector-snap").checked&&state.sheetId)renderPdfPage().catch(()=>{$("snap-status").textContent="Vector extraction unavailable · free click";});
+},"change");
 on("finish-area",()=>{
   try{
     if(state.activeTool!=="polygon"||state.draft.length<3)throw Error("Click at least three corners before finishing.");
