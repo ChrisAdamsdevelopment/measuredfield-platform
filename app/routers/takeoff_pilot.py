@@ -14,7 +14,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from ..deps import BASE_DIR, LoginRequired, Principal, get_principal
+from ..deps import BASE_DIR, LoginRequired, Principal, get_principal, member_api
+from ..db import TenantSession, get_db
+from ..security import rate_limited
+from ..services import takeoff_assistant
 
 router = APIRouter()
 PILOT_HTML = BASE_DIR / "templates" / "takeoff_pilot.html"
@@ -73,6 +76,7 @@ def render_takeoff_page(principal: Principal) -> str:
         '</div>'
     )
     source = source.replace('<div class="shell">', identity + '<div class="shell">', 1)
+    source = source.replace('</head>', '<meta name="mf-takeoff-csrf" content="' + html.escape(getattr(principal, 'csrf', ''), quote=True) + '"></head>', 1)
     return source
 
 
@@ -113,7 +117,46 @@ def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
         raise HTTPException(401, "Sign in to an authorized business.")
     response = JSONResponse({
         "ai_review": False, "provider": None,
-        "mode": "disabled_pending_secure_provider_adapter", "writes": False
+        "mode": "disabled_pending_secure_provider_adapter", "writes": False,
+        "assistant": takeoff_assistant.enabled() and principal.can("documents.write"),
+        "assistant_provider": "NVIDIA" if takeoff_assistant.enabled() else None
     })
     response.headers["Cache-Control"] = "no-store"
     return response
+
+@router.post("/api/takeoff/assistant", include_in_schema=False)
+async def takeoff_chat(
+    request: Request,
+    principal: Principal = Depends(member_api("documents.write")),
+    db: TenantSession = Depends(get_db),
+):
+    if not pilot_enabled() or principal.org.id not in _pilot_org_ids():
+        raise HTTPException(404, "Not found")
+    if not takeoff_assistant.enabled():
+        raise HTTPException(503, "AI assistant is not enabled")
+    if request.headers.get("content-type", "").split(";")[0] != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > takeoff_assistant.MAX_BODY:
+            raise HTTPException(413, "Request too large")
+    import json
+    try:
+        body = takeoff_assistant.prepare(json.loads(raw))
+    except (ValueError, TypeError, UnicodeError):
+        raise HTTPException(400, "Check your question, work-area image and sharing consent") from None
+    # Durable reservations; count attempts even if provider refuses or times out.
+    # Separate global and organization limits; no client-chosen identity or model.
+    global_limited = rate_limited(db, "takeoff-ai-global", limit=40, window_seconds=86400)
+    org_limited = rate_limited(db, "takeoff-ai-org:" + str(principal.org.id), limit=20, window_seconds=86400)
+    db.commit()
+    if global_limited or org_limited:
+        raise HTTPException(429, "Daily assistant limit reached")
+    from starlette.concurrency import run_in_threadpool
+    try:
+        result = await run_in_threadpool(takeoff_assistant.infer, body)
+    except Exception:
+        # Do not expose raw provider messages, supplied drawings, or credentials.
+        raise HTTPException(502, "AI provider could not complete this request. Try a shorter question.") from None
+    return JSONResponse(result, headers={"Cache-Control":"no-store"})

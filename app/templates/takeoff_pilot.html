@@ -54,7 +54,7 @@
         <div class="page-heading"><span class="eyebrow">NEW PROJECT</span><h1 id="new-title">Which job are we estimating?</h1><p>A little project context is all we need to start. You can change it later.</p></div>
         <div class="panel new-project-panel">
           <div class="new-fields"><label>Project name<input id="new-name" placeholder="e.g. Main bathroom remodel" maxlength="120"></label><label>Type of work<select id="new-type"><option value="bath">Bathroom remodel</option><option value="kitchen">Kitchen remodel</option><option value="interior">Interior renovation</option><option value="garage">Garage conversion</option><option value="deck">Deck or patio</option></select></label></div>
-          <h2>How would you like to start?</h2>
+          <label class="job-brief-label">Describe the job in your own words<textarea id="new-brief" rows="4" maxlength="2400" placeholder="Example: Remodel only the main bathroom. Remove the tub, install a walk-in shower, keep plumbing where it is."></textarea></label><h2>How would you like to start?</h2>
           <div class="start-cards">
             <button class="start-card" type="button" id="start-plans"><span class="start-icon">▤</span><strong>I have drawings or a PDF</strong><small>Check the pages, identify the work, then measure from the drawing.</small><span class="start-action">Upload my plans <span>→</span></span></button>
             <button class="start-card" type="button" id="start-dimensions"><span class="start-icon">▧</span><strong>I have room measurements</strong><small>Enter a known area, length or item count. Add PDF plans later.</small><span class="start-action">Enter dimensions <span>→</span></span></button>
@@ -63,7 +63,19 @@
         </div>
       </section>
 
-      <section class="screen" id="screen-plans" aria-labelledby="plans-title">
+      <section id="job-assistant" class="panel job-assistant" hidden aria-label="Job and estimating assistant">
+<div class="section-top"><div><h2>Estimate with your assistant</h2><p>Tell us what is changing. Select the room on a drawing, then ask for a work list or advice.</p></div><span id="assistant-status" role="status">Checking connection</span></div>
+<label>What are we building?<textarea id="job-brief" maxlength="2400" rows="3" placeholder="Describe the work, what stays, and your customer's choices."></textarea></label>
+<div class="job-area-actions"><button class="button button-outline" id="select-job-area" type="button">Select work area on drawing</button><button class="button button-quiet" id="clear-job-area" type="button">Clear selection</button><span id="job-area-status" role="status">No work area selected</span></div>
+<div id="assistant-conversation" class="assistant-conversation" aria-live="polite"></div>
+<div id="assistant-proposals"></div>
+<div class="assistant-shortcuts"><button type="button" class="button button-outline" id="assistant-scope">Plan my work</button><button type="button" class="button button-outline" id="assistant-missing">What is missing?</button><button type="button" class="button button-outline" id="assistant-next">What should I measure next?</button></div>
+<label>Ask about this job<textarea id="assistant-question" maxlength="1800" rows="2" placeholder="What materials and work do I need?"></textarea></label>
+<label class="checkline"><input id="assistant-consent" type="checkbox"> Send my question, brief, estimate summary and selected drawing crop to NVIDIA for AI assistance. Do not include sensitive information unless authorized.</label>
+<button id="assistant-send" class="button button-terra" type="button" disabled>Ask assistant</button>
+<p class="subtle">AI suggestions need your review. It cannot approve prices or infer accurate measurements from appearance. ChatGPT project syncing is not connected yet.</p>
+</section>
+<section class="screen" id="screen-plans" aria-labelledby="plans-title">
         <div class="page-heading"><span class="eyebrow">STEP 1 / 5 · PLANS & SCOPE</span><h1 id="plans-title">Check the plans and what's included.</h1><p>Add the plan set, confirm which drawings are current, and review the suggested work. The app will not treat a note or printed area as a finished measurement.</p></div>
         <div class="document-bar" id="document-bar">
           <div class="doc-status-icon">▤</div><div class="document-bar-content"><strong id="pdf-loaded-title">No PDF added yet</strong><small id="pdf-loaded-description">You can upload a multipage PDF; we'll show each page separately.</small></div>
@@ -91,7 +103,7 @@
             <div class="measure-intro" id="measure-work-anchor"><div class="measure-intro-top"><strong id="measure-view-label">Choose a work item on this drawing, then verify scale.</strong><button id="measure-back-to-pages" class="button button-outline compact" type="button">← All drawing pages</button></div><p>The app calculates quantities from the area or line you trace. Nothing is assumed to be flooring, demolition, or new construction.</p></div>
             <div id="sheet-status" class="sheet-status" hidden role="status"></div>
             <div id="scope-todo" class="scope-todo" hidden aria-live="polite"></div>
-            <div class="measure-settings"><label>1. What work are you measuring?<select id="measure-assembly"></select></label><label>2. Is this new work, demolition or existing?<select id="measure-layer"><option value="new">New work</option><option value="demolish">Demolition</option><option value="existing">Existing / remain</option><option value="field_verify">Verify in field</option></select></label></div>
+            <div class="measure-settings"><label>What are you working on?<select id="measure-assembly"></select></label><label>What are you doing to it?<select id="measure-layer"><option value="new">New work</option><option value="demolish">Demolition</option><option value="existing">Existing / remain</option><option value="field_verify">Verify in field</option></select></label></div>
             <div class="measure-toolbar"><div class="toolset">
               <button class="measure-tool active" type="button" data-tool="inspect" aria-pressed="true">Explore</button>
               <button class="measure-tool" type="button" data-tool="calibrate" aria-pressed="false">Set/verify scale</button>
@@ -99,7 +111,7 @@
               <button class="measure-tool" type="button" data-tool="line" aria-pressed="false">Measure length</button>
               <button class="measure-tool" type="button" data-tool="count" aria-pressed="false">Count items</button>
             </div><div class="drawing-display-controls"><div class="zoom-controls"><button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><button type="button" id="zoom-fit" title="Fit whole page">Fit</button><button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button></div><span class="scale-pill" id="scale-pill">Scale not set</span></div></div>
-            <div class="canvas-caption"><label><input id="vector-snap" type="checkbox"> Assist clicks with PDF vector endpoints</label><span id="snap-status" role="status" aria-live="polite">Free click</span></div>
+            <div class="canvas-caption"><label><input id="vector-snap" type="checkbox"> Snap to drawing line ends</label><span id="snap-status" role="status" aria-live="polite">Free click</span></div>
             <div class="recal-impact" id="recal-impact" hidden role="alertdialog" aria-labelledby="recal-title"></div><div class="scale-guide" id="scale-guide" hidden><div class="guide-count">1–2</div><div class="guide-copy"><strong id="scale-guide-title">Set and verify drawing scale</strong><p id="scale-guide-copy">A printed drawing scale is a helpful start but must be verified against a dimension.</p><div class="dimension-assist" id="dimension-assist" hidden aria-live="polite"></div><p id="scale-check-result" class="scale-check-result" hidden role="status"></p><div class="printed-scale-option" id="printed-scale-option" hidden><p id="printed-scale-explanation"></p><button id="use-printed-scale" class="button button-terra" type="button">Use this printed scale as a starting point</button></div><div class="guide-input"><label>Feet on printed dimension<input id="known-feet" type="number" min="0" max="100000" step="1" placeholder="e.g. 8" required></label><label>Remaining inches<input id="known-inches" type="number" min="0" max="11.999" step=".125" placeholder="0 if exact feet"></label><button class="button button-outline" id="switch-scale-check" type="button">Change scale method</button></div><div class="draft-scale-choice" id="draft-scale-choice" hidden><strong>Want a first quantity before checking accuracy?</strong><p>You can trace using the printed scale for a preliminary estimate. Every quantity will be marked unverified and the estimate cannot be considered bid-ready until you check a dimension.</p><button id="continue-draft-scale" type="button" class="button button-outline">Continue with unverified draft quantities</button></div></div></div>
             <div class="drawing-holder" id="drawing-holder">
               <div id="drawing-empty" class="drawing-empty"><div class="drawing-placeholder">▧</div><h3>No sheet selected</h3><p>Select a drawing page above or add a known quantity below. You don't need a PDF to begin planning.</p><button class="button button-outline" id="drawing-add-pdf" type="button">View drawings</button></div>
@@ -133,7 +145,7 @@
             <div class="labor-entry"><label>Task or trade<input id="labor-name" placeholder="e.g. Tile installation" maxlength="120"></label><label>Estimated hours<input id="labor-hours" type="number" min=".01" step=".01" placeholder="Hours"></label><label>Cost per hour<input id="labor-rate" type="number" min=".01" step=".01" placeholder="$"></label><button class="button button-terra" id="labor-add" type="button">+ Add task</button></div><details class="scope-cost-links"><summary>Calculate labor from a measured quantity</summary><p class="subtle">Choose a measured net quantity only when it matches the operation's productivity unit. Enter a reviewed rate from actual job history or an authorized source. No default productivity or crew rate is assumed.</p><div class="price-settings">
 <label>Measured basis<select id="activity-line"><option value="">Select measured activity basis</option></select></label>
 <label>Activity<input id="activity-name" maxlength="120"></label>
-<label>Operation ID (match material row)<input id="activity-operation" maxlength="80"></label>
+<label>Work reference (advanced; match material row)<input id="activity-operation" maxlength="80"></label>
 <label><span id="activity-unit">Person-hours per selected unit</span><input id="activity-productivity" type="number" min=".0001" step=".0001"></label>
 <label>Productivity evidence<input id="activity-evidence" maxlength="250"></label>
 <label>Crew size<input id="activity-crew" type="number" min="1" max="100"></label>

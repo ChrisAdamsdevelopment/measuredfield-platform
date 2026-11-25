@@ -5,6 +5,7 @@
 import * as pdfjs from "../vendor/pdfjs-5.7.284/pdf.min.mjs";
 import {extractStrokeEndpoints,chooseSnap} from "../../src/vector-snap.mjs";
 let snapData=null;
+import {workRegion,regionOnPage,cropBounds} from "../../src/job-context.mjs";
 import {createProject,newId,serializeProject,touchProject,validateProject} from "../../src/project.mjs";
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
@@ -52,7 +53,7 @@ const state={
   activeScreen:"home",activeTool:"inspect",pendingTool:null,provisionalScaleSheetId:null,scalePhase:"initial",draft:[],
   takeoff:{lines:[],warnings:[],excluded:[]},estimate:null,
   saveTimer:null,saveBusy:false,persistOkay:true,pdfLoaded:false,
-  aiAvailable:false,aiBusy:false,activeScopeItemId:null,
+  aiAvailable:false,aiBusy:false,assistantAvailable:false,assistantBusy:false,assistantHistory:[],assistantEpoch:0,activeScopeItemId:null,
   pageAnchors:[],dimSelected:null,pendingRecal:null,
   revision:{includedIds:new Set(),excluded:[],flagged:[],status:new Map(),resolved:[]}
 };
@@ -114,6 +115,7 @@ function show(screen){
   if(screen==="labor")renderLabor();
   if(screen==="review")renderReview();
   if(screen==="proposal")renderProposal();
+  refreshAssistant();
   window.scrollTo({top:0,behavior:"instant"});
 }
 async function renderProjects(){
@@ -140,6 +142,8 @@ function createNew(mode){
   const name=$("new-name").value.trim()||"Untitled remodel project";
   const type=$("new-type").value;
   state.project=createProject({name,scope:type});
+  state.project.job_brief=$("new-brief").value.trim();
+  resetAssistant();
   state.documents=[];state.manuals=[];state.scopeChoices={};state.fileDocs.clear();
   state.docId=null;state.sheetId=null;state.viewKey=null;state.viewTitle=null;state.pageIndex=0;state.draft=[];state.activeTool="inspect";
   $("breadcrumb-project").textContent=name;
@@ -153,7 +157,7 @@ async function openExisting(id){
   try{
     const r=await getProject(id);
     if(!r)throw Error("Project not found on this computer");
-    state.project=r.project;state.documents=r.documents||[];state.manuals=r.manuals||[];state.scopeChoices=r.scopeChoices||{};
+    state.project=r.project;resetAssistant();state.documents=r.documents||[];state.manuals=r.manuals||[];state.scopeChoices=r.scopeChoices||{};
     state.fileDocs.clear();state.docId=null;state.sheetId=null;state.viewKey=null;state.viewTitle=null;state.pageIndex=0;state.draft=[];
     $("save-status").textContent="Saved on this computer";
     renderAssemblyPicker();
@@ -859,7 +863,8 @@ function printedScaleForSelectedView(){
 }
 function toolHint(){
   const hints={
-    inspect:"Choose Measure area, Measure length, or Set scale to begin.",
+    inspect:"Choose the work you want to measure, or select a work area for the assistant.",
+    "job-region":"Click two opposite corners of the room or area of work.",
     calibrate:"Click the two ends of a printed dimension on the drawing. Enter that length above.",
     check:"Click a DIFFERENT printed dimension to verify the scale you set.",
     polygon:"Click the corners of the floor or surface. Select Finish area when done.",
@@ -910,7 +915,7 @@ function updateTool(){
   $("zoom-out").disabled=!hasSheet||(state.zoom||1)<=0.75;
   $("zoom-in").disabled=!hasSheet||(state.zoom||1)>=3;
   $("zoom-fit").disabled=!hasSheet;
-  $("overlay-canvas").style.cursor=["polygon","line","count","check","calibrate"].includes(state.activeTool)?"crosshair":"grab";
+  $("overlay-canvas").style.cursor=["job-region","polygon","line","count","check","calibrate"].includes(state.activeTool)?"crosshair":"grab";
   const calibrationMode=["calibrate","check"].includes(state.activeTool);
   $("scale-guide").hidden=!calibrationMode;
   $("draft-scale-choice").hidden=!calibrationMode||state.activeTool!=="check"||
@@ -964,6 +969,8 @@ function updateOverlay(){
     const color=item.layer==="demolish"?"#dc2626":item.layer==="existing"?"#475569":item.layer==="field_verify"?"#d97706":"#0f766e";
     draw(item.points,item.kind,color);
   }
+  const region=state.project?.work_region;
+  if(regionOnPage(region,state.docId,state.pageIndex))draw(region.points,"polygon","#d97706");
   draw(state.draft,state.activeTool,"#2563eb");
   const d=state.dimSelected;
   if(d&&d.evidence?.doc_id===state.docId&&d.evidence?.page_index===state.pageIndex){
@@ -1196,6 +1203,12 @@ function handleCanvasClick(e){
   try{
     if(!state.sheetId)throw Error("Open a drawing page first.");
     state.draft.push(currentPoint(e));
+    if(state.activeTool==="job-region"&&state.draft.length===2){
+      state.project.work_region=workRegion({docId:state.docId,pageIndex:state.pageIndex,viewKey:state.viewKey,points:state.draft});
+      state.draft=[];state.activeTool="inspect";saveSoon();refreshAssistant();
+      say("Work area selected. This tells the assistant where to focus; it is not a measured quantity.");
+      updateTool();updateOverlay();return;
+    }
     if(["calibrate","check"].includes(state.activeTool)&&state.draft.length===2){
       const whole=Number($("known-feet").value),inches=Number($("known-inches").value);
       const feet=whole+inches/12;
@@ -2024,6 +2037,108 @@ window.addEventListener("keydown",event=>{
       try{recordDrawing();}catch(err){say(err.message,true);}
     }
 });
+function resetAssistant(){
+  state.assistantEpoch++;state.assistantHistory=[];state.assistantBusy=false;
+  $("assistant-conversation").replaceChildren();$("assistant-proposals").replaceChildren();
+  $("assistant-question").value="";$("assistant-consent").checked=false;
+}
+function refreshAssistant(){
+  const visible=Boolean(state.project)&&!["home","new","proposal"].includes(state.activeScreen);
+  $("job-assistant").hidden=!visible;
+  if(!visible)return;
+  if(document.activeElement!==$("job-brief"))$("job-brief").value=state.project.job_brief||"";
+  const region=state.project.work_region;
+  $("job-area-status").textContent=region?"Selected area on page "+(region.pageIndex+1):"No work area selected";
+  $("clear-job-area").disabled=!region;
+  $("assistant-status").textContent=state.assistantAvailable?"AI assistant connected":"AI assistant not available on this account";
+  for(const id of ["assistant-send","assistant-scope","assistant-missing","assistant-next"])$(id).disabled=!state.assistantAvailable||state.assistantBusy||!$("assistant-consent").checked;
+}
+function appendAssistant(role,content){
+  const row=document.createElement("div"),label=document.createElement("strong"),msg=document.createElement("p");
+  row.className="assistant-message "+role;label.textContent=role==="user"?"You":"Estimating assistant";msg.textContent=content;
+  row.append(label,msg);$("assistant-conversation").append(row);
+}
+async function selectedRegionImage(region){
+  if(!region)return null;
+  const doc=state.documents.find(d=>d.id===region.docId);
+  if(!doc)throw Error("Selected drawing is missing. Choose the work area again.");
+  const pdf=await loadPdfDocument(doc.id),page=await pdf.getPage(region.pageIndex+1);
+  const base=page.getViewport({scale:1}),b=cropBounds(region,base);
+  const scale=Math.min(3,1500/Math.max(b.width,b.height));
+  const v=page.getViewport({scale}),crop=cropBounds(region,v);
+  const canvas=document.createElement("canvas");canvas.width=crop.width;canvas.height=crop.height;
+  const ctx=canvas.getContext("2d",{alpha:false});
+  await page.render({canvasContext:ctx,viewport:v,transform:[1,0,0,1,-crop.x,-crop.y]}).promise;
+  return canvas.toDataURL("image/jpeg",.76).split(",")[1];
+}
+function renderAssistantProposals(result,projectId,epoch,region,brief){
+  const box=$("assistant-proposals");box.replaceChildren();
+  if(!result.work_items?.length)return;
+  const heading=document.createElement("h3");heading.textContent="Suggested work — review before adding";box.append(heading);
+  for(const item of result.work_items){
+    const row=document.createElement("div");row.className="assistant-proposal";
+    const title=document.createElement("strong");title.textContent=item.item;
+    const note=document.createElement("small");note.textContent=[item.location,item.evidence].filter(Boolean).join(" · ");
+    const button=document.createElement("button");button.className="button button-outline compact";button.type="button";button.textContent="Add to my work list";
+    button.onclick=()=>{
+      if(state.project?.id!==projectId||state.assistantEpoch!==epoch||JSON.stringify(state.project.work_region||null)!==JSON.stringify(region)||state.project.job_brief!==brief){say("Job details changed. Ask the assistant again.",true);return;}
+      // Preserve each proposed operation, including separate rooms of the same work type.
+      const duplicate=scopeItems().some(x=>x.title===item.item&&x.action===item.action&&x.work_type===item.work_type&&x.location===(item.location||null));
+      if(duplicate){button.disabled=true;button.textContent="Already listed";return;}
+      const draft=manualScopeItem({title:item.item,work_type:item.work_type,action:item.action,measure:item.measure,at:new Date().toISOString()});
+      draft.id=newId("scope");draft.key=draft.id;draft.status="proposed";draft.decided_at=null;
+      draft.source="ai";draft.sources=["ai"];draft.ai_unverified=true;draft.location=item.location||null;draft.needs=item.needs||[];
+      draft.hint=(item.location?item.location+" · ":"")+(item.evidence||"Assistant proposal; confirm against plans");
+      draft.assistant_region=region;draft.assistant_job_brief=brief;
+      state.project.scope_items=[...scopeItems(),draft];
+      saveSoon();renderScopePanel();renderScopeTodoPanel();button.disabled=true;button.textContent="Added for review";
+    };
+    row.append(title,note,button);box.append(row);
+  }
+}
+async function askAssistant(question){
+  if(!state.project||state.assistantBusy||!state.assistantAvailable)return;
+  if(!$("assistant-consent").checked)return say("Confirm what you want to share with NVIDIA first.",true);
+  question=question.trim();if(!question)return say("Enter a question about this job.",true);
+  const project=state.project,projectId=project.id,epoch=state.assistantEpoch,brief=$("job-brief").value.trim(),region=structuredClone(project.work_region||null);
+  const sameProject=()=>state.project?.id===projectId&&state.assistantEpoch===epoch;
+  project.job_brief=brief;saveSoon();state.assistantBusy=true;refreshAssistant();
+  appendAssistant("user",question);$("assistant-proposals").replaceChildren();
+  try{
+    const image=await selectedRegionImage(region);
+    if(!sameProject())return;
+    const context=JSON.stringify({jobType:project.scope,selectedPage:region?region.pageIndex+1:null,
+      work:scopeItems().slice(0,40).map(x=>({title:x.title,status:x.status})),
+      measured:state.takeoff.lines.slice(0,30).map(x=>({description:x.description,qty:x.qty,unit:x.unit,needs:x.needs})),
+      totals:state.estimate?.totals}).slice(0,6000);
+    const body={consent:true,question,brief,context,history:state.assistantHistory.slice(-8),...(image?{image_base64:image}:{})};
+    const csrf=document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||"";
+    const res=await fetch("/api/takeoff/assistant",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body),signal:AbortSignal.timeout(85000)});
+    const data=await res.json();
+    if(!res.ok)throw Error(typeof data.detail==="string"?data.detail:"Assistant request failed");
+    if(data.actual_inference!==true||typeof data.reply!=="string")throw Error("No real model response");
+    if(!sameProject())return;
+    appendAssistant("assistant",data.reply);
+    state.assistantHistory.push({role:"user",content:question},{role:"assistant",content:data.reply});
+    state.assistantHistory=state.assistantHistory.slice(-8);
+    $("assistant-question").value="";
+    renderAssistantProposals(data,projectId,epoch,region,brief);
+  }catch(e){if(sameProject())appendAssistant("assistant","Unable to answer: "+e.message);}
+  finally{if(sameProject()){state.assistantBusy=false;refreshAssistant();}}
+}
+on("job-brief",()=>{if(state.project){state.project.job_brief=$("job-brief").value.trim();saveSoon();}},"change");
+on("assistant-consent",refreshAssistant,"change");
+on("select-job-area",()=>{
+  if(!state.sheetId){show("plans");say("Open the drawing view that contains your work area, then select two opposite corners.");return;}
+  if(state.activeScreen!=="measure")show("measure");
+  state.activeTool="job-region";state.draft=[];updateTool();updateOverlay();
+  say("Click two opposite corners around the work area. No scale is needed to tell the assistant where to focus.");
+});
+on("clear-job-area",()=>{if(state.project){delete state.project.work_region;saveSoon();refreshAssistant();updateOverlay();}});
+on("assistant-send",()=>askAssistant($("assistant-question").value));
+on("assistant-scope",()=>askAssistant("Create a complete proposed work list for only the job I described and the selected work area. Identify decisions and measurements still needed."));
+on("assistant-missing",()=>askAssistant("Which work, measurements, prices or labor are missing from this estimate? Explain the most important gaps."));
+on("assistant-next",()=>askAssistant("What should I measure next? Explain in simple language where to click or what to measure on site."));
 async function initialize(){
   try{
     await openDatabase();
@@ -2038,6 +2153,7 @@ async function initialize(){
     const res=await fetch("/api/capabilities",{cache:"no-store"});
     const capabilities=res.ok?await res.json():{};
     state.aiAvailable=capabilities.ai_review===true&&capabilities.mode==="real_remote_inference";
+    state.assistantAvailable=capabilities.assistant===true;
   }catch{state.aiAvailable=false;}
   show("home");
 }

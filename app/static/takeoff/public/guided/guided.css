@@ -255,3 +255,10 @@
 
 /* Restore controls must not widen the mobile workspace. */
 @media(max-width:760px){.app-header{flex-wrap:wrap;align-items:flex-start;gap:8px}.breadcrumbs{min-width:0;max-width:100%;overflow-wrap:anywhere;flex-wrap:wrap}.breadcrumbs strong{min-width:0;overflow-wrap:anywhere}.header-actions{flex:1 1 100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:7px}.header-actions .button{white-space:normal;max-width:100%}.mf-takeoff-account{overflow-wrap:anywhere}.labor-row{flex-wrap:wrap;min-width:0}.labor-row input{max-width:100%;min-width:0}.material-controls>input,.material-controls>select,.scope-cost-links>input{min-width:0;max-width:100%}}
+
+.job-assistant{margin:0 0 20px;padding:18px;display:grid;gap:12px}
+.job-assistant[hidden]{display:none}.job-assistant textarea,.job-brief-label textarea{width:100%;box-sizing:border-box;resize:vertical;padding:10px;border:1px solid #cbd5d1;border-radius:8px;font:inherit;background:inherit;color:inherit}
+.job-brief-label{display:grid;gap:8px;margin:16px 0}.job-area-actions,.assistant-shortcuts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.assistant-conversation{display:grid;gap:8px;max-height:380px;overflow:auto}.assistant-message{padding:10px 12px;border-radius:9px;background:#f0f5f3;white-space:pre-wrap;overflow-wrap:anywhere}.assistant-message.user{background:#f5eee6}.assistant-message p{margin:5px 0 0}
+.assistant-proposal{display:grid;gap:5px;padding:10px;border-bottom:1px solid #d8e1dc}.assistant-proposal button{justify-self:start}.job-assistant small{overflow-wrap:anywhere}.job-assistant .section-top{flex-wrap:wrap}
+@media(max-width:600px){.job-assistant{padding:12px}.job-area-actions button,.assistant-shortcuts button{white-space:normal;max-width:100%}}
