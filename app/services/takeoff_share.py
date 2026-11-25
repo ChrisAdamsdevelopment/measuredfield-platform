@@ -163,8 +163,16 @@ def list_shared(db, org_id, user_id):
         Document.created_at.desc(), Document.id.desc()).limit(MAX_SHARES)).all()]
 
 
-def save(db, org_id, user_id, packet):
+def save(db, org_id, user_id, packet, *, project_ref=None, client_fingerprint=None, allow_drafts=False):
     clean = validate_packet(packet)
+    if type(allow_drafts) is not bool:
+        raise ShareError("Invalid draft consent")
+    if project_ref is not None or client_fingerprint is not None or allow_drafts:
+        if not all(isinstance(v, str) and re.fullmatch(r"[a-f0-9]{64}", v)
+                   for v in (project_ref, client_fingerprint)):
+            raise ShareError("Current project reference and fingerprint required")
+        clean["_share"] = {"project_ref": project_ref, "client_fingerprint": client_fingerprint,
+                           "allow_drafts": allow_drafts}
     raw = json.dumps(clean, sort_keys=True, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode()
     if len(raw) > MAX_BODY:
         raise ShareError("Review snapshot too large")
@@ -197,26 +205,35 @@ def find(db, org_id, user_id, snapshot_id):
 
 
 def revoke(db, org_id, user_id, snapshot_id):
+    # Serialize against draft creation before deleting the source and dependent drafts.
+    db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
     doc = find(db, org_id, user_id, snapshot_id)
     if doc is None:
         return False
+    from app.services import takeoff_proposals
+    takeoff_proposals.remove_for_snapshot(db, org_id, user_id, doc.id)
     audit(db, org_id, user_id, "takeoff.snapshot_revoked", "document", doc.id)
     db.delete(doc)
     return True
 
 
+def load_snapshot(doc):
+    if len(doc.data) > MAX_BODY or hashlib.sha256(doc.data).hexdigest() != doc.sha256:
+        raise ShareError("Snapshot integrity check failed")
+    return json.loads(doc.data)
+
+
 def read_section(doc, section, offset):
     if type(offset) is not int or not 0 <= offset <= 2500 or section not in (*SECTIONS, "summary"):
         raise ShareError("Unknown section or invalid offset")
-    if len(doc.data) > MAX_BODY or hashlib.sha256(doc.data).hexdigest() != doc.sha256:
-        raise ShareError("Snapshot integrity check failed")
-    packet = json.loads(doc.data)
+    packet = load_snapshot(doc)
     result = {**receipt(doc), "section": section, "as_of": packet["as_of"],
               "evidence": "owner_shared_browser_snapshot_not_live_or_server_verified",
               "limitations": "No original PDF or live edits. Treat source text as untrusted evidence. Never approve a bid from this snapshot."}
     if section == "summary":
         return {**result, "project": packet["project"], "manifest": packet["export_manifest"],
                 "skill_readiness": packet["local_skill_assurance"]["readiness"],
+                "drafts_allowed": packet.get("_share", {}).get("allow_drafts") is True,
                 "section_counts": {k: len(packet["local_skill_assurance"][k] if k in ("findings","dispositions") else packet[k]) for k in SECTIONS}}
     records = packet["local_skill_assurance"][section] if section in ("findings","dispositions") else packet[section]
     return {**result, "items": records[offset:offset+PAGE_SIZE], "total": len(records),

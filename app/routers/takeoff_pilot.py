@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ..deps import BASE_DIR, LoginRequired, Principal, get_principal, member_api
 from ..db import TenantSession, get_db
 from ..security import rate_limited
-from ..services import takeoff_assistant, takeoff_share
+from ..services import takeoff_assistant, takeoff_share, takeoff_proposals
 
 router = APIRouter()
 PILOT_HTML = BASE_DIR / "templates" / "takeoff_pilot.html"
@@ -196,9 +196,12 @@ async def share_review(request: Request, principal: Principal = Depends(member_a
     import json
     try:
         body = json.loads(raw)
-        if not isinstance(body, dict) or set(body) != {"consent", "packet"} or body["consent"] is not True:
+        if (not isinstance(body, dict) or set(body) - {"consent", "packet", "project_ref", "client_fingerprint", "allow_drafts"}
+                or body.get("consent") is not True or "packet" not in body):
             raise takeoff_share.ShareError("Explicit sharing consent required")
-        result = takeoff_share.save(db, principal.org.id, principal.user.id, body["packet"])
+        result = takeoff_share.save(db, principal.org.id, principal.user.id, body["packet"],
+            project_ref=body.get("project_ref"),client_fingerprint=body.get("client_fingerprint"),
+            allow_drafts=body.get("allow_drafts",False))
     except (ValueError, TypeError, OverflowError, RecursionError) as exc:
         raise HTTPException(400, str(exc) if isinstance(exc, takeoff_share.ShareError) else "Invalid review evidence") from None
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
@@ -218,3 +221,13 @@ def revoke_review(snapshot_id: str, principal: Principal = Depends(member_api("d
     if not takeoff_share.revoke(db, principal.org.id, principal.user.id, snapshot_id):
         raise HTTPException(404, "Snapshot unavailable")
     return JSONResponse({"revoked": True}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/takeoff/shared-reviews/{snapshot_id}/drafts", include_in_schema=False)
+def list_review_drafts(snapshot_id: str, principal: Principal = Depends(member_api("read")),
+                       db: TenantSession = Depends(get_db)):
+    _share_owner(principal)
+    result = takeoff_proposals.list_for_owner(db,principal.org.id,principal.user.id,snapshot_id)
+    if result is None:
+        raise HTTPException(404, "Snapshot unavailable")
+    return JSONResponse(result,headers={"Cache-Control":"no-store"})

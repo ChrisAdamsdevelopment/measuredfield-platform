@@ -182,10 +182,12 @@
               <div id="chatgpt-share-panel" hidden>
                 <p>Share a dated review snapshot with this business and your connected ChatGPT account. This includes plan notes, quantity evidence and skill findings, but no PDF, raw drawing coordinates or cost amounts. Business members can see the saved document; only the sharing owner can retrieve it through MCP. Review notes for sensitive details first.</p>
                 <label><input type="checkbox" id="chatgpt-share-consent"> I authorize sharing this review snapshot.</label>
+                <label><input type="checkbox" id="chatgpt-draft-consent"> Also allow ChatGPT to submit source-linked draft corrections for this snapshot. Nothing is applied without my approval.</label>
                 <button id="share-review-packet" class="button button-outline button-wide" type="button">Share current takeoff with ChatGPT</button>
                 <p id="chatgpt-share-status" role="status"></p>
                 <div id="chatgpt-shared-reviews"></div>
-                <small>In ChatGPT, ask MeasuredField to list shared takeoff reviews and inspect the snapshot ID. Snapshots do not update automatically; share again after edits. Revoking prevents future retrieval, not deletion from prior chats.</small>
+                <div id="chatgpt-review-drafts" aria-live="polite"></div>
+                <small>In ChatGPT, ask MeasuredField to list shared takeoff reviews and inspect the snapshot ID. Snapshots do not update automatically; share again after edits. Review drafts here; an approved correction updates only the matching contractor-entered quantity and reopens its scope review. Revoking prevents future retrieval, not deletion from prior chats.</small>
               </div>
               <button id="export-review-packet" class="button button-outline button-wide" type="button">1. Download takeoff details</button>
               <a class="button button-outline button-wide" href="https://chatgpt.com/plugins/plugin_asdk_app_6b03fca4b22481919ce99c1c8e681dee" target="_blank" rel="noopener noreferrer">2. Open MeasuredField in ChatGPT</a>

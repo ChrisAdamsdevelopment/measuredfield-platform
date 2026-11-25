@@ -23,6 +23,7 @@ import {syncRegister,duplicateGroups,linkSupersession,markDistinct,clearDecision
 import {renderRevisionPanel} from "./revision-panel.mjs";
 import {calibrationCandidates,checkCandidates,feetToFeetInches,formatFeetInches,recalibrationImpact,EXCLUSION_REASONS} from "../../src/dimension-assist.mjs";
 import {buildReviewPacket} from "../../src/review-packet.mjs";
+import {draftReference,correctFieldQuantity} from "../../src/takeoff-draft.mjs";
 import {auditCurrentPacket,failedSkillReview,SKILL_FINDING_LABELS} from "../../src/skill-assurance.mjs";
 import {reconcileEstimate,ASSURANCE_LABELS} from "../../src/estimate-assurance.mjs";
 import {lineBasis,scopeCoverage} from "../../src/bid-readiness.mjs";
@@ -110,6 +111,8 @@ function show(screen){
   for(const e of document.querySelectorAll(".screen"))e.classList.toggle("screen-active",e.id===id);
   state.activeScreen=screen;
   if($("chatgpt-share-consent"))$("chatgpt-share-consent").checked=false;
+  if($("chatgpt-draft-consent"))$("chatgpt-draft-consent").checked=false;
+  if($("chatgpt-review-drafts"))$("chatgpt-review-drafts").replaceChildren();
   if(screen==="review"&&state.chatgptShareAvailable)refreshSharedReviews();
   $("estimate-spine").hidden=!state.project||["home","new","proposal"].includes(screen);
   for(const btn of document.querySelectorAll(".spine button")){
@@ -1958,10 +1961,14 @@ async function refreshSharedReviews(){
         try{
           await shareRequest(shareEndpoint+"/"+encodeURIComponent(receipt.snapshot_id),{method:"DELETE",headers:shareHeaders()});
           $("chatgpt-share-status").textContent="Snapshot revoked from future MCP access.";
+          $("chatgpt-review-drafts").replaceChildren();
           await refreshSharedReviews();
         }catch(e){$("chatgpt-share-status").textContent=e.message;btn.disabled=false;}
       });
-      row.append(label,btn);list.append(row);
+      const review=document.createElement("button");
+      review.type="button";review.className="button button-outline";review.textContent="Review ChatGPT drafts";
+      review.addEventListener("click",()=>renderSharedDrafts(receipt.snapshot_id));
+      row.append(label,review,btn);list.append(row);
     }
     if(!data.snapshots.length)list.textContent="No shared snapshots yet.";
   }catch(e){list.textContent="Could not list shared snapshots: "+e.message;}
@@ -1970,17 +1977,89 @@ async function shareCurrentReview(){
   if(!state.chatgptShareAvailable||!state.project)return;
   const consent=$("chatgpt-share-consent"), status=$("chatgpt-share-status"), btn=$("share-review-packet");
   if(!consent.checked){status.textContent="Confirm sharing consent first.";return;}
-  btn.disabled=true;consent.checked=false;
+  const allowDrafts=$("chatgpt-draft-consent").checked;
+  btn.disabled=true;consent.checked=false;$("chatgpt-draft-consent").checked=false;
   try{
     calculate();
     const packet=currentReviewPacket();
     try{packet.local_skill_assurance=auditCurrentPacket(packet);}
     catch(e){packet.local_skill_assurance=failedSkillReview();}
-    const result=await shareRequest(shareEndpoint,{method:"POST",headers:shareHeaders(),body:JSON.stringify({consent:true,packet})});
+    const projectId=state.project.id;
+    const ref=await draftReference(projectId,packet);
+    if(state.project?.id!==projectId)throw Error("Project changed before sharing");
+    const result=await shareRequest(shareEndpoint,{method:"POST",headers:shareHeaders(),
+      body:JSON.stringify({consent:true,packet,...ref,allow_drafts:allowDrafts})});
     status.textContent="Shared immutable snapshot "+result.snapshot_id+". Ask MeasuredField in ChatGPT to read it.";
     await refreshSharedReviews();
   }catch(e){status.textContent="Snapshot not confirmed: "+e.message;}
   finally{btn.disabled=false;}
+}
+function packetWithSkill(){
+  calculate();
+  const packet=currentReviewPacket();
+  try{packet.local_skill_assurance=auditCurrentPacket(packet);}
+  catch(e){packet.local_skill_assurance=failedSkillReview();}
+  return packet;
+}
+async function renderSharedDrafts(snapshotId){
+  const root=$("chatgpt-review-drafts"), status=$("chatgpt-share-status");
+  const projectId=state.project?.id;
+  root.textContent="Loading drafts...";
+  try{
+    const group=await shareRequest(shareEndpoint+"/"+encodeURIComponent(snapshotId)+"/drafts");
+    if(state.project?.id!==projectId||state.activeScreen!=="review")return;
+    root.replaceChildren();
+    if(!group.drafts_allowed){root.textContent="This snapshot is read-only; share again with draft consent to receive corrections.";return;}
+    if(!group.drafts.length){root.textContent="No correction drafts yet.";return;}
+    for(const draft of group.drafts){
+      const row=document.createElement("div"), info=document.createElement("p");
+      info.textContent=draft.kind==="field_quantity"
+        ? draft.target_id+": "+draft.expected_quantity+" to "+draft.proposed_quantity+" "+draft.unit+" | "+draft.rationale
+        : draft.section+" / "+draft.target_id+": "+draft.rationale;
+      row.append(info);
+      if(draft.kind==="field_quantity"){
+        const button=document.createElement("button");
+        button.type="button";button.className="button button-outline";button.textContent="Approve and apply this field correction";
+        button.addEventListener("click",async()=>{
+          if(!state.project||state.project.id!==projectId||state.activeScreen!=="review")return;
+          button.disabled=true;
+          try{
+            await applySharedFieldDraft(snapshotId,draft.draft_id,projectId);
+            status.textContent="Owner-approved field correction saved locally. Review quantities and prices; share a new snapshot before another correction.";
+            root.replaceChildren();
+          }catch(e){status.textContent="Correction not confirmed: "+e.message;button.disabled=false;}
+        });
+        row.append(button);
+      }else{
+        const note=document.createElement("small");note.textContent="Review recommendation only. No automatic change.";row.append(note);
+      }
+      root.append(row);
+    }
+  }catch(e){root.textContent="Drafts unavailable: "+e.message;}
+}
+async function applySharedFieldDraft(snapshotId,draftId,projectId){
+  await persist();
+  if(!state.persistOkay||state.project?.id!==projectId||state.activeScreen!=="review")throw Error("Current project is not saved or has changed");
+  const group=await shareRequest(shareEndpoint+"/"+encodeURIComponent(snapshotId)+"/drafts");
+  const draft=group.drafts.find(d=>d.draft_id===draftId);
+  if(!group.drafts_allowed||!draft||draft.snapshot_sha256!==group.snapshot_sha256)throw Error("Draft or its source snapshot is unavailable");
+  if(state.project?.id!==projectId||state.activeScreen!=="review")throw Error("Project changed");
+  const packet=packetWithSkill();
+  const ref=await draftReference(projectId,packet);
+  if(ref.project_ref!==group.project_ref||ref.client_fingerprint!==group.client_fingerprint||
+     state.project?.id!==projectId||state.activeScreen!=="review"||JSON.stringify(currentReviewPacket())!==JSON.stringify(Object.fromEntries(Object.entries(packet).filter(([key])=>key!=="local_skill_assurance"))))
+    throw Error("Snapshot is stale or belongs to another project. Share the current project again.");
+  const corrected=correctFieldQuantity(state.manuals,draft);
+  computeAssembly(corrected.assemblyId,corrected.measured,corrected.params,{measurement_ids:[corrected.id],layer:corrected.layer||"new"});
+  const previousManuals=state.manuals, previousProject=state.project;
+  state.manuals=state.manuals.map(m=>m.id===corrected.id?corrected:m);
+  state.project={...state.project,scope_items:scopeItems().map(s=>s.id===corrected.scope_item_id?reopenQuantity(s):s)};
+  try{
+    calculate();saveSoon();await persist();
+  }catch(e){
+    if(state.project?.id===projectId){state.manuals=previousManuals;state.project=previousProject;calculate();}
+    throw e;
+  }
 }
 function exportChatGptReviewPacket(){
   if(!state.project)return;

@@ -41,3 +41,30 @@ Manual browser acceptance is opt-in with MF_TAKEOFF_SHARE_BROWSER_SMOKE=1 and
 a disposable loopback PostgreSQL test server. Run tests/test_pg_takeoff_share.py under the
 pinned MCP SDK and existing Chrome/Puppeteer environment. Production acceptance requires a
 real signed-in pilot owner, explicit synthetic-plan snapshot and refreshed ChatGPT plugin tools.
+
+
+## MF-095: Source-bound return path (2026-11-25)
+
+Adds optional separate draft consent and an opaque browser project reference plus content fingerprint.
+The new MCP tool propose_takeoff_correction requires mf:read and mf:drafts.write, current owner
+membership, a live linked OAuth identity, a permitted snapshot, and an unambiguous source record.
+Supported kinds: field_quantity (contractor-entered area, length or integer count only) and
+review_note (non-executable recommendations about an existing sheet/scope/measurement/material).
+Drafts are immutable existing tenant Documents, capped at 10 per snapshot and 8 KiB each;
+duplicate contents are idempotent. Revoking through the takeoff page removes the snapshot and
+its drafts in one transaction. Business document visibility is disclosed.
+Browser fetches current drafts and requires an explicit owner approval button; project reference,
+packet fingerprint, source ID, source quantity, assembly, unit and scope link must still match.
+The deterministic assembly engine validates/recalculates, the linked scope confirmation is reopened,
+and IndexedDB persistence must succeed before showing a successful correction.
+Original evidence remains immutable. No direct traced geometry modification, automatic approval,
+raw PDF retrieval through MCP, customer communication or firm price override.
+
+Verification: 4 Node draft tests; 51 focused Python tests; 54 tests in pinned MCP 2.3.0 plus real
+disposable PG (process 22016, signed HTTP read and signed draft write with missing-scope denial).
+Real Chrome synthetic PDF integration process 22804: 15 SF field quantity -> signed MCP proposed
+20 SF -> explicit browser owner approval -> IndexedDB 20 SF persisted -> stale reapplication
+rejected. Original 15 SF snapshot remained intact; revoked after test; no production data used.
+Antigravity independent supplied backend/browser diff review process 27428 returned APPROVE both
+(26.12s backend, 22.50s browser); limited to these changes.
+Full release regression and production acceptance remain separate gates.
