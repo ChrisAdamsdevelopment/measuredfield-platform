@@ -1,5 +1,6 @@
 """Bounded, consented NVIDIA estimating assistance. No tools, writes or bid approval."""
 from __future__ import annotations
+import asyncio
 import base64
 import json
 import os
@@ -33,8 +34,15 @@ Items are proposals only, not measured quantities or costs. For an ordinary ques
 work_items array unless new scope suggestions would help. Never mark a bid complete.
 Supported assembly IDs: """ + ", ".join(WORK_TYPES)
 
+def demo_enabled() -> bool:
+    return os.getenv("MF_TAKEOFF_SYNTHETIC_DEMO_ENABLED", "false") == "true" and bool(os.getenv("NVIDIA_API_KEY", "").strip())
+
+def demo_body():
+    # Server-owned fictional input only. Never incorporate a request field.
+    return prepare({"consent": True, "question": "Plan this fictional bathroom remodel and explain what measurements remain.", "brief": "A fictional 8 by 10 foot bathroom. Replace a tub with a tiled shower; retain the toilet and vanity. Existing adjacent bedroom stays unchanged. No confirmed costs."})
+
 def enabled() -> bool:
-    return os.getenv("MF_TAKEOFF_ASSISTANT_ENABLED", "false") == "true" and bool(os.getenv("NVIDIA_API_KEY", "").strip())
+    return os.getenv("MF_TAKEOFF_ASSISTANT_ENABLED", "false") == "true" and os.getenv("MF_TAKEOFF_EXTERNAL_DATA_APPROVED", "false") == "true" and bool(os.getenv("NVIDIA_API_KEY", "").strip())
 
 def clean_text(value, size, required=False):
     if not isinstance(value, str) or len(value) > size or (required and not value.strip()):
@@ -99,15 +107,16 @@ def parse_response(raw):
                       "needs": [n for n in needs if n in ("field_verify","engineer_spec","owner_selection")][:3] if isinstance(needs,list) else []})
     return {"provider": "nvidia", "model": MODEL, "actual_inference": True, "reply": reply, "work_items": clean}
 
-def infer(body):
-    # The server never accepts provider URLs, keys or model names from the client.
-    with httpx.Client(timeout=httpx.Timeout(75.0, connect=8.0), follow_redirects=False) as client:
-        with client.stream("POST", ENDPOINT, json=body,
+async def infer(body):
+    # Absolute deadline as well as per-operation timeout; cancellation closes the socket.
+    async with asyncio.timeout(75):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(70.0, connect=8.0), follow_redirects=False) as client:
+            async with client.stream("POST", ENDPOINT, json=body,
                            headers={"Authorization": "Bearer " + os.environ["NVIDIA_API_KEY"], "Accept": "application/json"}) as r:
-            r.raise_for_status()
-            data = bytearray()
-            for chunk in r.iter_bytes():
-                data.extend(chunk)
-                if len(data) > MAX_REPLY:
-                    raise ValueError("Provider response too large")
+                r.raise_for_status()
+                data = bytearray()
+                async for chunk in r.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > MAX_REPLY:
+                        raise ValueError("Provider response too large")
     return parse_response(bytes(data))

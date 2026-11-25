@@ -7,6 +7,7 @@ browser IndexedDB is partitioned by the current signed-in user+organization.
 from __future__ import annotations
 
 import hashlib
+import logging
 import html
 import os
 import uuid
@@ -107,8 +108,8 @@ def takeoff_page(
 def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
     """Return a real capability check, not a false promise of AI inference.
 
-    No NVIDIA request is permitted on this first authenticated site pilot.
-    Model calls require a separately reviewed CSRF, quota and provider proxy.
+    The contextual assistant requires explicit deployment approval for external data,
+    provider configuration, CSRF, membership and quota checks.
     """
     if not pilot_enabled():
         raise HTTPException(404, "Not found")
@@ -119,6 +120,7 @@ def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
         "ai_review": False, "provider": None,
         "mode": "disabled_pending_secure_provider_adapter", "writes": False,
         "assistant": takeoff_assistant.enabled() and principal.can("documents.write"),
+        "assistant_demo": takeoff_assistant.demo_enabled() and principal.can("documents.write"),
         "assistant_provider": "NVIDIA" if takeoff_assistant.enabled() else None
     })
     response.headers["Cache-Control"] = "no-store"
@@ -132,7 +134,7 @@ async def takeoff_chat(
 ):
     if not pilot_enabled() or principal.org.id not in _pilot_org_ids():
         raise HTTPException(404, "Not found")
-    if not takeoff_assistant.enabled():
+    if not (takeoff_assistant.enabled() or takeoff_assistant.demo_enabled()):
         raise HTTPException(503, "AI assistant is not enabled")
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         raise HTTPException(415, "Expected JSON")
@@ -143,7 +145,14 @@ async def takeoff_chat(
             raise HTTPException(413, "Request too large")
     import json
     try:
-        body = takeoff_assistant.prepare(json.loads(raw))
+        payload = json.loads(raw)
+        demo = payload == {"demo": True, "consent": True}
+        if demo and takeoff_assistant.demo_enabled():
+            body = takeoff_assistant.demo_body()
+        elif not takeoff_assistant.enabled():
+            raise HTTPException(403, "Only the fixed fictional demonstration is approved for external inference")
+        else:
+            body = takeoff_assistant.prepare(payload)
     except (ValueError, TypeError, UnicodeError):
         raise HTTPException(400, "Check your question, work-area image and sharing consent") from None
     # Durable reservations; count attempts even if provider refuses or times out.
@@ -156,10 +165,10 @@ async def takeoff_chat(
     db.commit()
     if global_limited:
         raise HTTPException(429, "Daily assistant limit reached")
-    from starlette.concurrency import run_in_threadpool
     try:
-        result = await run_in_threadpool(takeoff_assistant.infer, body)
-    except Exception:
+        result = await takeoff_assistant.infer(body)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Takeoff provider failed: %s", type(exc).__name__)
         # Do not expose raw provider messages, supplied drawings, or credentials.
         raise HTTPException(502, "AI provider could not complete this request. Try a shorter question.") from None
-    return JSONResponse(result, headers={"Cache-Control":"no-store"})
+    return JSONResponse({**result, "synthetic_demo": demo}, headers={"Cache-Control":"no-store"})

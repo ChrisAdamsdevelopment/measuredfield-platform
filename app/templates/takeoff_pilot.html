@@ -71,8 +71,9 @@
 <div id="assistant-proposals"></div>
 <div class="assistant-shortcuts"><button type="button" class="button button-outline" id="assistant-scope">Plan my work</button><button type="button" class="button button-outline" id="assistant-missing">What is missing?</button><button type="button" class="button button-outline" id="assistant-next">What should I measure next?</button></div>
 <label>Ask about this job<textarea id="assistant-question" maxlength="1800" rows="2" placeholder="What materials and work do I need?"></textarea></label>
-<label class="checkline"><input id="assistant-consent" type="checkbox"> Send my question, brief, estimate summary and selected drawing crop to NVIDIA for AI assistance. Do not include sensitive information unless authorized.</label>
+<label class="checkline"><input id="assistant-consent" type="checkbox"> Send my question, brief, estimate summary, selected drawing crop and up to eight previous conversation messages to NVIDIA for AI assistance. Do not include private customer data.</label>
 <button id="assistant-send" class="button button-terra" type="button" disabled>Ask assistant</button>
+<div id="assistant-demo-panel" hidden><p class="subtle">Provider test: sends only a fixed fictional bathroom example, never your project or drawing. The result does not change your estimate.</p><button class="button button-outline" type="button" id="assistant-demo">Try fictional example</button><pre id="assistant-demo-result" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></div>
 <p class="subtle">AI suggestions need your review. It cannot approve prices or infer accurate measurements from appearance. ChatGPT project syncing is not connected yet.</p>
 </section>
 <section class="screen" id="screen-plans" aria-labelledby="plans-title">

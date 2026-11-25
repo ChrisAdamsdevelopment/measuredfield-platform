@@ -34,3 +34,12 @@ def test_structured_response():
 
 def test_unstructured_response():
     with pytest.raises(ValueError):a.parse_response(reply({"reply":"","work_items":[]}))
+
+def test_external_sharing_requires_separate_approval(monkeypatch):
+    monkeypatch.setenv("NVIDIA_API_KEY","synthetic-test")
+    monkeypatch.setenv("MF_TAKEOFF_ASSISTANT_ENABLED","true")
+    monkeypatch.delenv("MF_TAKEOFF_EXTERNAL_DATA_APPROVED",raising=False)
+    assert not a.enabled()
+    monkeypatch.setenv("MF_TAKEOFF_SYNTHETIC_DEMO_ENABLED","true")
+    assert a.demo_enabled()
+    assert "fictional" in a.demo_body()["messages"][-1]["content"][0]["text"]
