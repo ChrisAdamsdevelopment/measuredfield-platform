@@ -6,7 +6,7 @@ from app.mcp_connector.gateway import ConnectorAccessDenied
 from app.services import takeoff_proposals as proposals, takeoff_share as share
 from .conftest import csrf_of,onboard_business
 from .test_pg_mcp_plugin import _gateway,_identity,_link,ISSUER,RESOURCE
-from .test_pg_takeoff_share import owner_id,PATH
+from .test_pg_takeoff_share import owner_id,PATH,share_headers
 from .test_takeoff_proposals import manual_packet
 
 
@@ -32,7 +32,7 @@ def test_owner_draft_consent_isolation_idempotency_and_revoke(platform,monkeypat
     _link(user,"oidc|draft-a"); _link(other_user,"oidc|draft-b")
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ENABLED","true")
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS",f"{org},{other}")
-    headers={"X-CSRF-Token":csrf_of(a)}
+    headers=share_headers(a)
     body={"consent":True,"packet":manual_packet()}
     read_only=a.post(PATH,json=body,headers=headers).json()["snapshot_id"]
     with pytest.raises(ConnectorAccessDenied):
@@ -52,16 +52,16 @@ def test_owner_draft_consent_isolation_idempotency_and_revoke(platform,monkeypat
     first=_create(_bearer("oidc|draft-a"),org,sid)
     assert first["status"]=="draft_only" and not first["already_exists"]
     assert _create(_bearer("oidc|draft-a"),org,sid)["already_exists"]
-    group=a.get(PATH+"/"+sid+"/drafts").json()
+    group=a.get(PATH+"/"+sid+"/drafts",headers=headers).json()
     assert group["drafts"][0]["proposed_quantity"]==20
     assert group["drafts"][0]["expected_quantity"]==15
     assert group["project_ref"]=="a"*64 and group["client_fingerprint"]=="b"*64
-    assert b.get(PATH+"/"+sid+"/drafts").status_code==404
+    assert b.get(PATH+"/"+sid+"/drafts",headers=share_headers(b)).status_code==404
     original=_gateway().takeoff_review_for(_identity("oidc|draft-a"),str(org),sid,"field_entered_quantities",0)
     assert original["items"][0]["quantity"]==15
     _sdk_proposal(org,sid)
-    assert a.delete(PATH+"/"+sid,headers=headers).status_code==200
-    assert a.get(PATH+"/"+sid+"/drafts").status_code==404
+    assert a.post("/app/documents/"+sid+"/delete",data={"csrf":headers["X-CSRF-Token"]}).status_code==303
+    assert a.get(PATH+"/"+sid+"/drafts",headers=headers).status_code==404
     with pytest.raises(ConnectorAccessDenied):
         _create(_bearer("oidc|draft-a"),org,sid)
     from sqlalchemy import select
@@ -203,7 +203,7 @@ def test_real_chrome_mcp_draft_apply_and_stale_rejection(platform,monkeypatch,tm
         print(stdout)
         assert child.returncode==0,stderr
         assert gateway.takeoff_review_for(ident,str(org),sid,"field_entered_quantities",0)["items"][0]["quantity"]==15
-        assert a.delete(PATH+"/"+sid,headers={"X-CSRF-Token":csrf_of(a)}).status_code==200
+        assert a.delete(PATH+"/"+sid,headers=share_headers(a)).status_code==200
         print("MCP_DRAFT_TO_AUTHENTICATED_BROWSER_DETERMINISTIC_UPDATE_PASS")
     finally:
         if child is not None and child.poll() is None:child.kill();child.communicate()

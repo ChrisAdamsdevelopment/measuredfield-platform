@@ -112,7 +112,7 @@ function show(screen){
   state.activeScreen=screen;
   if($("chatgpt-share-consent"))$("chatgpt-share-consent").checked=false;
   if($("chatgpt-draft-consent"))$("chatgpt-draft-consent").checked=false;
-  if($("chatgpt-review-drafts"))$("chatgpt-review-drafts").replaceChildren();
+  if($("chatgpt-review-drafts")){sharedDraftGeneration++;$("chatgpt-review-drafts").replaceChildren();}
   if(screen==="review"&&state.chatgptShareAvailable)refreshSharedReviews();
   $("estimate-spine").hidden=!state.project||["home","new","proposal"].includes(screen);
   for(const btn of document.querySelectorAll(".spine button")){
@@ -1937,20 +1937,22 @@ async function exportPilotFeedback(){
   }catch(err){say("Could not export feedback: "+err.message,true);}
 }
 const shareEndpoint="/api/takeoff/shared-reviews";
+let sharedListGeneration=0,sharedDraftGeneration=0;
 function shareHeaders(){
   return {"Content-Type":"application/json","X-CSRF-Token":document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||""};
 }
 async function shareRequest(path,options={}){
-  const res=await fetch(path,{credentials:"same-origin",cache:"no-store",...options,signal:AbortSignal.timeout(15000)});
+  const res=await fetch(path,{credentials:"same-origin",cache:"no-store",...options,headers:{...options.headers,"X-MF-Takeoff-Scope":document.querySelector('meta[name="mf-takeoff-storage-scope"]')?.content||""},signal:AbortSignal.timeout(15000)});
   const body=await res.json();
-  if(!res.ok)throw Error(typeof body.detail==="string"?body.detail:"Sharing request failed");
+  if(!res.ok)throw Error(typeof body.detail==="string"?body.detail:typeof body.error==="string"?body.error:"Sharing request failed");
   return body;
 }
 async function refreshSharedReviews(){
   if(!state.chatgptShareAvailable)return;
-  const list=$("chatgpt-shared-reviews");
+  const list=$("chatgpt-shared-reviews"),generation=++sharedListGeneration;
   try{
     const data=await shareRequest(shareEndpoint);
+    if(generation!==sharedListGeneration)return;
     list.replaceChildren();
     for(const receipt of data.snapshots){
       const row=document.createElement("div"), label=document.createElement("p"), btn=document.createElement("button");
@@ -1961,7 +1963,7 @@ async function refreshSharedReviews(){
         try{
           await shareRequest(shareEndpoint+"/"+encodeURIComponent(receipt.snapshot_id),{method:"DELETE",headers:shareHeaders()});
           $("chatgpt-share-status").textContent="Snapshot revoked from future MCP access.";
-          $("chatgpt-review-drafts").replaceChildren();
+          sharedDraftGeneration++;$("chatgpt-review-drafts").replaceChildren();
           await refreshSharedReviews();
         }catch(e){$("chatgpt-share-status").textContent=e.message;btn.disabled=false;}
       });
@@ -1971,7 +1973,7 @@ async function refreshSharedReviews(){
       row.append(label,review,btn);list.append(row);
     }
     if(!data.snapshots.length)list.textContent="No shared snapshots yet.";
-  }catch(e){list.textContent="Could not list shared snapshots: "+e.message;}
+  }catch(e){if(generation===sharedListGeneration)list.textContent="Could not list shared snapshots: "+e.message;}
 }
 async function shareCurrentReview(){
   if(!state.chatgptShareAvailable||!state.project)return;
@@ -2003,11 +2005,11 @@ function packetWithSkill(){
 }
 async function renderSharedDrafts(snapshotId){
   const root=$("chatgpt-review-drafts"), status=$("chatgpt-share-status");
-  const projectId=state.project?.id;
+  const projectId=state.project?.id,generation=++sharedDraftGeneration;
   root.textContent="Loading drafts...";
   try{
     const group=await shareRequest(shareEndpoint+"/"+encodeURIComponent(snapshotId)+"/drafts");
-    if(state.project?.id!==projectId||state.activeScreen!=="review")return;
+    if(generation!==sharedDraftGeneration||state.project?.id!==projectId||state.activeScreen!=="review")return;
     root.replaceChildren();
     if(!group.drafts_allowed){root.textContent="This snapshot is read-only; share again with draft consent to receive corrections.";return;}
     if(!group.drafts.length){root.textContent="No correction drafts yet.";return;}
@@ -2035,7 +2037,7 @@ async function renderSharedDrafts(snapshotId){
       }
       root.append(row);
     }
-  }catch(e){root.textContent="Drafts unavailable: "+e.message;}
+  }catch(e){if(generation===sharedDraftGeneration)root.textContent="Drafts unavailable: "+e.message;}
 }
 async function applySharedFieldDraft(snapshotId,draftId,projectId){
   await persist();
@@ -2054,10 +2056,12 @@ async function applySharedFieldDraft(snapshotId,draftId,projectId){
   const previousManuals=state.manuals, previousProject=state.project;
   state.manuals=state.manuals.map(m=>m.id===corrected.id?corrected:m);
   state.project={...state.project,scope_items:scopeItems().map(s=>s.id===corrected.scope_item_id?reopenQuantity(s):s)};
+  const correctedManuals=state.manuals;
+  let correctedProject=state.project;
   try{
-    calculate();saveSoon();await persist();
+    calculate();saveSoon();correctedProject=state.project;await persist();
   }catch(e){
-    if(state.project?.id===projectId){state.manuals=previousManuals;state.project=previousProject;calculate();}
+    if(state.manuals===correctedManuals&&state.project===correctedProject){state.manuals=previousManuals;state.project=previousProject;calculate();}
     throw e;
   }
 }

@@ -7,6 +7,7 @@ browser IndexedDB is partitioned by the current signed-in user+organization.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import html
 import os
@@ -50,6 +51,20 @@ def pilot_enabled() -> bool:
     return os.getenv("MF_TAKEOFF_PILOT_ENABLED", "false") == "true"
 
 
+def _page_scope(principal: Principal) -> str:
+    return hashlib.sha256(
+        (str(principal.user.id) + ":" + str(principal.org.id)).encode("ascii")
+    ).hexdigest()[:32]
+
+
+def _require_page_scope(request: Request, principal: Principal) -> None:
+    # The page's original storage partition must match the active session.
+    # This is a context-binding check, not a replacement for auth or CSRF.
+    supplied = request.headers.get("X-MF-Takeoff-Scope", "")
+    if not supplied.isascii() or not hmac.compare_digest(supplied, _page_scope(principal)):
+        raise HTTPException(409, "Business or account changed. Reload the takeoff page before continuing.")
+
+
 def render_takeoff_page(principal: Principal) -> str:
     """Small, audited adaptation of the *same* verified guided-app HTML."""
     if principal.org is None:
@@ -59,9 +74,7 @@ def render_takeoff_page(principal: Principal) -> str:
     source = PILOT_HTML.read_text(encoding="utf-8")
     if source.count("<head>") != 1 or source.count('<div class="shell">') != 1:
         raise HTTPException(503, "Takeoff application assets are not ready.")
-    scope = hashlib.sha256(
-        (str(principal.user.id) + ":" + str(principal.org.id)).encode("ascii")
-    ).hexdigest()[:32]
+    scope = _page_scope(principal)
     metadata = (
         '<meta name="mf-takeoff-storage-scope" content="' + scope + '">'
         '<base href="/static/takeoff/public/guided/">'
@@ -119,7 +132,7 @@ def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
     response = JSONResponse({
         "ai_review": False, "provider": None,
         "mode": "disabled_pending_secure_provider_adapter", "writes": False,
-        "chatgpt_snapshot_share": getattr(principal, "role", None) == "owner" and getattr(principal.org, "status", None) == "active",
+        "chatgpt_snapshot_share": takeoff_share.enabled_for(principal.org.id) and getattr(principal, "role", None) == "owner" and getattr(principal.org, "status", None) == "active",
         "assistant": takeoff_assistant.enabled() and principal.can("documents.write"),
         "assistant_demo": takeoff_assistant.demo_enabled() and principal.can("documents.write"),
         "assistant_provider": "NVIDIA" if takeoff_assistant.enabled() else None
@@ -175,17 +188,18 @@ async def takeoff_chat(
     return JSONResponse({**result, "synthetic_demo": demo}, headers={"Cache-Control":"no-store"})
 
 
-def _share_owner(principal):
+def _share_owner(request: Request, principal: Principal):
     if not takeoff_share.enabled_for(principal.org.id):
         raise HTTPException(404, "Not found")
     if principal.role != "owner" or principal.org.status != "active":
         raise HTTPException(403, "Only an active workspace owner can share takeoff evidence")
+    _require_page_scope(request, principal)
 
 
 @router.post("/api/takeoff/shared-reviews", include_in_schema=False)
 async def share_review(request: Request, principal: Principal = Depends(member_api("documents.write")),
                        db: TenantSession = Depends(get_db)):
-    _share_owner(principal)
+    _share_owner(request, principal)
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         raise HTTPException(415, "Expected JSON")
     raw = bytearray()
@@ -208,25 +222,25 @@ async def share_review(request: Request, principal: Principal = Depends(member_a
 
 
 @router.get("/api/takeoff/shared-reviews", include_in_schema=False)
-def list_reviews(principal: Principal = Depends(member_api("read")), db: TenantSession = Depends(get_db)):
-    _share_owner(principal)
+def list_reviews(request: Request, principal: Principal = Depends(member_api("read")), db: TenantSession = Depends(get_db)):
+    _share_owner(request, principal)
     return JSONResponse({"snapshots": takeoff_share.list_shared(db, principal.org.id, principal.user.id)},
                         headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/api/takeoff/shared-reviews/{snapshot_id}", include_in_schema=False)
-def revoke_review(snapshot_id: str, principal: Principal = Depends(member_api("documents.write")),
+def revoke_review(snapshot_id: str, request: Request, principal: Principal = Depends(member_api("documents.write")),
                   db: TenantSession = Depends(get_db)):
-    _share_owner(principal)
+    _share_owner(request, principal)
     if not takeoff_share.revoke(db, principal.org.id, principal.user.id, snapshot_id):
         raise HTTPException(404, "Snapshot unavailable")
     return JSONResponse({"revoked": True}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/takeoff/shared-reviews/{snapshot_id}/drafts", include_in_schema=False)
-def list_review_drafts(snapshot_id: str, principal: Principal = Depends(member_api("read")),
+def list_review_drafts(snapshot_id: str, request: Request, principal: Principal = Depends(member_api("read")),
                        db: TenantSession = Depends(get_db)):
-    _share_owner(principal)
+    _share_owner(request, principal)
     result = takeoff_proposals.list_for_owner(db,principal.org.id,principal.user.id,snapshot_id)
     if result is None:
         raise HTTPException(404, "Snapshot unavailable")

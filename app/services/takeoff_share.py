@@ -37,6 +37,11 @@ SECTIONS = {
     "dispositions": "id disposition",
 }
 EVIDENCE = "document page printed_text text_matches_pdf"
+# Keep identifiers, quantities, dispositions and structured status; do not
+# transmit plan excerpts, custom titles, descriptions or free-form reasons.
+PRIVATE_TEXT_FIELDS = frozenset({"printed_text", "title", "description", "view",
+    "label", "message", "formula", "pricing_reason", "sheet_number",
+    "revision_warning", "exclusion_reason"})
 COUNTS = "documents drawing_register scope_items measurements field_entered_quantities material_lines estimate_lines warnings scope_open_needs measurement_links".split()
 
 
@@ -85,7 +90,13 @@ def _row(value, fields):
             if not all(isinstance(x, str) for x in out[key]):
                 raise ShareError("Invalid evidence references")
         else:
-            out[key] = _scalar(item)
+            checked = _scalar(item)
+            if key in PRIVATE_TEXT_FIELDS:
+                # Preserve existence of revision/exclusion warnings, not their text.
+                if key in ("revision_warning", "exclusion_reason"):
+                    out[key] = "REVIEW_REQUIRED" if checked else None
+                continue
+            out[key] = checked
     for key in ("id", "line_id"):
         if key in fields.split() and (not isinstance(out.get(key), str) or not ID.fullmatch(out[key])):
             raise ShareError("Invalid evidence identifier")
@@ -140,10 +151,13 @@ def validate_packet(packet):
         clean["local_skill_assurance"][key] = [_row(row, SECTIONS[key]) for row in _list(report.get(key), 2500 if key == "findings" else 250)]
     if report.get("readiness") not in ("blocked", "review_only"):
         raise ShareError("Skill readiness cannot approve a bid")
+    if any(f.get("severity") not in ("block", "review") for f in clean["local_skill_assurance"]["findings"]):
+        raise ShareError("Invalid assurance finding severity")
     if (not clean["export_manifest"]["complete"]
             or any(f.get("severity") == "block" for f in clean["local_skill_assurance"]["findings"])):
         clean["local_skill_assurance"]["readiness"] = "blocked"
-    clean["local_skill_assurance"]["limitations"] = [_scalar(x) for x in _list(report.get("limitations"), 10)]
+    _list(report.get("limitations"), 10)
+    clean["local_skill_assurance"]["limitations"] = ["Browser-reported findings, not server-verified measurements. Not bid approval."]
     # Review questions are fixed application instructions, not user-supplied instructions to the MCP caller.
     return clean
 
@@ -185,7 +199,7 @@ def save(db, org_id, user_id, packet, *, project_ref=None, client_fingerprint=No
     if existing:
         return receipt(existing)
     count = db.scalar(select(func.count()).select_from(Document).where(
-        Document.org_id == org_id, Document.content_type == CONTENT_TYPE))
+        Document.org_id == org_id, Document.uploaded_by == user_id, Document.content_type == CONTENT_TYPE))
     if count >= MAX_SHARES:
         raise ShareError("Snapshot limit reached; revoke an older snapshot")
     doc = Document(org_id=org_id, uploaded_by=user_id, filename="takeoff-review-" + digest[:16] + ".json",

@@ -68,3 +68,13 @@ rejected. Original 15 SF snapshot remained intact; revoked after test; no produc
 Antigravity independent supplied backend/browser diff review process 27428 returned APPROVE both
 (26.12s backend, 22.50s browser); limited to these changes.
 Full release regression and production acceptance remain separate gates.
+
+## MF-096: PR16 review corrections
+Scope binding rejects missing or stale rendered user/business partition for all snapshot APIs.
+Free-text plan fields are stripped before storage (structured IDs, statuses and quantities remain;
+not a guarantee of anonymity for deliberately identifying IDs). Unknown severity fails closed.
+Generic document deletion cleans dependent drafts under the organization lock. Quota is per
+sharing owner. Exact field quantity precision preserved. Late list responses suppressed;
+calendar-only fingerprint changes ignored but derived evidence changes still invalidate.
+Prior corrective run 25996: 31 focused tests incl real PG, signed SDK and both Chrome journeys
+passed, including stale business switch denial; final incremental test and CI separately required.

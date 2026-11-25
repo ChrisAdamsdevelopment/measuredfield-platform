@@ -33,3 +33,12 @@ test("count corrections are whole and length stays deterministic",()=>{
  const ld={...draft,unit:"linear feet",source:{...draft.source,unit:"linear feet"}};
  assert.deepEqual(correctFieldQuantity([l],ld).measured,{kinds:["line"],length_ft:20,segments_ft:[20]});
 });
+
+test("calendar-only change does not stale a draft; actual findings do",async()=>{
+ const p={as_of:"2026-11-25",quantity:15,local_skill_assurance:{as_of:"2026-11-25",findings:[]}};
+ const a=await draftReference("project-a",p);
+ const b=structuredClone(p);b.as_of="2026-11-26";b.local_skill_assurance.as_of=b.as_of;
+ assert.deepEqual(a,await draftReference("project-a",b));
+ b.local_skill_assurance.findings.push({code:"PRICE_EXPIRED"});
+ assert.notEqual(a.client_fingerprint,(await draftReference("project-a",b)).client_fingerprint);
+});

@@ -5,7 +5,14 @@ async function hash(text){
 }
 export async function draftReference(projectId,packet){
  if(typeof projectId!=="string"||!projectId||!packet)throw Error("Current project required");
- return {project_ref:await hash("mf.takeoff.project:"+projectId),client_fingerprint:await hash(JSON.stringify(packet))};
+ // Calendar labels alone are not a project change; computed price status and
+ // actual findings remain part of the fingerprint and invalidate stale drafts.
+ const {as_of,...evidence}=packet;
+ if(evidence.local_skill_assurance){
+   const {as_of:skillDate,...skill}=evidence.local_skill_assurance;
+   evidence.local_skill_assurance=skill;
+ }
+ return {project_ref:await hash("mf.takeoff.project:"+projectId),client_fingerprint:await hash(JSON.stringify(evidence))};
 }
 export function correctFieldQuantity(manuals,draft){
  if(draft?.kind!=="field_quantity"||draft.section!=="field_entered_quantities")throw Error("Only field quantity drafts can be applied");

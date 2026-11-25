@@ -9,6 +9,15 @@ from .test_takeoff_share import packet
 PATH = "/api/takeoff/shared-reviews"
 
 
+def share_headers(client):
+    import re
+    page = client.get("/takeoff")
+    assert page.status_code == 200
+    scope = re.search(r'<meta name="mf-takeoff-storage-scope" content="([a-f0-9]{32})">', page.text)
+    assert scope
+    return {"X-CSRF-Token": csrf_of(client), "X-MF-Takeoff-Scope": scope.group(1)}
+
+
 def owner_id(org):
     from sqlalchemy import select
     from app.db import session_scope
@@ -27,8 +36,8 @@ def test_browser_to_linked_mcp_review_and_revocation(platform, monkeypatch):
     gateway = _gateway()
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ENABLED", "true")
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS", f"{org_a},{org_b}")
-    h = {"X-CSRF-Token": csrf_of(a)}
-    hb = {"X-CSRF-Token": csrf_of(b)}
+    h = share_headers(a)
+    hb = share_headers(b)
     body = {"consent": True, "packet": packet()}
     assert a.get("/api/capabilities").json()["chatgpt_snapshot_share"] is True
     assert client_for(platform).post(PATH, json=body).status_code == 401
@@ -42,7 +51,7 @@ def test_browser_to_linked_mcp_review_and_revocation(platform, monkeypatch):
     receipt = response.json()
     sid = receipt["snapshot_id"]
     assert a.post(PATH, json=body, headers=h).json() == receipt
-    assert a.get(PATH).json()["snapshots"] == [receipt]
+    assert a.get(PATH,headers=h).json()["snapshots"] == [receipt]
     assert gateway.takeoff_reviews_for(ida, str(org_a)) == [receipt]
     assert gateway.takeoff_reviews_for(idb, str(org_b)) == []
     _sdk_transport_check(org_a, user_a, sid)
@@ -63,7 +72,7 @@ def test_browser_to_linked_mcp_review_and_revocation(platform, monkeypatch):
     assert a.delete(PATH+"/"+sid, headers=h).json() == {"revoked": True}
     with pytest.raises(ConnectorAccessDenied):
         gateway.takeoff_review_for(ida, str(org_a), sid, "summary", 0)
-    assert a.get(PATH).json()["snapshots"] == []
+    assert a.get(PATH,headers=h).json()["snapshots"] == []
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS", str(org_b))
     assert a.post(PATH, json=body, headers=h).status_code == 404
     with pytest.raises(ConnectorAccessDenied):
@@ -164,7 +173,7 @@ def test_real_chrome_share_receipt_and_revoke(platform, monkeypatch, tmp_path):
     await page.click("#chatgpt-share-consent");
     await page.click("#share-review-packet");
     await page.waitForFunction(()=>document.querySelector("#chatgpt-share-status").textContent.startsWith("Shared immutable snapshot"),{timeout:20000});
-    const list=await page.evaluate(async()=>{const r=await fetch("/api/takeoff/shared-reviews");return r.json()});
+    const list=await page.evaluate(async()=>{const r=await fetch("/api/takeoff/shared-reviews",{headers:{"X-MF-Takeoff-Scope":document.querySelector('meta[name="mf-takeoff-storage-scope"]').content}});return r.json()});
     assert.equal(list.snapshots.length,1);
     console.log("BROWSER_SHARED_SNAPSHOT_ID",list.snapshots[0].snapshot_id);
     assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);
@@ -206,9 +215,39 @@ def test_real_chrome_share_receipt_and_revoke(platform, monkeypatch, tmp_path):
         summary=gateway.takeoff_review_for(ident,str(org),sid,"summary",0)
         assert summary["section_counts"]["scope_items"]>3
         assert summary["section_counts"]["material_lines"]>0
-        assert a.delete(PATH+"/"+sid,headers={"X-CSRF-Token":csrf_of(a)}).json()=={"revoked":True}
+        assert a.delete(PATH+"/"+sid,headers=share_headers(a)).json()=={"revoked":True}
         assert gateway.takeoff_reviews_for(ident,str(org))==[]
         print("BROWSER_TO_REAL_PG_TO_MCP_GATEWAY_AND_REVOCATION_PASS")
     finally:
         server.should_exit=True
         worker.join(timeout=8)
+
+
+def test_stale_takeoff_page_cannot_share_across_active_business_switch(platform, monkeypatch):
+    from app.db import session_scope
+    from app.models import Membership
+    a, org_a, _ = onboard_business(platform, business="Scope Binding A", owner_email="scope-bind-a@fictional.test")
+    b, org_b, _ = onboard_business(platform, business="Scope Binding B", owner_email="scope-bind-b@fictional.test")
+    user = owner_id(org_a)
+    with session_scope(org_id=org_b, user_id=owner_id(org_b)) as db:
+        db.add(Membership(org_id=org_b, user_id=user, role="owner"))
+    monkeypatch.setenv("MF_TAKEOFF_PILOT_ENABLED", "true")
+    monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS", f"{org_a},{org_b}")
+    old = share_headers(a)
+    body = {"consent": True, "packet": packet()}
+    assert a.post(PATH, json=body, headers={"X-CSRF-Token":old["X-CSRF-Token"]}).status_code == 409
+    initial = a.post(PATH, json=body, headers=old)
+    assert initial.status_code == 200, initial.text
+    sid = initial.json()["snapshot_id"]
+    assert a.post("/app/switch-org", data={"csrf":old["X-CSRF-Token"],"org_id":str(org_b)}).status_code == 303
+    assert a.post(PATH,json=body,headers=old).status_code == 409
+    assert a.get(PATH,headers=old).status_code == 409
+    assert a.get(PATH+"/"+sid+"/drafts",headers=old).status_code == 409
+    assert a.delete(PATH+"/"+sid,headers=old).status_code == 409
+    current = share_headers(a)
+    assert current["X-MF-Takeoff-Scope"] != old["X-MF-Takeoff-Scope"]
+    assert a.get(PATH,headers=current).json() == {"snapshots":[]}
+    assert a.post(PATH,json=body,headers=current).status_code == 200
+    assert a.post("/app/switch-org",data={"csrf":current["X-CSRF-Token"],"org_id":str(org_a)}).status_code == 303
+    assert a.get(PATH,headers=old).json()["snapshots"][0]["snapshot_id"] == sid
+    print("STALE_PAGE_CROSS_TENANT_SHARE_DENIED_PASS")

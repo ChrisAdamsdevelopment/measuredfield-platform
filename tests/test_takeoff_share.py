@@ -68,3 +68,20 @@ def test_incomplete_manifest_cannot_claim_readiness():
     p["local_skill_assurance"]["readiness"] = "approved"
     with pytest.raises(share.ShareError):
         share.validate_packet(p)
+
+def test_shared_packet_drops_free_text_plan_excerpts():
+    p = packet()
+    p["scope_items"][0]["title"] = "PRIVATE CUSTOMER NAME"
+    p["scope_items"][0]["evidence"][0]["printed_text"] = "PRIVATE ADDRESS"
+    p["warnings"] = [{"code":"REVIEW", "message":"PRIVATE PHONE"}]
+    p["material_lines"][0]["description"] = "PRIVATE CUSTOMER NOTE"
+    result = share.validate_packet(p)
+    assert "PRIVATE" not in repr(result)
+    assert result["scope_items"][0]["evidence"][0]["document"] == "document_1"
+    assert result["warnings"] == [{"code":"REVIEW"}]
+
+def test_unknown_skill_severity_fails_closed():
+    p = packet()
+    p["local_skill_assurance"]["findings"][0]["severity"] = "invented"
+    with pytest.raises(share.ShareError):
+        share.validate_packet(p)
