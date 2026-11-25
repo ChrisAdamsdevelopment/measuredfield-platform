@@ -67,7 +67,7 @@ export function buildReviewPacket({project,documents=[],manuals=[],takeoff,estim
      exclusion_reason:excluded.get(m.id)||null,source:"drawing_trace"};
  });
  const manualQuantities=list(manuals).map(m=>({id:token(m.id),scope_item_id:token(m.scope_item_id)||null,
-  assembly_id:token(m.assemblyId),quantity:four(m.quantity),unit:txt(m.unit,40),
+  assembly_id:token(m.assemblyId),quantity:typeof m.quantity==="number"&&Number.isFinite(m.quantity)?m.quantity:null,unit:txt(m.unit,40),
   source:"field_entered_unverified"}));
  const estimateMap=new Map((estimate?.lines||[]).map(e=>[e.line_id,e]));
  const bom=list(takeoff.lines).map(line=>{

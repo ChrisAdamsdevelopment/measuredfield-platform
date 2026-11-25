@@ -74,7 +74,7 @@
 <label class="checkline"><input id="assistant-consent" type="checkbox"> Send my question, brief, estimate summary, selected drawing crop and up to eight previous conversation messages to NVIDIA for AI assistance. Do not include private customer data.</label>
 <button id="assistant-send" class="button button-terra" type="button" disabled>Ask assistant</button>
 <div id="assistant-demo-panel" hidden><p class="subtle">Provider test: sends only a fixed fictional bathroom example, never your project or drawing. The result does not change your estimate.</p><button class="button button-outline" type="button" id="assistant-demo">Try fictional example</button><pre id="assistant-demo-result" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></div>
-<p class="subtle">AI suggestions need your review. It cannot approve prices or infer accurate measurements from appearance. ChatGPT project syncing is not connected yet.</p>
+<p class="subtle">AI suggestions need your review. It cannot approve prices or infer accurate measurements from appearance. ChatGPT can review explicitly shared snapshots when enabled. Live drawing edits remain in this browser.</p>
 </section>
 <section class="screen" id="screen-plans" aria-labelledby="plans-title">
         <div class="page-heading"><span class="eyebrow">STEP 1 / 5 · PLANS & SCOPE</span><h1 id="plans-title">Check the plans and what's included.</h1><p>Add the plan set, confirm which drawings are current, and review the suggested work. The app will not treat a note or printed area as a finished measurement.</p></div>
@@ -169,14 +169,30 @@
       <section class="screen" id="screen-review" aria-labelledby="review-title">
         <div class="page-heading"><span class="eyebrow">STEP 5 / 5 · REVIEW & PROPOSAL</span><h1 id="review-title">Check the job before you quote it.</h1><p>Review missing quantities, prices, scope choices and plan revisions. You decide when the numbers are ready to use in a customer quote.</p></div>
         <div class="review-grid"><div class="panel review-main"><div class="section-top"><div><h2>Before you send a price</h2><p>Resolve these issues or clearly label the estimate preliminary.</p></div><span id="review-state" class="readiness-badge">Draft</span></div><div id="review-blockers" class="review-blockers"></div>
+          <details class="review-packet-action" id="skill-assurance-panel" open>
+            <summary><strong>Estimate assurance - built-in skill</strong></summary>
+            <p class="subtle">Checks the current recorded work, quantities, revision evidence and pricing status. Runs locally without AI calls or uploads; it is not contractor approval.</p>
+            <p id="skill-assurance-state" role="status">Checking current evidence</p>
+            <div id="skill-assurance-findings"></div>
+          </details>
           <h3>Field measurements and drawing exclusions</h3><div id="quantity-review-list" class="scope-list"></div><h3>What the price includes and excludes</h3><div id="scope-list" class="scope-list"></div>
         </div><div class="panel review-side"><small>PRICED & ALLOWANCE SUBTOTAL</small><strong id="review-total">$—</strong><p>Not a fixed-price bid when quotes or scope are still outstanding.</p><div id="review-breakdown" class="review-breakdown"></div><button id="preview-proposal" class="button button-terra button-wide" type="button">Preview homeowner summary →</button><button id="back-to-materials" class="button button-outline button-wide" type="button">Revisit material prices</button><div class="review-packet-action">
               <h3>Want ChatGPT to double-check your takeoff?</h3>
               <p>It can review the work list and measurements you recorded, flag possible omissions and help research materials that still need prices.</p>
+              <div id="chatgpt-share-panel" hidden>
+                <p>Share a dated review snapshot with this business and your connected ChatGPT account. This includes structured quantity evidence and skill findings, but omits free-text plan excerpts, titles, material descriptions, formulas, warnings, raw PDFs, drawing coordinates and cost amounts. Business members can see the saved document; only the sharing owner can retrieve it through MCP. Review the source records for sensitive identifiers before sharing.</p>
+                <label><input type="checkbox" id="chatgpt-share-consent"> I authorize sharing this review snapshot.</label>
+                <label><input type="checkbox" id="chatgpt-draft-consent"> Also allow ChatGPT to submit source-linked draft corrections for this snapshot. Nothing is applied without my approval.</label>
+                <button id="share-review-packet" class="button button-outline button-wide" type="button">Share current takeoff with ChatGPT</button>
+                <p id="chatgpt-share-status" role="status"></p>
+                <div id="chatgpt-shared-reviews"></div>
+                <div id="chatgpt-review-drafts" aria-live="polite"></div>
+                <small>In ChatGPT, ask MeasuredField to list shared takeoff reviews and inspect the snapshot ID. Snapshots do not update automatically; share again after edits. Review drafts here; an approved correction updates only the matching contractor-entered quantity and reopens its scope review. Revoking prevents future retrieval, not deletion from prior chats.</small>
+              </div>
               <button id="export-review-packet" class="button button-outline button-wide" type="button">1. Download takeoff details</button>
               <a class="button button-outline button-wide" href="https://chatgpt.com/plugins/plugin_asdk_app_6b03fca4b22481919ce99c1c8e681dee" target="_blank" rel="noopener noreferrer">2. Open MeasuredField in ChatGPT</a>
               <p class="chatgpt-instructions"><strong>In ChatGPT:</strong> select <em>Try in chat</em>, attach the downloaded JSON file and ask: "Which work items or prices need checking?"</p>
-              <small>ChatGPT does not automatically see your takeoff yet. This file includes plan notes, recorded quantities and missing-price items, but no PDFs, raw drawing coordinates or internal dollar totals. Check the plan notes before sharing. Its suggestions will not change the estimate until you review them here.</small>
+              <small>Alternatively, download a review file manually. This file includes plan notes, recorded quantities and missing-price items, but no PDFs, raw drawing coordinates or internal dollar totals. Check the plan notes before sharing. Its suggestions will not change the estimate until you review them here.</small>
             </div><div class="pilot-feedback"><h3>Tell us what should work better</h3><label>Reviewer (optional)<input id="pilot-feedback-reviewer" maxlength="80" placeholder="Your name or role"></label><label>What needs attention?<select id="pilot-feedback-kind"><option value="usability">Confusing workflow or screen</option><option value="missing_item">Missing scope or material</option><option value="wrong_assumption">Incorrect assumption</option><option value="pricing">Pricing issue</option><option value="other">Other feedback</option></select></label><label>What happened, or what should work differently?<textarea id="pilot-feedback-comment" rows="4" maxlength="4000" placeholder="Tell us what you tried, what the app showed, and what you expected."></textarea></label><button class="button button-outline button-wide" id="export-pilot-feedback" type="button">Save feedback to send us</button><small>Downloads your comments and a project reference for our review. No drawing PDF or supplier quote is included. You decide whether to share the file; nothing is sent automatically.</small></div></div></div>
       </section>
 

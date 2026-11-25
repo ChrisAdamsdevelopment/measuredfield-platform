@@ -243,3 +243,29 @@ class ReadOnlyBusinessGateway:
                 else None,
                 "evidence": "measuredfield_first_party_inquiry_record",
             }
+
+
+    def _takeoff_owner(self, db, user_id, org_id):
+        from app.services import takeoff_share
+        self._active_user(db, user_id)
+        self._enter_business(db, user_id, org_id)
+        membership = db.scalar(select(Membership).where(Membership.org_id == org_id, Membership.user_id == user_id))
+        if membership is None or membership.role != "owner" or not takeoff_share.enabled_for(org_id):
+            raise ConnectorAccessDenied("Takeoff review is unavailable")
+
+    def takeoff_reviews_for(self, identity, business_id):
+        from app.services import takeoff_share
+        user_id, org_id = self._user(identity), _id(business_id)
+        with _read_scope(user_id) as db:
+            self._takeoff_owner(db, user_id, org_id)
+            return takeoff_share.list_shared(db, org_id, user_id)
+
+    def takeoff_review_for(self, identity, business_id, snapshot_id, section, offset):
+        from app.services import takeoff_share
+        user_id, org_id = self._user(identity), _id(business_id)
+        with _read_scope(user_id) as db:
+            self._takeoff_owner(db, user_id, org_id)
+            doc = takeoff_share.find(db, org_id, user_id, snapshot_id)
+            if doc is None:
+                raise ConnectorAccessDenied("Takeoff review is unavailable")
+            return takeoff_share.read_section(doc, section, offset)

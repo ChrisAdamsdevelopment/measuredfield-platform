@@ -65,6 +65,7 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         "queue_project_file_write",
         "queue_project_directory", "get_project_work_status", "cancel_project_work",
         "list_website_work_requests", "apply_website_work_request",
+        "list_takeoff_reviews", "get_takeoff_review", "propose_takeoff_correction",
     }
     for name, decorator in tools.items():
         kwargs = {item.arg: item.value for item in decorator.keywords}
@@ -78,7 +79,7 @@ def test_all_private_tools_have_explicit_oauth_metadata():
         assert isinstance(call.args[0], ast.Attribute)
         assert call.args[0].attr == "read_scope"
         extra_scope = {k.arg: k.value for k in call.keywords}.get("with_scope")
-        if name == "save_inquiry_reply_draft":
+        if name in ("save_inquiry_reply_draft", "propose_takeoff_correction"):
             assert isinstance(extra_scope, ast.Attribute)
             assert extra_scope.attr == "write_scope"
         elif name == "apply_website_work_request":

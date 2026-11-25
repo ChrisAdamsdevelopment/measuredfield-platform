@@ -20,7 +20,7 @@ from ..db import TenantSession, get_db
 from ..deps import Principal, back, member, member_api, member_post, parse_uuid, render
 from ..models import (AssessmentReport, AuditEvent, ConnectedDevice, Customer, DataRequest, DeviceWorkRequest,
                       Document, Improvement, Lead, LeadNote, LeadReply, LessonCandidate, McpIdentityLink,
-                      Membership, MemoryItem, Project, Proposal, SiteVersion, User, WebsiteWorkRequest, now)
+                      Membership, MemoryItem, Organization, Project, Proposal, SiteVersion, User, WebsiteWorkRequest, now)
 from ..security import ROLES, digest, new_token, valid_email
 from ..services import billing_portal, growth, jobs, lead_metrics, learning, orders, sitegen, sites, tenant_data, website_work
 from ..services.audit import audit
@@ -674,6 +674,12 @@ def document_download(document_id: str, db: TenantSession = Depends(get_db), p: 
 def document_delete(document_id: str, db: TenantSession = Depends(get_db),
                     p: Principal = Depends(member_post("documents.delete"))):
     document = _get(db, Document, document_id)
+    from app.services import takeoff_share, takeoff_proposals
+    if document.content_type == takeoff_share.CONTENT_TYPE:
+        # Match the takeoff revocation lock order, so a draft cannot be inserted
+        # between removing dependents and removing their source snapshot.
+        db.scalar(select(Organization).where(Organization.id == p.org.id).with_for_update())
+        takeoff_proposals.remove_for_snapshot(db, p.org.id, document.uploaded_by, document.id)
     audit(db, p.org.id, p.user.id, "document.deleted", "document", document.id, {"sha256": document.sha256})
     db.delete(document)
     return back("/app/documents", ok="Deleted")
