@@ -124,6 +124,24 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.click(".project-card");
     await page.click('.spine button[data-step="materials"]');
     await page.waitForSelector(".material-row");
+    if(!await page.$(".planning-allowance")){
+      const debug=await page.evaluate(async()=>{
+        const db=await import("/static/takeoff/public/guided/storage.mjs");
+        const {computeAssembly}=await import("/static/takeoff/src/assemblies.mjs");
+        const {planningOptions}=await import("/static/takeoff/src/planning-reference.mjs");
+        const [r]=await db.listProjects();
+        return r.manuals.flatMap(m=>computeAssembly(m.assemblyId,m.measured,m.params,{measurement_ids:[m.id],layer:m.layer}).map(l=>({key:l.material_key,unit:l.unit,price_class:l.price_class,needs:l.needs,qty:l.qty_with_waste,options:planningOptions(l).length})));
+      });
+      console.log("PLANNING_MATCH_DIAGNOSTIC",JSON.stringify(debug));
+    }
+    await page.$eval(".planning-allowance",e=>e.closest("details").open=true);
+    await page.click(".planning-allowance");
+    await page.waitForFunction(()=>document.querySelector(".material-row .priced")?.textContent.includes("49.50"));
+    await page.waitForFunction(()=>document.querySelector("#save-status").textContent==="Saved on this computer");
+    const ref=await page.evaluate(async()=>{const db=await import("/static/takeoff/public/guided/storage.mjs");const [r]=await db.listProjects();return r.project.selections[0];});
+    assert.equal(ref.allowance_cents,4950);assert.equal(ref.planning_reference.license,"CC BY 4.0");
+    console.log("SOURCE_BACKED_PLANNING_ALLOWANCE_PASS");
+    await page.select(".material-controls select","unpriced");
     await page.select(".material-controls select","allowance");
     assert.match(await page.$eval(".material-controls label",e=>e.textContent),/Total allowance/);
     assert.match(await page.$eval(".material-controls input[type=number]",e=>e.getAttribute("aria-label")),/^Total allowance for /);
