@@ -7,7 +7,7 @@ const transform=(m,x,y)=>({x:m[0]*x+m[2]*y+m[4],y:m[1]*x+m[3]*y+m[5]});
 // Recognize only a single closed axis-aligned rectangle in pinned DrawOPS encoding.
 // Do not infer the shape from the path bounding box, which may enclose a nonrectangular clip.
 function rectangleClip(args,OPS,matrix){
- if(!Number.isInteger(OPS.endPath)||args?.[0]!==OPS.endPath)return null;
+ if(!Number.isInteger(OPS.endPath)||args?.[0]!==OPS.endPath||!Array.isArray(args?.[1])||args[1].length!==1)return null;
  const raw=args?.[1]?.[0];
  if(!(Array.isArray(raw)||ArrayBuffer.isView(raw))||![13,15].includes(raw.length))return null;
  const points=[];

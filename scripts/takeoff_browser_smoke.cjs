@@ -110,6 +110,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.waitForSelector(".material-row");
     await page.select(".material-controls select","allowance");
     assert.match(await page.$eval(".material-controls label",e=>e.textContent),/Total allowance/);
+    assert.match(await page.$eval(".material-controls input[type=number]",e=>e.getAttribute("aria-label")),/^Total allowance for /);
     await page.$eval(".material-controls input[type=number]",e=>{e.value="500";e.dispatchEvent(new Event("change",{bubbles:true}));});
     await page.waitForFunction(()=>document.querySelector(".material-row .priced")?.textContent.includes("500"));
     await page.waitForFunction(()=>document.querySelector("#save-status")?.textContent==="Saved on this computer");
