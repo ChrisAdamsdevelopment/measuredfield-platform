@@ -23,7 +23,8 @@ async function pdfBytes(blob){
  if(!new TextDecoder().decode(bytes.slice(0,1024)).includes('%PDF-'))throw Error('Invalid original PDF signature');
  return bytes;
 }
-export async function createBackup(record,pdfs){
+export async function createBackup(record,pdfs,{scope=null}={}){
+ if(scope!==null&&!/^[a-f0-9]{32}$/.test(scope))throw Error('Invalid backup account scope');
  const project=validateRecord(record);
  if(!Array.isArray(pdfs)||pdfs.length!==project.documents.length)throw Error('Every original PDF must be present');
  const files=[],parts=[],byId=new Map();
@@ -34,12 +35,12 @@ export async function createBackup(record,pdfs){
   const bytes=await pdfBytes(p.blob);size+=bytes.byteLength;if(size>MAX_BYTES)throw Error('Backup exceeds local size limit');
   files.push({id:d.id,filename:d.name,size:bytes.byteLength,sha256:await digest(bytes)});parts.push(p.blob);
  }
- const body=enc.encode(JSON.stringify({schema:'mf.project-backup/1',record:project,files}));
+ const body=enc.encode(JSON.stringify({schema:'mf.project-backup/1',account_scope:scope,record:project,files}));
  if(body.byteLength>MAX_MANIFEST||size+body.byteLength+HEADER>MAX_BYTES)throw Error('Backup exceeds 200 MiB limit');
  const length=new ArrayBuffer(4);new DataView(length).setUint32(0,body.byteLength,false);
  return new Blob([enc.encode(MAGIC),length,enc.encode(await digest(body)),body,...parts],{type:'application/octet-stream'});
 }
-export async function readBackup(blob){
+export async function readBackup(blob,{scope=null}={}){
  if(!(blob instanceof Blob)||blob.size<HEADER||blob.size>MAX_BYTES)throw Error('Invalid backup size');
  const header=await blob.slice(0,HEADER).arrayBuffer();
  if(dec.decode(header.slice(0,MAGIC.length))!==MAGIC)throw Error('Unsupported backup format');
@@ -49,6 +50,7 @@ export async function readBackup(blob){
  if(await digest(bytes)!==dec.decode(header.slice(MAGIC.length+4)))throw Error('Backup manifest checksum mismatch');
  const manifest=JSON.parse(dec.decode(bytes),(k,v)=>['__proto__','constructor','prototype'].includes(k)?undefined:v);
  if(manifest.schema!=='mf.project-backup/1'||!Array.isArray(manifest.files))throw Error('Unsupported backup manifest');
+ if((manifest.account_scope??null)!==scope)throw Error('Backup belongs to another account/workspace or is unbound');
  const record=validateRecord(manifest.record),files=manifest.files,pdfs=[];
  if(files.length!==record.documents.length)throw Error('Missing original PDFs');
  let offset=HEADER+length;

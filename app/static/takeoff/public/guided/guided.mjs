@@ -1865,7 +1865,8 @@ async function backup(){
     // Snapshot first so asynchronous file reads cannot mix project versions.
     const record=structuredClone({id:state.project.id,project:JSON.parse(serializeProject(state.project)),documents:state.documents,manuals:state.manuals,scopeChoices:state.scopeChoices,updatedAt:Date.now()});
     const pdfs=await Promise.all(record.documents.map(d=>getPdf(d.id)));
-    const blob=await createBackup(record,pdfs);
+    const scope=document.querySelector('meta[name=mf-takeoff-storage-scope]')?.content||null;
+    const blob=await createBackup(record,pdfs,{scope});
     const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="measuredfield-private-backup-"+today()+".mfbackup";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
     toast("Private, unencrypted backup exported with original PDFs. Keep it secure.");
   }catch(e){say("Backup failed: "+e.message,true);}
@@ -1873,11 +1874,13 @@ async function backup(){
 async function restoreBackup(file){
   if(!file)return;
   try{
-    if(state.project){clearTimeout(state.saveTimer);await persist();}
-    const {record,pdfs}=await readBackup(file);
+    const scope=document.querySelector('meta[name=mf-takeoff-storage-scope]')?.content||null;
+    const {record,pdfs}=await readBackup(file,{scope});
+    if(state.project?.id===record.id)throw Error("Restore cannot replace the active project");
     await restoreProjectBundle(record,pdfs);
-    await openExisting(record.id);
-    toast("Backup restored locally with original PDFs; existing projects unchanged.");
+    // Do not navigate or replace active edits after asynchronous validation.
+    if(state.activeScreen==="home")await renderProjects();
+    toast("Backup restored locally with original PDFs. Open it from Projects; your current work is unchanged.");
   }catch(e){say("Restore refused: "+e.message,true);}
 }
 

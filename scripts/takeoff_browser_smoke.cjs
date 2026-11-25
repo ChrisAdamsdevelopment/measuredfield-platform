@@ -74,6 +74,21 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.waitForSelector(".project-card",{timeout:12000});
     assert((await page.$eval(".project-card",el=>el.textContent)).includes("Fictional Site Takeoff"),
       "Saved project not present after reload");
+    const saved=await page.evaluate(async()=>{const db=await import("/static/takeoff/public/guided/storage.mjs");const [r]=await db.listProjects();return r.manuals.map(m=>[m.quantity,m.measured.area_sf]);});
+    assert.deepEqual(saved,[[15,15]],"Latest field quantity must survive reload, not merely the project name");
+    // Actual pinned PDF.js operator list, not a mocked encoding.
+    const vectorFixture=path.join(path.dirname(fixture),"calibration_sample.pdf");
+    const vector=await page.evaluate(async bytes=>{
+      const pdfjs=await import("/static/takeoff/public/vendor/pdfjs-5.7.284/pdf.min.mjs");
+      const {extractStrokeEndpoints}=await import("/static/takeoff/src/vector-snap.mjs");
+      pdfjs.GlobalWorkerOptions.workerSrc="/static/takeoff/public/vendor/pdfjs-5.7.284/pdf.worker.min.mjs";
+      const doc=await pdfjs.getDocument({data:Uint8Array.from(bytes)}).promise;
+      const p=await doc.getPage(1),ops=await p.getOperatorList(),r=extractStrokeEndpoints(ops,pdfjs.OPS,{view:p.view});
+      const first=ops.fnArray.findIndex((v,i)=>v===pdfjs.OPS.constructPath&&ops.argsArray[i]?.[0]===pdfjs.OPS.stroke);
+      return {version:pdfjs.version,count:r.points.length,corner:r.points.some(p=>p.x===700&&p.y===300),actualEncoding:first>=0};
+    },Array.from(fs.readFileSync(vectorFixture)));
+    assert.equal(vector.version,"5.7.284");assert(vector.count>0&&vector.corner&&vector.actualEncoding);
+    console.log("PINNED_PDF_VECTOR_PASS",JSON.stringify(vector));
     await page.setViewport({width:390,height:844});
     const mobile=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
     assert(mobile.scroll<=mobile.width,"Phone viewport horizontal overflow");
@@ -105,6 +120,27 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.$eval(".material-controls input[type=number]",e=>{e.value="1000";e.dispatchEvent(new Event("change",{bubbles:true}));});
     await page.waitForFunction(()=>document.querySelector(".material-row .priced")?.textContent.includes("1,000"));
     console.log("STALE_ALLOWANCE_METADATA_REGRESSION_PASS");
+    await page.click("#export-project");
+    await page.waitForFunction(()=>document.querySelector("#save-status")?.textContent==="Saved on this computer");
+    let backup;
+    for(let i=0;i<70;i++){backup=fs.readdirSync(dir).find(x=>x.endsWith(".mfbackup"));if(backup)break;await wait(150);}
+    assert(backup,"Complete backup download missing");
+    const ctx=await browser.createBrowserContext();
+    try{
+      const fresh=await ctx.newPage();
+      await fresh.goto(url,{waitUntil:"networkidle0"});
+      await fresh.click("#new-estimate");
+      await fresh.$eval("#new-name",e=>e.value="Unrelated active test project");
+      await fresh.click("#start-dimensions");
+      await fresh.waitForSelector("#screen-measure.screen-active");
+      await (await fresh.$("#restore-project")).uploadFile(path.join(dir,backup));
+      await fresh.waitForFunction(async()=>{const db=await import("/static/takeoff/public/guided/storage.mjs");return (await db.listProjects()).some(x=>x.project.name==="Fictional Site Takeoff");},{timeout:10000});
+      assert.match(await fresh.$eval("#breadcrumb-project",e=>e.textContent),/Unrelated active test project/);
+      assert(await fresh.$("#screen-measure.screen-active"),"Restore must not replace the active screen");
+      const restored=await fresh.evaluate(async()=>{const db=await import("/static/takeoff/public/guided/storage.mjs");const r=(await db.listProjects()).find(x=>x.project.name==="Fictional Site Takeoff");return {qty:r.manuals[0].quantity,pdfs:(await Promise.all(r.documents.map(x=>db.getPdf(x.id)))).every(x=>x?.blob instanceof Blob)};});
+      assert.deepEqual(restored,{qty:30,pdfs:true});
+      console.log("SCOPED_BACKUP_RESTORE_PRESERVES_ACTIVE_PROJECT_PASS");
+    }finally{await ctx.close();}
     assert.deepEqual(errors,[]);
     assert.deepEqual(failed,[]);
     console.log("MEASUREDFIELD_SAME_HOST_TAKEOFF_BROWSER_PASS",
