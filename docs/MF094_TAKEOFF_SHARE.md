@@ -78,3 +78,19 @@ sharing owner. Exact field quantity precision preserved. Late list responses sup
 calendar-only fingerprint changes ignored but derived evidence changes still invalidate.
 Prior corrective run 25996: 31 focused tests incl real PG, signed SDK and both Chrome journeys
 passed, including stale business switch denial; final incremental test and CI separately required.
+
+## MF-097: OAuth reconnect discovery correction (2026-11-25)
+
+Real connected ChatGPT tools now read the synthetic 15 SF snapshot, including
+draft consent, but attempting the draft triggered a repeated reconnect.
+Production RFC 9728 metadata advertised only mf:read, while the new tool
+requires mf:drafts.write. SDK 2.3.0 uses required_scopes for both purposes.
+Replace only the public metadata route with the SDK's supported-scopes route
+factory; required transport scope remains mf:read. Per-tool signed identity,
+additional scopes, current membership, snapshot consent and owner approval
+are unchanged. Advertise the four existing implemented scopes, not a blanket
+write grant. 57 SDK tests and 52 focused real PG tests passed; signed protocol
+challenge checked for exact additional scope and error. Independent Argon Low
+review PID16840 APPROVE. Actual Auth0 permission issuance and live reconnect
+must still be tested; the metadata mismatch is a verified defect, not proof
+of the only cause of the reconnect loop.

@@ -109,6 +109,9 @@ def _sdk_proposal(org,sid,*,subject="oidc|draft-a",target_id="field_1",quantity=
         call={"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"propose_takeoff_correction","arguments":args}}
         denied=client.post("/mcp",json=call,headers=h)
         assert denied.status_code==200 and denied.json()["result"].get("isError"),denied.text[:300]
+        challenge = denied.json()["result"]["_meta"]["mcp/www_authenticate"][0]
+        assert 'error="insufficient_scope"' in challenge
+        assert 'scope="mf:read mf:drafts.write"' in challenge
         h["Authorization"]="Bearer "+token("mf:read mf:drafts.write")
         call["id"]=3
         r=client.post("/mcp",json=call,headers=h)

@@ -355,3 +355,28 @@ def test_chatgpt_can_discover_tools_before_oauth_but_cannot_call_them(keys):
              "params": {"name": "list_my_businesses", "arguments": {}}},
         ], headers=common)
         assert batch.status_code == 401
+
+def test_resource_metadata_advertises_optional_scopes_without_requiring_them(monkeypatch):
+    from importlib.metadata import version
+    if not version("mcp").startswith("2."):
+        return
+    from starlette.testclient import TestClient
+    from app.mcp_plugin.server import create_app
+
+    monkeypatch.setenv("MF_MCP_OAUTH_ISSUER", "https://auth.synthetic.example.net/")
+    monkeypatch.setenv("MF_MCP_OAUTH_JWKS_URL", "https://auth.synthetic.example.net/jwks")
+    monkeypatch.setenv("MF_MCP_RESOURCE_URL", "https://mcp.synthetic.example.net/mcp")
+    app = create_app()
+    with TestClient(app, base_url="https://mcp.synthetic.example.net") as client:
+        r = client.get("/.well-known/oauth-protected-resource/mcp")
+        assert r.status_code == 200
+        assert r.json()["resource"] == "https://mcp.synthetic.example.net/mcp"
+        assert set(r.json()["scopes_supported"]) == {
+            "mf:read", "mf:drafts.write", "mf:computer.write", "mf:website.write"}
+        assert client.options("/.well-known/oauth-protected-resource/mcp",
+            headers={"Origin":"https://chatgpt.com","Access-Control-Request-Method":"GET"}).status_code == 200
+        response = client.post("/mcp", headers={"Accept":"application/json, text/event-stream"},
+            json={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_my_businesses","arguments":{}}})
+        assert response.status_code == 401
+        header = response.headers["WWW-Authenticate"]
+        assert "mf:drafts.write" not in header and "mf:computer.write" not in header and "mf:website.write" not in header

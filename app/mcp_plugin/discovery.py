@@ -127,3 +127,29 @@ def enable_anonymous_mcp_discovery(app):
         name=route.name,
     )
     return app
+
+def advertise_supported_oauth_scopes(app, settings):
+    """RFC 9728 supported capabilities are not SDK mandatory bearer scopes.
+
+    SDK 2.3.0 uses required_scopes for both transport auth and resource
+    metadata. Replace only its public metadata route with its own route
+    factory; leave required_scopes, bearer validation and tools unchanged.
+    """
+    from mcp.server.auth.routes import create_protected_resource_routes
+    from pydantic import AnyHttpUrl
+
+    routes = create_protected_resource_routes(
+        resource_url=AnyHttpUrl(settings.resource_url),
+        authorization_servers=[AnyHttpUrl(settings.issuer)],
+        scopes_supported=[settings.read_scope, settings.write_scope,
+                          "mf:computer.write", "mf:website.write"],
+    )
+    if len(routes) != 1:
+        raise RuntimeError("Unexpected SDK resource metadata route count")
+    replacement = routes[0]
+    indices = [i for i, route in enumerate(app.router.routes)
+               if isinstance(route, Route) and route.path == replacement.path]
+    if len(indices) != 1:
+        raise RuntimeError("Expected one SDK protected-resource metadata route")
+    app.router.routes[indices[0]] = replacement
+    return app
