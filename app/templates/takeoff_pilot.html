@@ -169,6 +169,12 @@
       <section class="screen" id="screen-review" aria-labelledby="review-title">
         <div class="page-heading"><span class="eyebrow">STEP 5 / 5 · REVIEW & PROPOSAL</span><h1 id="review-title">Check the job before you quote it.</h1><p>Review missing quantities, prices, scope choices and plan revisions. You decide when the numbers are ready to use in a customer quote.</p></div>
         <div class="review-grid"><div class="panel review-main"><div class="section-top"><div><h2>Before you send a price</h2><p>Resolve these issues or clearly label the estimate preliminary.</p></div><span id="review-state" class="readiness-badge">Draft</span></div><div id="review-blockers" class="review-blockers"></div>
+          <details class="review-packet-action" id="skill-assurance-panel" open>
+            <summary><strong>Estimate assurance - built-in skill</strong></summary>
+            <p class="subtle">Checks the current recorded work, quantities, revision evidence and pricing status. Runs locally without AI calls or uploads; it is not contractor approval.</p>
+            <p id="skill-assurance-state" role="status">Checking current evidence</p>
+            <div id="skill-assurance-findings"></div>
+          </details>
           <h3>Field measurements and drawing exclusions</h3><div id="quantity-review-list" class="scope-list"></div><h3>What the price includes and excludes</h3><div id="scope-list" class="scope-list"></div>
         </div><div class="panel review-side"><small>PRICED & ALLOWANCE SUBTOTAL</small><strong id="review-total">$—</strong><p>Not a fixed-price bid when quotes or scope are still outstanding.</p><div id="review-breakdown" class="review-breakdown"></div><button id="preview-proposal" class="button button-terra button-wide" type="button">Preview homeowner summary →</button><button id="back-to-materials" class="button button-outline button-wide" type="button">Revisit material prices</button><div class="review-packet-action">
               <h3>Want ChatGPT to double-check your takeoff?</h3>

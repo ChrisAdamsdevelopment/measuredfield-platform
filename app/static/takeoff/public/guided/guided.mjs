@@ -23,6 +23,7 @@ import {syncRegister,duplicateGroups,linkSupersession,markDistinct,clearDecision
 import {renderRevisionPanel} from "./revision-panel.mjs";
 import {calibrationCandidates,checkCandidates,feetToFeetInches,formatFeetInches,recalibrationImpact,EXCLUSION_REASONS} from "../../src/dimension-assist.mjs";
 import {buildReviewPacket} from "../../src/review-packet.mjs";
+import {auditCurrentPacket,failedSkillReview,SKILL_FINDING_LABELS} from "../../src/skill-assurance.mjs";
 import {reconcileEstimate,ASSURANCE_LABELS} from "../../src/estimate-assurance.mjs";
 import {lineBasis,scopeCoverage} from "../../src/bid-readiness.mjs";
 import {checkEstimateTotals} from "../../src/estimate-total-check.mjs";
@@ -124,7 +125,7 @@ function show(screen){
   if(screen==="measure"){renderMiniPages();refreshMeasureScreen();}
   if(screen==="materials")renderMaterials();
   if(screen==="labor")renderLabor();
-  if(screen==="review")renderReview();
+  if(screen==="review")calculate();
   if(screen==="proposal")renderProposal();
   refreshAssistant();
   window.scrollTo({top:0,behavior:"instant"});
@@ -1766,7 +1767,32 @@ function renderQuantityReviews(){
   }
   if(!area.children.length)area.textContent="No field entries or excluded measurements.";
 }
+function currentReviewPacket(){
+  return buildReviewPacket({
+    project:state.project,documents:state.documents,manuals:state.manuals,
+    takeoff:state.takeoff,estimate:state.estimate,revision:state.revision,asOf:today()
+  });
+}
+function renderSkillReview(){
+  const area=$("skill-assurance-findings"),status=$("skill-assurance-state");
+  area.replaceChildren();
+  try{
+    const report=auditCurrentPacket(currentReviewPacket());
+    const blocked=report.findings.filter(f=>f.severity==="block").length;
+    status.textContent=blocked?blocked+" evidence checks need attention":report.findings.length+" advisory checks; contractor review still required";
+    const list=document.createElement("ul");
+    for(const f of report.findings.slice(0,20)){
+      const li=document.createElement("li");
+      li.textContent=(f.severity==="block"?"Needs attention: ":"Review: ")+(SKILL_FINDING_LABELS[f.code]||f.code)+(f.ids.length?" ("+f.ids.join(", ")+")":"");
+      list.append(li);
+    }
+    if(!report.findings.length){const li=document.createElement("li");li.textContent="No issues in the recorded packet. This does not establish full job coverage or approve a quote.";list.append(li);}
+    if(report.findings.length>20){const li=document.createElement("li");li.textContent="Download review details for all "+report.findings.length+" findings.";list.append(li);}
+    area.append(list);
+  }catch(e){status.textContent="Evidence check could not run";area.textContent="Review the project and try again. No assurance is established.";}
+}
 function renderReview(){
+  renderSkillReview();
   const blockers=reviewBlockers(),region=$("review-blockers");region.replaceChildren();
   const status=$("review-state");
   status.textContent=blockers.length?"Needs "+blockers.length+" review item(s)":"Tracked checks complete";
@@ -1910,10 +1936,9 @@ function exportChatGptReviewPacket(){
   try{
     // Refresh the deterministic app engine before freezing the read-only packet.
     calculate();
-    const packet=buildReviewPacket({
-      project:state.project,documents:state.documents,manuals:state.manuals,
-      takeoff:state.takeoff,estimate:state.estimate,revision:state.revision,asOf:today()
-    });
+    const packet=currentReviewPacket();
+    try{packet.local_skill_assurance=auditCurrentPacket(packet);}
+    catch(e){packet.local_skill_assurance=failedSkillReview();}
     downloadText("measuredfield-takeoff-review-"+today()+".json",JSON.stringify(packet,null,2));
     toast("Review packet downloaded. Attach it to ChatGPT when ready; no files were uploaded.");
   }catch(err){say("Could not prepare review packet: "+err.message,true);}
