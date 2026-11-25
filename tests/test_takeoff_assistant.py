@@ -43,3 +43,10 @@ def test_external_sharing_requires_separate_approval(monkeypatch):
     monkeypatch.setenv("MF_TAKEOFF_SYNTHETIC_DEMO_ENABLED","true")
     assert a.demo_enabled()
     assert "fictional" in a.demo_body()["messages"][-1]["content"][0]["text"]
+
+def test_provider_structured_output_requested():
+    body=a.demo_body()
+    schema=body["response_format"]["json_schema"]["schema"]
+    assert body["response_format"]["type"]=="json_schema"
+    assert schema["required"]==["reply","work_items"]
+    assert schema["properties"]["work_items"]["items"]["properties"]["work_type"]["enum"]==list(a.WORK_TYPES)
