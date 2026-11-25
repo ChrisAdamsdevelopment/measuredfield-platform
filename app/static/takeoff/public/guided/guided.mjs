@@ -1453,17 +1453,27 @@ function makeMaterialRow(line){
   source.value=selection?.mode==="contractor_rate" && selection.source_ref &&
     !selection.source_ref.startsWith("Contractor-entered")?selection.source_ref:"";
   source.hidden=mode.value!=="contractor_rate";
-  function commit(){
+  function commit(kind="price"){
     try{
-      const sel={line_id:line.line_id,mode:mode.value,operation_id:operation.value.trim()||null,cost_inclusion:inclusion.value||null};
+      const metadata={operation_id:operation.value.trim()||null,cost_inclusion:inclusion.value||null};
+      // Metadata edits must not renew a stale quantity basis or replace source/quote provenance.
+      if(kind==="metadata"||kind==="source"){
+        const previous=selectedPrice(line);
+        const sel={...previous,line_id:line.line_id,mode:previous?.mode||"unpriced",...metadata};
+        if(kind==="source"&&sel.mode==="contractor_rate")sel.source_ref=source.value.trim()||"Contractor-entered; source not independently verified.";
+        state.project.selections=state.project.selections.filter(x=>x.line_id!==line.line_id).concat(sel);
+        calculate();saveSoon();
+        return;
+      }
+      const sel={line_id:line.line_id,mode:mode.value,...metadata};
       if(mode.value==="contractor_rate"){
         sel.rate_unit=line.unit;
         sel.source_ref=source.value.trim() || "Contractor-entered; source not independently verified.";
         if(rate.value.trim())sel.rate_cents_per_unit=toCents(rate.value);
       }else if(mode.value==="allowance"){
         sel.source_ref="Contractor-entered proposed allowance; requires client documentation.";
-        sel.allowance_basis="quantity_bound";sel.quantity_basis=lineBasis(line);
-        if(rate.value.trim())sel.allowance_cents=toCents(rate.value);
+        sel.allowance_basis="quantity_bound";
+        if(rate.value.trim()){sel.allowance_cents=toCents(rate.value);sel.quantity_basis=lineBasis(line);}
       }
       state.project.selections=state.project.selections.filter(x=>x.line_id!==line.line_id).concat(sel);
       calculate();saveSoon();
@@ -1471,13 +1481,13 @@ function makeMaterialRow(line){
     }catch(err){say(err.message,true);}
   }
   mode.onchange=()=>{rate.value="";source.value="";commit();};
-  rate.onchange=commit;
-  source.onchange=commit;
+  rate.onchange=()=>commit("price");
+  source.onchange=()=>commit("source");
   const operation=document.createElement("input");operation.placeholder="Operation ID (same as related labor)";operation.maxLength=80;operation.value=selection?.operation_id||"";operation.setAttribute("aria-label","Operation ID for "+line.description);
   const inclusion=document.createElement("select");inclusion.setAttribute("aria-label","Cost inclusion for "+line.description);
   for(const [v,l] of [["","Cost inclusion unreviewed"],["supply_only","Materials only"],["installed","Supply and installation"],["labor_only","Labor only"],["other_nonlabor","Other nonlabor cost"]])inclusion.add(new Option(l,v));
   inclusion.value=selection?.cost_inclusion||"";
-  operation.onchange=commit;inclusion.onchange=commit;
+  operation.onchange=()=>commit("metadata");inclusion.onchange=()=>commit("metadata");
   controls.append(mode,rateLabel,rate,source,operation,inclusion);
   row.append(summary,qty,controls);
   const products=(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);

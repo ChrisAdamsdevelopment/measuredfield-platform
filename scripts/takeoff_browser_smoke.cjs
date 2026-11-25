@@ -77,6 +77,34 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.setViewport({width:390,height:844});
     const mobile=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
     assert(mobile.scroll<=mobile.width,"Phone viewport horizontal overflow");
+    // Synthetic quantity revision under the same measurement ID, followed by actual UI edits.
+    await page.setViewport({width:1440,height:900});
+    await page.click(".project-card");
+    await page.click('.spine button[data-step="materials"]');
+    await page.waitForSelector(".material-row");
+    await page.select(".material-controls select","allowance");
+    await page.$eval(".material-controls input[type=number]",e=>{e.value="500";e.dispatchEvent(new Event("change",{bubbles:true}));});
+    await page.waitForFunction(()=>document.querySelector(".material-row .priced")?.textContent.includes("500"));
+    await page.waitForFunction(()=>document.querySelector("#save-status")?.textContent==="Saved on this computer");
+    await page.evaluate(async()=>{
+      const db=await import("/static/takeoff/public/guided/storage.mjs");
+      const [record]=await db.listProjects();
+      const item=record.manuals[0];item.quantity*=2;item.measured.area_sf*=2;
+      await db.saveProject(record);
+    });
+    await page.reload({waitUntil:"domcontentloaded"});
+    await page.waitForSelector(".project-card");
+    await page.click(".project-card");
+    await page.click('.spine button[data-step="materials"]');
+    await page.waitForSelector(".material-row");
+    assert.match(await page.$eval(".material-row .status-chip",e=>e.textContent),/Needs a real price/);
+    await page.select('.material-controls select[aria-label^="Cost inclusion"]',"supply_only");
+    assert.match(await page.$eval(".material-row .status-chip",e=>e.textContent),/Needs a real price/);
+    await page.$eval('.material-controls input[aria-label^="Operation ID"]',e=>{e.value="synthetic-op";e.dispatchEvent(new Event("change",{bubbles:true}));});
+    assert.match(await page.$eval(".material-row .status-chip",e=>e.textContent),/Needs a real price/);
+    await page.$eval(".material-controls input[type=number]",e=>{e.value="1000";e.dispatchEvent(new Event("change",{bubbles:true}));});
+    await page.waitForFunction(()=>document.querySelector(".material-row .priced")?.textContent.includes("1,000"));
+    console.log("STALE_ALLOWANCE_METADATA_REGRESSION_PASS");
     assert.deepEqual(errors,[]);
     assert.deepEqual(failed,[]);
     console.log("MEASUREDFIELD_SAME_HOST_TAKEOFF_BROWSER_PASS",
