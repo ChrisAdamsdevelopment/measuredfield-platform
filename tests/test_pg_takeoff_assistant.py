@@ -4,7 +4,7 @@ from .conftest import client_for, csrf_of, onboard_business
 
 def test_assistant_authorization_consent_and_durable_limits(platform,monkeypatch):
     owner,org,_=onboard_business(platform,business="Synthetic Remodel",owner_email="takeoff-assistant@fictional.example")
-    other,_,_=onboard_business(platform,business="Unrelated Synthetic",owner_email="takeoff-other@fictional.example")
+    other,other_org,_=onboard_business(platform,business="Unrelated Synthetic",owner_email="takeoff-other@fictional.example")
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ENABLED","true")
     monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS",str(org))
     monkeypatch.setenv("MF_TAKEOFF_ASSISTANT_ENABLED","true")
@@ -24,3 +24,9 @@ def test_assistant_authorization_consent_and_durable_limits(platform,monkeypatch
         assert owner.post(path,json=body,headers=headers).status_code==200
     assert owner.post(path,json=body,headers=headers).status_code==429
     assert len(calls)==20
+    for _ in range(25):
+        assert owner.post(path,json=body,headers=headers).status_code==429
+    # An exhausted organization must not consume the shared quota.
+    monkeypatch.setenv("MF_TAKEOFF_PILOT_ORG_IDS",f"{org},{other_org}")
+    assert other.post(path,json=body,headers={"X-CSRF-Token":csrf_of(other)}).status_code==200
+    assert len(calls)==21

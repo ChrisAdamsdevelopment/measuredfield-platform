@@ -148,10 +148,13 @@ async def takeoff_chat(
         raise HTTPException(400, "Check your question, work-area image and sharing consent") from None
     # Durable reservations; count attempts even if provider refuses or times out.
     # Separate global and organization limits; no client-chosen identity or model.
-    global_limited = rate_limited(db, "takeoff-ai-global", limit=40, window_seconds=86400)
     org_limited = rate_limited(db, "takeoff-ai-org:" + str(principal.org.id), limit=20, window_seconds=86400)
+    if org_limited:
+        db.commit()
+        raise HTTPException(429, "Daily workspace assistant limit reached")
+    global_limited = rate_limited(db, "takeoff-ai-global", limit=40, window_seconds=86400)
     db.commit()
-    if global_limited or org_limited:
+    if global_limited:
         raise HTTPException(429, "Daily assistant limit reached")
     from starlette.concurrency import run_in_threadpool
     try:

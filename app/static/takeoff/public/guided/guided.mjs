@@ -5,7 +5,7 @@
 import * as pdfjs from "../vendor/pdfjs-5.7.284/pdf.min.mjs";
 import {extractStrokeEndpoints,chooseSnap} from "../../src/vector-snap.mjs";
 let snapData=null;
-import {workRegion,regionOnPage,cropBounds} from "../../src/job-context.mjs";
+import {workRegion,regionOnPage,cropBounds,assistantEstimateContext} from "../../src/job-context.mjs";
 import {createProject,newId,serializeProject,touchProject,validateProject} from "../../src/project.mjs";
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
@@ -2107,10 +2107,7 @@ async function askAssistant(question){
   try{
     const image=await selectedRegionImage(region);
     if(!sameProject())return;
-    const context=JSON.stringify({jobType:project.scope,selectedPage:region?region.pageIndex+1:null,
-      work:scopeItems().slice(0,40).map(x=>({title:x.title,status:x.status})),
-      measured:state.takeoff.lines.slice(0,30).map(x=>({description:x.description,qty:x.qty,unit:x.unit,needs:x.needs})),
-      totals:state.estimate?.totals}).slice(0,6000);
+    const context=assistantEstimateContext(project,region,scopeItems(),state.takeoff,state.estimate);
     const body={consent:true,question,brief,context,history:state.assistantHistory.slice(-8),...(image?{image_base64:image}:{})};
     const csrf=document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||"";
     const res=await fetch("/api/takeoff/assistant",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body),signal:AbortSignal.timeout(85000)});
