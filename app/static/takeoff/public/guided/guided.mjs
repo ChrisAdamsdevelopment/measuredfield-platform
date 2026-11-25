@@ -27,6 +27,7 @@ import {draftReference,correctFieldQuantity} from "../../src/takeoff-draft.mjs";
 import {auditCurrentPacket,failedSkillReview,SKILL_FINDING_LABELS} from "../../src/skill-assurance.mjs";
 import {reconcileEstimate,ASSURANCE_LABELS} from "../../src/estimate-assurance.mjs";
 import {lineBasis,scopeCoverage} from "../../src/bid-readiness.mjs";
+import {CHOICE_LEVELS,materialChoice,changeMaterialChoice,materialImpactPending,reviewMaterialImpact,remodelDecisionQueue} from "../../src/remodel-choices.mjs";
 import {checkEstimateTotals} from "../../src/estimate-total-check.mjs";
 import {checkOperationCoverage} from "../../src/operation-coverage.mjs";
 import {createLaborActivity,effectiveLaborItems} from "../../src/labor-activity.mjs";
@@ -1445,6 +1446,42 @@ function refreshMeasureScreen(){
   if(!hasPage)state.viewport=null;
   renderSheetStatus();updateTool();renderRail();renderScopeTodoPanel();
 }
+let materialQueueView={projectId:null,filter:"all",limit:6};
+function materialChoicePanel(line){
+  const choice=materialChoice(state.project,line),panel=document.createElement("details");
+  panel.className="remodel-choice-panel";panel.open=Boolean(choice);
+  const summary=document.createElement("summary");
+  summary.textContent=choice?("Selection: "+CHOICE_LEVELS.find(x=>x[0]===choice.level)[1]+(materialImpactPending(state.project,line)?" - check installation impact":"")):"Choose product or upgrade (optional)";
+  panel.append(summary);
+  const fields=document.createElement("div");fields.className="remodel-choice-fields";
+  const level=document.createElement("select");level.setAttribute("aria-label","Product selection level for "+line.description);
+  for(const [value,label] of CHOICE_LEVELS)level.add(new Option(label,value));
+  level.value=choice?.level||"as_specified";
+  const specification=document.createElement("input");specification.type="text";specification.maxLength=500;specification.value=choice?.specification||"";
+  specification.placeholder="Product, model, finish, size or custom specification";specification.setAttribute("aria-label","Product specification for "+line.description);
+  const supplier=document.createElement("input");supplier.type="text";supplier.maxLength=160;supplier.value=choice?.supplier||"";
+  supplier.placeholder="Preferred supplier (optional)";supplier.setAttribute("aria-label","Preferred supplier for "+line.description);
+  const save=document.createElement("button");save.type="button";save.className="button button-outline compact";
+  save.textContent="Save selection and reopen pricing";
+  const help=document.createElement("small");help.textContent="A changed product selection clears only this line's old price and cost classification. Measurements stay intact. Custom items wait for a supplier quote; no automatic premium multiplier.";
+  const projectId=state.project.id, basis=lineBasis(line);
+  const currentLine=()=>{const current=state.takeoff.lines.find(l=>l.line_id===line.line_id);if(state.project?.id!==projectId||!current||lineBasis(current)!==basis)throw Error("Project or quantity changed; reopen the current line");return current;};
+  save.onclick=()=>{
+    try{const current=currentLine(),next=changeMaterialChoice(state.project,current,{level:level.value,specification:specification.value,supplier:supplier.value});
+    if(next===state.project)return say("Selection unchanged.");
+    state.project=next;calculate();saveSoon();say("Selection saved. Get the new price and review installation requirements before final bid.");}
+    catch(e){say(e.message,true);}
+  };
+  fields.append(level,specification,supplier,save,help);
+  if(choice){
+    const note=document.createElement("input");note.type="text";note.maxLength=500;note.value=choice.review?.note||"";
+    note.placeholder="Review preparation, waste, labor, compatibility and lead time";note.setAttribute("aria-label","Installation impact for "+line.description);
+    const review=document.createElement("button");review.type="button";review.className="button button-outline compact";review.textContent="Record installation review";
+    review.onclick=()=>{try{state.project=reviewMaterialImpact(state.project,currentLine(),note.value);calculate();saveSoon();}catch(e){say(e.message,true);}};
+    fields.append(note,review);
+  }
+  panel.append(fields);return panel;
+}
 function makeMaterialRow(line){
   const estimate=estimateLine(line),selection=selectedPrice(line);
   const row=document.createElement("div");row.className="material-row";
@@ -1491,6 +1528,7 @@ function makeMaterialRow(line){
   function commit(kind="price"){
     try{
       const metadata={operation_id:operation.value.trim()||null,cost_inclusion:inclusion.value||null};
+      if(kind==="price"&&(state.project.quotes||[]).some(q=>q?.line_ids?.includes(line.line_id)))throw Error("Linked supplier quote protected; review the quote first.");
       // Metadata edits must not renew a stale quantity basis or replace source/quote provenance.
       if(kind==="metadata"||kind==="source"){
         const previous=selectedPrice(line);
@@ -1524,8 +1562,10 @@ function makeMaterialRow(line){
   inclusion.value=selection?.cost_inclusion||"";
   operation.onchange=()=>commit("metadata");inclusion.onchange=()=>commit("metadata");
   controls.append(mode,rateLabel,rate,source,operation,inclusion);
-  row.append(summary,qty,controls);
-  const options=planningOptions(line);
+  row.append(summary,qty,controls,materialChoicePanel(line));
+  const choice=materialChoice(state.project,line);
+  const specificChoice=choice&&(choice.level==="premium"||choice.level==="custom"||choice.specification||choice.supplier);
+  const options=specificChoice?[]:planningOptions(line);
   if(options.length){
     const details=document.createElement("details");details.className="retail-line-matches";
     const heading=document.createElement("summary");heading.textContent="Compare "+options.length+" national planning reference(s)";details.append(heading);
@@ -1555,7 +1595,7 @@ function makeMaterialRow(line){
     if(selection?.planning_reference){const note=document.createElement("small");note.textContent="Saved planning source: "+selection.planning_reference.reference_id+" · "+selection.planning_reference.version;details.append(note);}
     row.append(details);
   }
-  const products=(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
+  const products=specificChoice?[]:(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
   if(products.length){
     const refs=document.createElement("details");refs.className="retail-line-matches";
     const heading=document.createElement("summary");
@@ -1581,7 +1621,10 @@ function makeMaterialRow(line){
         const allow=document.createElement("button");allow.type="button";
         allow.className="button button-outline compact";
         allow.textContent="Record "+cash(reference.amount_cents)+" as PRELIMINARY allowance";
+        allow.disabled=planningPriceProtected(line,selection,state.project.quotes||[],estimate);
         allow.onclick=()=>{
+          const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);
+          if(!current||lineBasis(current)!==lineBasis(line)||planningPriceProtected(current,selectedPrice(current),state.project.quotes||[],estimateLine(current)))return say("Current price, quantity or linked quote changed. Reopen the material.",true);
           const s={line_id:line.line_id,mode:"allowance",
             allowance_cents:reference.amount_cents,allowance_basis:"quantity_bound",quantity_basis:lineBasis(line),
             source_ref:"PRELIMINARY unconfirmed retail observation "+obs.observed_at+
@@ -1613,10 +1656,25 @@ function renderMaterials(){
   $("stat-priced").textContent=String(pricedCount());
   $("stat-pending").textContent=String(pendingCount());
   if(!lines.length){
+    $("remodel-queue-toolbar").replaceChildren();$("remodel-queue-more").replaceChildren();
     const p=document.createElement("p");p.className="soft-empty";
     p.textContent="No measurements yet. Go back to Measure, trace an area, or type a known quantity to begin.";area.append(p);return;
   }
-  for(const line of lines)area.append(makeMaterialRow(line));
+  const queue=remodelDecisionQueue(state.project,lines,state.estimate);
+  if(materialQueueView.projectId!==state.project.id)materialQueueView={projectId:state.project.id,filter:"all",limit:6};
+  const toolbar=$("remodel-queue-toolbar");toolbar.replaceChildren();
+  const counts={all:queue.length,attention:queue.filter(x=>x.group!=="ready").length,quote:queue.filter(x=>x.group==="quote").length,selection:queue.filter(x=>x.selection||x.impact).length};
+  for(const [key,label] of [["all","All"],["attention","Needs attention"],["quote","Supplier quotes"],["selection","Selections & upgrades"]]){
+    const b=document.createElement("button");b.type="button";b.className="button button-outline compact";
+    b.textContent=label+" ("+counts[key]+")";b.setAttribute("aria-pressed",String(materialQueueView.filter===key));
+    b.onclick=()=>{materialQueueView.filter=key;materialQueueView.limit=6;renderMaterials();};toolbar.append(b);
+  }
+  const filtered=queue.filter(x=>materialQueueView.filter==="all"||materialQueueView.filter==="attention"&&x.group!=="ready"||materialQueueView.filter==="quote"&&x.group==="quote"||materialQueueView.filter==="selection"&&(x.selection||x.impact));
+  for(const {line} of filtered.slice(0,materialQueueView.limit))area.append(makeMaterialRow(line));
+  const more=$("remodel-queue-more");more.replaceChildren();
+  const count=document.createElement("small");count.textContent="Showing "+Math.min(filtered.length,materialQueueView.limit)+" of "+filtered.length+" relevant material lines";more.append(count);
+  if(filtered.length>materialQueueView.limit){const button=document.createElement("button");button.type="button";button.className="button button-outline compact";button.textContent="Show 6 more";button.onclick=()=>{materialQueueView.limit+=6;renderMaterials();};more.append(button);}
+  if(!filtered.length){const p=document.createElement("p");p.className="soft-empty";p.textContent="No items in this view.";area.append(p);}
 }
 function renderLabor(){
   const area=$("labor-list");area.replaceChildren();
@@ -1720,6 +1778,7 @@ function assuranceReview(){
 }
 function reviewBlockers(){
   const blockers=[];
+  for(const line of state.takeoff.lines)if(materialImpactPending(state.project,line))blockers.push("Review product selection installation impact: "+line.description);
   for(const f of assuranceReview().findings.filter(f=>f.severity==="block")){
     const scope=state.project.scope_items?.find(s=>s.id===f.scope_id);
     const refs=[...f.measurement_ids,...f.line_ids].join(", ");
