@@ -561,5 +561,6 @@ def create_app():
     )
     # ChatGPT discovers tool schemas before a user grants OAuth. Keep all real
     # data/tool executions under SDK auth, but expose safe protocol bootstrap.
-    from .discovery import enable_anonymous_mcp_discovery
+    from .discovery import advertise_supported_oauth_scopes, enable_anonymous_mcp_discovery
+    advertise_supported_oauth_scopes(app, settings)
     return enable_anonymous_mcp_discovery(app)
