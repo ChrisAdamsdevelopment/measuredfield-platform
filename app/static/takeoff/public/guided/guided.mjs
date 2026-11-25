@@ -826,7 +826,7 @@ async function renderPdfPage(){
         const result=extractStrokeEndpoints(await page.getOperatorList(),pdfjs.OPS,{view:page.view});
         if(seq===state.renderSeq&&docId===state.docId&&pageIndex===state.pageIndex&&$("vector-snap").checked){
           snapData={...result,docId,pageIndex,seq};
-          $("snap-status").textContent=result.points.length?result.points.length+" vector endpoints · Shift for free click":"No supported vector endpoints · free click";
+          $("snap-status").textContent=result.points.length?result.points.length+(result.reason==="partial_outer_strokes"?" supported outer endpoints (partial)":" vector endpoints")+" · Shift for free click":"No supported vector endpoints · free click";
         }
       }catch{if(seq===state.renderSeq)$("snap-status").textContent="Vector extraction unavailable · free click";}
     }
@@ -1436,10 +1436,10 @@ function makeMaterialRow(line){
   ])mode.add(new Option(label,val));
   mode.value=selection?.mode||"unpriced";
   const rateLabel=document.createElement("label");
-  rateLabel.textContent="Your entered unit cost / "+line.unit+" (USD)";
+  rateLabel.textContent=mode.value==="allowance"?"Total allowance (USD)":"Your entered unit cost / "+line.unit+" (USD)";
   const rate=document.createElement("input");rate.type="number";rate.min=".01";rate.step=".01";
   rate.placeholder=mode.value==="allowance"?"Total allowance ($)":"e.g. 4.25";
-  rate.setAttribute("aria-label","Your entered price for "+line.description);
+  rate.setAttribute("aria-label",(mode.value==="allowance"?"Total allowance for ":"Unit cost per "+line.unit+" for ")+line.description);
   if(selection?.mode==="contractor_rate"&&Number.isInteger(selection.rate_cents_per_unit))
     rate.value=String(selection.rate_cents_per_unit/100);
   if(selection?.mode==="allowance"&&Number.isInteger(selection.allowance_cents))
