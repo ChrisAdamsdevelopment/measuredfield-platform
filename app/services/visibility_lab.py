@@ -11,6 +11,7 @@ import io
 import re
 from dataclasses import asdict, dataclass
 from typing import Iterable
+from uuid import UUID
 
 MAX_GSC_BYTES = 320_000
 MAX_GSC_ROWS = 3_000
@@ -107,15 +108,14 @@ def _clean_item(value: str, field: str, *, min_len: int = 2, max_len: int = 120)
     return cleaned
 
 
-def _is_pilot_org(business_name: str, settings: dict | None = None) -> bool:
-    cfg = (settings or {}).get("visibility_lab")
-    if isinstance(cfg, dict) and isinstance(cfg.get("is_pilot"), bool):
-        return cfg["is_pilot"]
-    if isinstance(settings, dict) and settings.get("pilot_org") is True:
-        return True
-    norm = _normalize(business_name or "")
-    pilot_names = {_normalize(a) for a in BRAND_ALIASES}
-    return norm in pilot_names
+def _is_pilot_org(org_id: object, configured_id: str | None) -> bool:
+    """Only the server-configured immutable organization may receive pilot defaults."""
+    if org_id is None or not configured_id:
+        return False
+    try:
+        return UUID(str(org_id)) == UUID(configured_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def derive_brand_aliases(business_name: str, extra_aliases: Iterable[str] = ()) -> tuple[str, ...]:
@@ -216,6 +216,7 @@ def tenant_lab_config(
     *,
     business_name: str | None = None,
     settings: dict | None = None,
+    pilot_org_id: str | None = None,
 ) -> TenantLabConfig:
     """Resolve per-tenant questions, service markets and brand aliases from the organization profile.
 
@@ -229,7 +230,7 @@ def tenant_lab_config(
     lab_cfg = org_settings.get("visibility_lab")
     lab_dict = lab_cfg if isinstance(lab_cfg, dict) else {}
 
-    pilot = _is_pilot_org(name, org_settings)
+    pilot = _is_pilot_org(getattr(org, "id", None), pilot_org_id)
     configured_markets = _extract_configured_markets(org_settings)
     if configured_markets:
         markets = configured_markets

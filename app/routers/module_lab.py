@@ -1,6 +1,8 @@
 """Private, development-only MeasuredField module suite. No paid or device actions."""
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -42,6 +44,10 @@ def module_home(request: Request, db: TenantSession = Depends(get_db),
                   _context(db, principal, modules=catalog(), connection=connection_policy()))
 
 
+def _lab_config(org):
+    return tenant_lab_config(org, pilot_org_id=os.getenv("MF_VISIBILITY_LAB_PILOT_ORG_ID"))
+
+
 def _tenant_evidence_counts(db: TenantSession) -> dict[str, int]:
     raw = dict(db.execute(select(
         VisibilityObservation.provenance,
@@ -62,7 +68,7 @@ def _tenant_evidence_counts(db: TenantSession) -> dict[str, int]:
 def visibility_home(request: Request, db: TenantSession = Depends(get_db),
                     principal: Principal = Depends(member())):
     _require_dev_preview()
-    cfg = tenant_lab_config(principal.org)
+    cfg = _lab_config(principal.org)
     return render(request, "app/visibility_lab.html",
                   _context(db, principal, questions=[
                       {"id": f"q-seed-{i}", "text": text}
@@ -121,7 +127,7 @@ class EvidencePreview(BaseModel):
 @router.get("/api/v1/modules/visibility/config")
 def get_visibility_config(principal: Principal = Depends(member_api("read"))):
     _require_dev_preview()
-    return {"config": tenant_lab_config(principal.org).serialize()}
+    return {"config": _lab_config(principal.org).serialize()}
 
 
 @router.post("/api/v1/modules/visibility/config")
@@ -152,13 +158,13 @@ def update_visibility_config(
           "organization", principal.org.id,
           {"markets": len(validated["markets"]),
            "custom_questions": len(validated.get("questions", ()))})
-    return {"status": "saved", "config": tenant_lab_config(principal.org).serialize()}
+    return {"status": "saved", "config": _lab_config(principal.org).serialize()}
 
 
 @router.post("/api/v1/modules/visibility/gsc/analyze")
 def gsc_preview(payload: CsvPreview, principal: Principal = Depends(member_api("read"))):
     _require_dev_preview()
-    cfg = tenant_lab_config(principal.org)
+    cfg = _lab_config(principal.org)
     try:
         result = import_gsc_csv(payload.csv_text, config=cfg)
     except LabInputError as exc:
@@ -174,7 +180,7 @@ def gsc_preview(payload: CsvPreview, principal: Principal = Depends(member_api("
 def experiment_preview(payload: ExperimentPreview,
                        principal: Principal = Depends(member_api("read"))):
     _require_dev_preview()
-    cfg = tenant_lab_config(principal.org)
+    cfg = _lab_config(principal.org)
     try:
         return plan_experiment(
             [q.model_dump() for q in payload.questions], payload.markets, payload.modes,
