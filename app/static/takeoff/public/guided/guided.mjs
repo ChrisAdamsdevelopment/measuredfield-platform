@@ -5,6 +5,7 @@
 import * as pdfjs from "../vendor/pdfjs-5.7.284/pdf.min.mjs";
 import {extractStrokeEndpoints,chooseSnap} from "../../src/vector-snap.mjs";
 let snapData=null;
+import {workRegion,regionOnPage,cropBounds,assistantEstimateContext} from "../../src/job-context.mjs";
 import {createProject,newId,serializeProject,touchProject,validateProject} from "../../src/project.mjs";
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
@@ -51,8 +52,8 @@ const state={
   docId:null,pageIndex:0,sheetId:null,viewKey:null,viewTitle:null,viewAnchor:null,viewRegion:null,focusNextRender:false,viewport:null,zoom:1,renderTask:null,renderSeq:0,
   activeScreen:"home",activeTool:"inspect",pendingTool:null,provisionalScaleSheetId:null,scalePhase:"initial",draft:[],
   takeoff:{lines:[],warnings:[],excluded:[]},estimate:null,
-  saveTimer:null,saveBusy:false,persistOkay:true,pdfLoaded:false,
-  aiAvailable:false,aiBusy:false,activeScopeItemId:null,
+  saveTimer:null,saveBusy:false,persistOkay:true,pdfLoaded:false,saveQueue:Promise.resolve(),pendingSave:null,localRevision:0,
+  aiAvailable:false,aiBusy:false,assistantAvailable:false,assistantDemo:false,assistantBusy:false,assistantHistory:[],assistantEpoch:0,activeScopeItemId:null,
   pageAnchors:[],dimSelected:null,pendingRecal:null,
   revision:{includedIds:new Set(),excluded:[],flagged:[],status:new Map(),resolved:[]}
 };
@@ -77,20 +78,30 @@ function toCents(input,{zero=false}={}){
 function saveSoon(){
   if(!state.project)return;
   state.project=touchProject(state.project);
+  state.pendingSave=structuredClone({id:state.project.id,project:state.project,documents:state.documents,manuals:state.manuals,scopeChoices:state.scopeChoices,updatedAt:Date.now()});
   $("save-status").textContent="Saving locally…";
   clearTimeout(state.saveTimer);
   state.saveTimer=setTimeout(()=>persist().catch(err=>say("Could not save this project locally: "+err.message,true)),380);
 }
 async function persist(){
-  if(!state.project)return;
-  const result=validateProject(state.project);
-  if(result.errors.length){$("save-status").textContent="Needs review";throw Error(result.errors[0]);}
-  await saveProject({
-    id:state.project.id,project:state.project,documents:state.documents,
-    manuals:state.manuals,scopeChoices:state.scopeChoices,updatedAt:Date.now()
-  });
-  state.persistOkay=true;
-  $("save-status").textContent="Saved on this computer";
+  clearTimeout(state.saveTimer);
+  const record=state.pendingSave;
+  if(!record)return state.saveQueue;
+  state.pendingSave=null;
+  const task=state.saveQueue.catch(()=>{}).then(async()=>{
+    if(state.project?.id!==record.id)throw Error("Project changed before save; reopen the original project.");
+    const result=validateProject(record.project);
+    if(result.errors.length)throw Error(result.errors[0]);
+    const revision=await saveProject(record,{expectedRevision:state.localRevision});
+    state.localRevision=revision;state.persistOkay=true;
+    if(!state.pendingSave)$("save-status").textContent="Saved on this computer";
+  }).catch(err=>{state.persistOkay=false;$("save-status").textContent="Not saved — reload or export a backup";throw err;});
+  state.saveQueue=task;
+  return task;
+}
+async function flushBeforeSwitch(){
+  await persist();
+  if(!state.persistOkay)throw Error("Save failed; export a backup before switching projects.");
 }
 function show(screen){
   const id="screen-"+screen;
@@ -114,6 +125,7 @@ function show(screen){
   if(screen==="labor")renderLabor();
   if(screen==="review")renderReview();
   if(screen==="proposal")renderProposal();
+  refreshAssistant();
   window.scrollTo({top:0,behavior:"instant"});
 }
 async function renderProjects(){
@@ -136,10 +148,15 @@ async function renderProjects(){
     }
   }catch(err){say("Local project library unavailable: "+err.message,true);}
 }
-function createNew(mode){
+async function createNew(mode){
+  try{await flushBeforeSwitch();}catch(e){say(e.message,true);return;}
+  state.localRevision=0;
   const name=$("new-name").value.trim()||"Untitled remodel project";
   const type=$("new-type").value;
   state.project=createProject({name,scope:type});
+  state.project.job_brief=$("new-brief").value.trim();
+  $("new-brief").value="";
+  resetAssistant();
   state.documents=[];state.manuals=[];state.scopeChoices={};state.fileDocs.clear();
   state.docId=null;state.sheetId=null;state.viewKey=null;state.viewTitle=null;state.pageIndex=0;state.draft=[];state.activeTool="inspect";
   $("breadcrumb-project").textContent=name;
@@ -151,9 +168,10 @@ function createNew(mode){
 }
 async function openExisting(id){
   try{
+    await flushBeforeSwitch();
     const r=await getProject(id);
     if(!r)throw Error("Project not found on this computer");
-    state.project=r.project;state.documents=r.documents||[];state.manuals=r.manuals||[];state.scopeChoices=r.scopeChoices||{};
+    state.localRevision=r.localRevision||0;state.project=r.project;resetAssistant();state.documents=r.documents||[];state.manuals=r.manuals||[];state.scopeChoices=r.scopeChoices||{};
     state.fileDocs.clear();state.docId=null;state.sheetId=null;state.viewKey=null;state.viewTitle=null;state.pageIndex=0;state.draft=[];
     $("save-status").textContent="Saved on this computer";
     renderAssemblyPicker();
@@ -859,7 +877,8 @@ function printedScaleForSelectedView(){
 }
 function toolHint(){
   const hints={
-    inspect:"Choose Measure area, Measure length, or Set scale to begin.",
+    inspect:"Choose the work you want to measure, or select a work area for the assistant.",
+    "job-region":"Click two opposite corners of the room or area of work.",
     calibrate:"Click the two ends of a printed dimension on the drawing. Enter that length above.",
     check:"Click a DIFFERENT printed dimension to verify the scale you set.",
     polygon:"Click the corners of the floor or surface. Select Finish area when done.",
@@ -910,7 +929,7 @@ function updateTool(){
   $("zoom-out").disabled=!hasSheet||(state.zoom||1)<=0.75;
   $("zoom-in").disabled=!hasSheet||(state.zoom||1)>=3;
   $("zoom-fit").disabled=!hasSheet;
-  $("overlay-canvas").style.cursor=["polygon","line","count","check","calibrate"].includes(state.activeTool)?"crosshair":"grab";
+  $("overlay-canvas").style.cursor=["job-region","polygon","line","count","check","calibrate"].includes(state.activeTool)?"crosshair":"grab";
   const calibrationMode=["calibrate","check"].includes(state.activeTool);
   $("scale-guide").hidden=!calibrationMode;
   $("draft-scale-choice").hidden=!calibrationMode||state.activeTool!=="check"||
@@ -964,6 +983,8 @@ function updateOverlay(){
     const color=item.layer==="demolish"?"#dc2626":item.layer==="existing"?"#475569":item.layer==="field_verify"?"#d97706":"#0f766e";
     draw(item.points,item.kind,color);
   }
+  const region=state.project?.work_region;
+  if(regionOnPage(region,state.docId,state.pageIndex))draw(region.points,"polygon","#d97706");
   draw(state.draft,state.activeTool,"#2563eb");
   const d=state.dimSelected;
   if(d&&d.evidence?.doc_id===state.docId&&d.evidence?.page_index===state.pageIndex){
@@ -1196,6 +1217,13 @@ function handleCanvasClick(e){
   try{
     if(!state.sheetId)throw Error("Open a drawing page first.");
     state.draft.push(currentPoint(e));
+    if(state.activeTool==="job-region"&&state.draft.length===2){
+      state.project.work_region=workRegion({docId:state.docId,pageIndex:state.pageIndex,viewKey:state.viewKey,points:state.draft});
+      resetAssistant();
+      state.draft=[];state.activeTool="inspect";saveSoon();refreshAssistant();
+      say("Work area selected. This tells the assistant where to focus; it is not a measured quantity.");
+      updateTool();updateOverlay();return;
+    }
     if(["calibrate","check"].includes(state.activeTool)&&state.draft.length===2){
       const whole=Number($("known-feet").value),inches=Number($("known-inches").value);
       const feet=whole+inches/12;
@@ -2024,6 +2052,118 @@ window.addEventListener("keydown",event=>{
       try{recordDrawing();}catch(err){say(err.message,true);}
     }
 });
+function resetAssistant(){
+  state.assistantEpoch++;state.assistantHistory=[];state.assistantBusy=false;
+  $("assistant-conversation").replaceChildren();$("assistant-proposals").replaceChildren();
+  $("assistant-question").value="";$("assistant-consent").checked=false;
+}
+function refreshAssistant(){
+  const visible=Boolean(state.project)&&!["home","new","proposal"].includes(state.activeScreen);
+  $("job-assistant").hidden=!visible;
+  if(!visible)return;
+  if(document.activeElement!==$("job-brief"))$("job-brief").value=state.project.job_brief||"";
+  const region=state.project.work_region;
+  $("job-area-status").textContent=region?"Selected area on page "+(region.pageIndex+1):"No work area selected";
+  $("clear-job-area").disabled=!region;
+  $("assistant-status").textContent=state.assistantAvailable?"AI assistant connected":state.assistantDemo?"Fictional example available; project-data sharing not enabled":"AI assistant not available on this account";
+  $("assistant-demo-panel").hidden=!state.assistantDemo;
+  for(const id of ["assistant-send","assistant-scope","assistant-missing","assistant-next"])$(id).disabled=!state.assistantAvailable||state.assistantBusy||!$("assistant-consent").checked;
+}
+function appendAssistant(role,content){
+  const row=document.createElement("div"),label=document.createElement("strong"),msg=document.createElement("p");
+  row.className="assistant-message "+role;label.textContent=role==="user"?"You":"Estimating assistant";msg.textContent=content;
+  row.append(label,msg);$("assistant-conversation").append(row);
+}
+async function selectedRegionImage(region){
+  if(!region)return null;
+  const doc=state.documents.find(d=>d.id===region.docId);
+  if(!doc)throw Error("Selected drawing is missing. Choose the work area again.");
+  const pdf=await loadPdfDocument(doc.id),page=await pdf.getPage(region.pageIndex+1);
+  const base=page.getViewport({scale:1}),b=cropBounds(region,base);
+  const scale=Math.min(3,1500/Math.max(b.width,b.height));
+  const v=page.getViewport({scale}),crop=cropBounds(region,v);
+  const canvas=document.createElement("canvas");canvas.width=crop.width;canvas.height=crop.height;
+  const ctx=canvas.getContext("2d",{alpha:false});
+  await page.render({canvasContext:ctx,viewport:v,transform:[1,0,0,1,-crop.x,-crop.y]}).promise;
+  return canvas.toDataURL("image/jpeg",.76).split(",")[1];
+}
+function renderAssistantProposals(result,projectId,epoch,region,brief){
+  const box=$("assistant-proposals");box.replaceChildren();
+  if(!result.work_items?.length)return;
+  const heading=document.createElement("h3");heading.textContent="Suggested work — review before adding";box.append(heading);
+  for(const item of result.work_items){
+    const row=document.createElement("div");row.className="assistant-proposal";
+    const title=document.createElement("strong");title.textContent=item.item;
+    const note=document.createElement("small");note.textContent=[item.location,item.evidence].filter(Boolean).join(" · ");
+    const button=document.createElement("button");button.className="button button-outline compact";button.type="button";button.textContent="Add to my work list";
+    button.onclick=()=>{
+      if(state.project?.id!==projectId||state.assistantEpoch!==epoch||JSON.stringify(state.project.work_region||null)!==JSON.stringify(region)||state.project.job_brief!==brief){say("Job details changed. Ask the assistant again.",true);return;}
+      // Preserve each proposed operation, including separate rooms of the same work type.
+      const duplicate=scopeItems().some(x=>x.title===item.item&&x.action===item.action&&x.work_type===item.work_type&&x.location===(item.location||null));
+      if(duplicate){button.disabled=true;button.textContent="Already listed";return;}
+      const draft=manualScopeItem({title:item.item,work_type:item.work_type,action:item.action,measure:item.measure,at:new Date().toISOString()});
+      draft.id=newId("scope");draft.key=draft.id;draft.status="proposed";draft.decided_at=null;
+      draft.source="ai";draft.sources=["ai"];draft.ai_unverified=true;draft.location=item.location||null;draft.needs=item.needs||[];
+      draft.hint=(item.location?item.location+" · ":"")+(item.evidence||"Assistant proposal; confirm against plans");
+      draft.assistant_region=region;draft.assistant_job_brief=brief;
+      state.project.scope_items=[...scopeItems(),draft];
+      saveSoon();renderScopePanel();renderScopeTodoPanel();button.disabled=true;button.textContent="Added for review";
+    };
+    row.append(title,note,button);box.append(row);
+  }
+}
+async function askAssistant(question){
+  if(!state.project||state.assistantBusy||!state.assistantAvailable)return;
+  if(!$("assistant-consent").checked)return say("Confirm what you want to share with NVIDIA first.",true);
+  question=question.trim();if(!question)return say("Enter a question about this job.",true);
+  const project=state.project,projectId=project.id,epoch=state.assistantEpoch,brief=$("job-brief").value.trim(),region=structuredClone(project.work_region||null);
+  const sameProject=()=>state.project?.id===projectId&&state.assistantEpoch===epoch&&state.project.job_brief===brief&&JSON.stringify(state.project.work_region||null)===JSON.stringify(region);
+  project.job_brief=brief;saveSoon();state.assistantBusy=true;refreshAssistant();
+  appendAssistant("user",question);$("assistant-proposals").replaceChildren();
+  try{
+    const image=await selectedRegionImage(region);
+    if(!sameProject())return;
+    const context=assistantEstimateContext(project,region,scopeItems(),state.takeoff,state.estimate);
+    const body={consent:true,question,brief,context,history:state.assistantHistory.slice(-8),...(image?{image_base64:image}:{})};
+    const csrf=document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||"";
+    const res=await fetch("/api/takeoff/assistant",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(body),signal:AbortSignal.timeout(85000)});
+    const data=await res.json();
+    if(!res.ok)throw Error(typeof data.detail==="string"?data.detail:typeof data.error==="string"?data.error:"Assistant request failed");
+    if(data.actual_inference!==true||typeof data.reply!=="string")throw Error("No real model response");
+    if(!sameProject())return;
+    appendAssistant("assistant",data.reply);
+    state.assistantHistory.push({role:"user",content:question},{role:"assistant",content:data.reply});
+    state.assistantHistory=state.assistantHistory.slice(-8);
+    $("assistant-question").value="";
+    renderAssistantProposals(data,projectId,epoch,region,brief);
+  }catch(e){if(sameProject())appendAssistant("assistant","Unable to answer: "+e.message);}
+  finally{if(sameProject()){state.assistantBusy=false;refreshAssistant();}}
+}
+on("job-brief",()=>{if(state.project&&state.project.job_brief!==$("job-brief").value.trim()){state.project.job_brief=$("job-brief").value.trim();resetAssistant();saveSoon();refreshAssistant();}},"change");
+on("assistant-consent",refreshAssistant,"change");
+on("select-job-area",()=>{
+  if(!state.sheetId){show("plans");say("Open the drawing view that contains your work area, then select two opposite corners.");return;}
+  if(state.activeScreen!=="measure")show("measure");
+  state.activeTool="job-region";state.draft=[];updateTool();updateOverlay();
+  say("Click two opposite corners around the work area. No scale is needed to tell the assistant where to focus.");
+});
+on("clear-job-area",()=>{if(state.project){delete state.project.work_region;resetAssistant();saveSoon();refreshAssistant();updateOverlay();}});
+on("assistant-demo",async()=>{
+  if(!state.assistantDemo)return;
+  const button=$("assistant-demo"),output=$("assistant-demo-result");
+  button.disabled=true;output.textContent="Running fictional example with NVIDIA…";
+  try{
+    const csrf=document.querySelector('meta[name="mf-takeoff-csrf"]')?.content||"";
+    const res=await fetch("/api/takeoff/assistant",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({demo:true,consent:true}),signal:AbortSignal.timeout(85000)});
+    const data=await res.json();
+    if(!res.ok||data.actual_inference!==true||data.synthetic_demo!==true)throw Error(data.detail||data.error||"Provider test failed");
+    output.textContent="Actual NVIDIA response to fictional example:\n"+data.reply+"\n\nSuggested work:\n"+data.work_items.map(i=>"• "+i.item).join("\n");
+  }catch(e){output.textContent="Provider test failed: "+e.message;}finally{button.disabled=false;}
+});
+on("assistant-send",()=>askAssistant($("assistant-question").value));
+on("assistant-scope",()=>askAssistant("Create a complete proposed work list for only the job I described and the selected work area. Identify decisions and measurements still needed."));
+on("assistant-missing",()=>askAssistant("Which work, measurements, prices or labor are missing from this estimate? Explain the most important gaps."));
+on("assistant-next",()=>askAssistant("What should I measure next? Explain in simple language where to click or what to measure on site."));
 async function initialize(){
   try{
     await openDatabase();
@@ -2038,6 +2178,7 @@ async function initialize(){
     const res=await fetch("/api/capabilities",{cache:"no-store"});
     const capabilities=res.ok?await res.json():{};
     state.aiAvailable=capabilities.ai_review===true&&capabilities.mode==="real_remote_inference";
+    state.assistantAvailable=capabilities.assistant===true;state.assistantDemo=capabilities.assistant_demo===true;
   }catch{state.aiAvailable=false;}
   show("home");
 }

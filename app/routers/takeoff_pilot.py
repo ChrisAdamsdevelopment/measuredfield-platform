@@ -7,6 +7,7 @@ browser IndexedDB is partitioned by the current signed-in user+organization.
 from __future__ import annotations
 
 import hashlib
+import logging
 import html
 import os
 import uuid
@@ -14,7 +15,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from ..deps import BASE_DIR, LoginRequired, Principal, get_principal
+from ..deps import BASE_DIR, LoginRequired, Principal, get_principal, member_api
+from ..db import TenantSession, get_db
+from ..security import rate_limited
+from ..services import takeoff_assistant
 
 router = APIRouter()
 PILOT_HTML = BASE_DIR / "templates" / "takeoff_pilot.html"
@@ -73,6 +77,7 @@ def render_takeoff_page(principal: Principal) -> str:
         '</div>'
     )
     source = source.replace('<div class="shell">', identity + '<div class="shell">', 1)
+    source = source.replace('</head>', '<meta name="mf-takeoff-csrf" content="' + html.escape(getattr(principal, 'csrf', ''), quote=True) + '"></head>', 1)
     return source
 
 
@@ -103,8 +108,8 @@ def takeoff_page(
 def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
     """Return a real capability check, not a false promise of AI inference.
 
-    No NVIDIA request is permitted on this first authenticated site pilot.
-    Model calls require a separately reviewed CSRF, quota and provider proxy.
+    The contextual assistant requires explicit deployment approval for external data,
+    provider configuration, CSRF, membership and quota checks.
     """
     if not pilot_enabled():
         raise HTTPException(404, "Not found")
@@ -113,7 +118,57 @@ def takeoff_capabilities(principal: Principal | None = Depends(get_principal)):
         raise HTTPException(401, "Sign in to an authorized business.")
     response = JSONResponse({
         "ai_review": False, "provider": None,
-        "mode": "disabled_pending_secure_provider_adapter", "writes": False
+        "mode": "disabled_pending_secure_provider_adapter", "writes": False,
+        "assistant": takeoff_assistant.enabled() and principal.can("documents.write"),
+        "assistant_demo": takeoff_assistant.demo_enabled() and principal.can("documents.write"),
+        "assistant_provider": "NVIDIA" if takeoff_assistant.enabled() else None
     })
     response.headers["Cache-Control"] = "no-store"
     return response
+
+@router.post("/api/takeoff/assistant", include_in_schema=False)
+async def takeoff_chat(
+    request: Request,
+    principal: Principal = Depends(member_api("documents.write")),
+    db: TenantSession = Depends(get_db),
+):
+    if not pilot_enabled() or principal.org.id not in _pilot_org_ids():
+        raise HTTPException(404, "Not found")
+    if not (takeoff_assistant.enabled() or takeoff_assistant.demo_enabled()):
+        raise HTTPException(503, "AI assistant is not enabled")
+    if request.headers.get("content-type", "").split(";")[0] != "application/json":
+        raise HTTPException(415, "Expected JSON")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > takeoff_assistant.MAX_BODY:
+            raise HTTPException(413, "Request too large")
+    import json
+    try:
+        payload = json.loads(raw)
+        demo = payload == {"demo": True, "consent": True}
+        if demo and takeoff_assistant.demo_enabled():
+            body = takeoff_assistant.demo_body()
+        elif not takeoff_assistant.enabled():
+            raise HTTPException(403, "Only the fixed fictional demonstration is approved for external inference")
+        else:
+            body = takeoff_assistant.prepare(payload)
+    except (ValueError, TypeError, UnicodeError):
+        raise HTTPException(400, "Check your question, work-area image and sharing consent") from None
+    # Durable reservations; count attempts even if provider refuses or times out.
+    # Separate global and organization limits; no client-chosen identity or model.
+    org_limited = rate_limited(db, "takeoff-ai-org:" + str(principal.org.id), limit=20, window_seconds=86400)
+    if org_limited:
+        db.commit()
+        raise HTTPException(429, "Daily workspace assistant limit reached")
+    global_limited = rate_limited(db, "takeoff-ai-global", limit=40, window_seconds=86400)
+    db.commit()
+    if global_limited:
+        raise HTTPException(429, "Daily assistant limit reached")
+    try:
+        result = await takeoff_assistant.infer(body)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Takeoff provider failed: %s", type(exc).__name__)
+        # Do not expose raw provider messages, supplied drawings, or credentials.
+        raise HTTPException(502, "AI provider could not complete this request. Try a shorter question.") from None
+    return JSONResponse({**result, "synthetic_demo": demo}, headers={"Cache-Control":"no-store"})

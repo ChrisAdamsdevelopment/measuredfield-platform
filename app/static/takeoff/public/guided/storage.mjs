@@ -45,7 +45,22 @@ async function write(storeName,record){
 }
 export const listProjects=()=>read("projects");
 export const getProject=(id)=>read("projects",id);
-export const saveProject=(record)=>write("projects",record);
+export async function saveProject(record,{expectedRevision}={}){
+ const db=await openDatabase();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction("projects","readwrite"),store=tx.objectStore("projects");
+  let revision=0,conflict=false;
+  const req=store.get(record.id);
+  req.onsuccess=()=>{
+   const prior=req.result?.localRevision||0;
+   if(expectedRevision!==undefined&&prior!==expectedRevision){conflict=true;tx.abort();return;}
+   revision=prior+1;store.put({...record,localRevision:revision});
+  };
+  tx.oncomplete=()=>resolve(revision);
+  tx.onabort=()=>reject(Error(conflict?"Another tab saved a newer version. Reopen it before editing.":"Project save aborted"));
+  tx.onerror=()=>{};
+ });
+}
 export const getPdf=(id)=>read("pdfs",id);
 export const savePdf=(record)=>write("pdfs",record);
 export async function deleteProject(id){
