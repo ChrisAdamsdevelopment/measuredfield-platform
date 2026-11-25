@@ -78,8 +78,19 @@ def prepare(payload):
             raise ValueError("Expected a bounded JPEG image")
         content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + image}})
     messages.append({"role": "user", "content": content})
+    # The model's documented structured-output option is required; prompting alone
+    # has returned prose during the actual internal evaluation.
+    fields = {
+        "item": {"type":"string"}, "work_type":{"type":"string","enum":list(WORK_TYPES)},
+        "action":{"type":"string","enum":["demolish","new","modify","existing_remain","verify"]},
+        "measure":{"type":"string","enum":["polygon","polyline","count"]},
+        "location":{"type":"string"}, "evidence":{"type":"string"},
+        "needs":{"type":"array","items":{"type":"string","enum":["field_verify","engineer_spec","owner_selection"]}}
+    }
+    schema={"type":"object","properties":{"reply":{"type":"string"},"work_items":{"type":"array","items":{"type":"object","properties":fields,"required":list(fields),"additionalProperties":False}}},"required":["reply","work_items"],"additionalProperties":False}
     return {"model": MODEL, "messages": messages, "temperature": 0, "max_tokens": 2600,
-            "reasoning_effort": "none", "stream": False}
+            "reasoning_effort": "none", "stream": False,
+            "response_format":{"type":"json_schema","json_schema":{"name":"takeoff_work_plan","strict":True,"schema":schema}}}
 
 def parse_response(raw):
     answer = json.loads(raw)
