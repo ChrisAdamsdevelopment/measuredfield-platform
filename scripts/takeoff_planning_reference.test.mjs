@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {planningOptions,planningSelection,PLANNING_SOURCE} from "../app/static/takeoff/src/planning-reference.mjs";
+import {planningOptions,planningSelection,planningPriceProtected,PLANNING_SOURCE} from "../app/static/takeoff/src/planning-reference.mjs";
 import {computeAssembly} from "../app/static/takeoff/src/assemblies.mjs";
 import {buildEstimate} from "../app/static/takeoff/src/estimate.mjs";
 const line=(key,q=105.6)=>({line_id:"test",material_key:key,assembly_id:"wall_drywall",description:"Synthetic test board",layer:"new",unit:"sf",qty:q/1.1,qty_with_waste:q,waste_pct:10,formula:"synthetic",measurement_ids:["m"],price_class:"retail",needs:[]});
@@ -25,3 +25,11 @@ const actual=computeAssembly("tile_floor",{area_sf:15},{},{measurement_ids:["tes
 assert(actual.some(l=>planningOptions(l).length>0));
 assert.equal(PLANNING_SOURCE.license,"CC BY 4.0");
 console.log("PLANNING_REFERENCE_TEST_PASS",JSON.stringify({standard_cents:5600,type_x_cents:6800,stale_rejected:true,actual_assembly:true}));
+
+assert.equal(planningOptions({...a,flags:["calibration_unverified"]}).length,0);
+assert.deepEqual(planningOptions(line("gypsum_board")).map(x=>x.reference_id),["standard-drywall"]);
+assert.equal(planningPriceProtected(a,null,[{id:"q",line_ids:[a.line_id]}]),true);
+assert.equal(planningPriceProtected(a,{mode:"unpriced"},[],{quote_id:"q"}),true);
+assert.equal(planningPriceProtected(a,{mode:"contractor_rate"},[]),true);
+assert.equal(planningPriceProtected(a,null,[{line_ids:["other"]}]),false);
+console.log("PLANNING_REFERENCE_PROTECTION_PASS");

@@ -10,7 +10,7 @@ import {createProject,newId,serializeProject,touchProject,validateProject} from 
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
 import {buildEstimate,formatCents} from "../../src/estimate.mjs";
-import {planningOptions,planningSelection,PLANNING_SOURCE} from "../../src/planning-reference.mjs";
+import {planningOptions,planningSelection,planningPriceProtected,PLANNING_SOURCE} from "../../src/planning-reference.mjs";
 import {listProjects,getProject,saveProject,savePdf,getPdf,openDatabase,restoreProjectBundle} from "./storage.mjs";
 import {createBackup,readBackup} from "../../src/project-backup.mjs";
 import {quantityReviewItems,reviewedQuantity} from "../../src/quantity-review.mjs";
@@ -1530,16 +1530,17 @@ function makeMaterialRow(line){
       const price=document.createElement("small");price.textContent=(option.packages===null?Number(line.qty_with_waste).toLocaleString()+" SF":option.packages+" whole sheets")+" × "+cash(option.price_cents)+" / "+option.source_unit+" = "+cash(option.amount_cents)+"; national planning only, not local quote.";
       const note=document.createElement("small");note.textContent=option.review_note+(line.needs.length?" · Outstanding field verification or product selection remains required.":"");
       const btn=document.createElement("button");btn.type="button";btn.className="button button-outline compact planning-allowance";btn.textContent="Use "+cash(option.amount_cents)+" planning allowance";
-      btn.disabled=Boolean(selection&&selection.mode!=="unpriced");
-      btn.onclick=()=>{
+      btn.disabled=planningPriceProtected(line,selection,state.project.quotes||[],estimate);
+      if(btn.disabled)btn.title="Existing price or attached supplier quote is protected";
+      btn.onclick=async()=>{
         try{
           const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);
           if(!current||lineBasis(current)!==option.quantity_basis)throw Error("Quantity changed; review the updated reference.");
-          const old=selectedPrice(current);if(old&&old.mode!=="unpriced")throw Error("Existing price preserved. Clear it before choosing a different reference.");
+          const old=selectedPrice(current);if(planningPriceProtected(current,old,state.project.quotes||[],estimateLine(current)))throw Error("Existing price or attached supplier quote preserved.");
           const chosen=planningSelection(current,option.reference_id,true);
           chosen.operation_id=old?.operation_id||null;
           state.project.selections=state.project.selections.filter(x=>x.line_id!==current.line_id).concat(chosen);
-          calculate();saveSoon();renderMaterials();
+          calculate();saveSoon();btn.disabled=true;await persist();renderMaterials();
           say("Preliminary material allowance added. Confirm local supplier pricing and installation requirements before a firm bid.");
         }catch(e){say(e.message,true);}
       };
