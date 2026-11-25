@@ -10,6 +10,7 @@ import {createProject,newId,serializeProject,touchProject,validateProject} from 
 import {calibrationFromPoints,calibrationFromPrintedScale,checkCalibration,calibrationStatus,validateMeasurement,measure as measureGeometry} from "../../src/geometry.mjs";
 import {listAssemblies,computeAssembly,computeTakeoff} from "../../src/assemblies.mjs";
 import {buildEstimate,formatCents} from "../../src/estimate.mjs";
+import {planningOptions,planningSelection,planningPriceProtected,PLANNING_SOURCE} from "../../src/planning-reference.mjs";
 import {listProjects,getProject,saveProject,savePdf,getPdf,openDatabase,restoreProjectBundle} from "./storage.mjs";
 import {createBackup,readBackup} from "../../src/project-backup.mjs";
 import {quantityReviewItems,reviewedQuantity} from "../../src/quantity-review.mjs";
@@ -1518,6 +1519,36 @@ function makeMaterialRow(line){
   operation.onchange=()=>commit("metadata");inclusion.onchange=()=>commit("metadata");
   controls.append(mode,rateLabel,rate,source,operation,inclusion);
   row.append(summary,qty,controls);
+  const options=planningOptions(line);
+  if(options.length){
+    const details=document.createElement("details");details.className="retail-line-matches";
+    const heading=document.createElement("summary");heading.textContent="Compare "+options.length+" national planning reference(s)";details.append(heading);
+    const sourceLink=document.createElement("a");sourceLink.href=PLANNING_SOURCE.url;sourceLink.target="_blank";sourceLink.rel="noopener noreferrer";sourceLink.textContent=PLANNING_SOURCE.name+" · "+PLANNING_SOURCE.version+" · "+PLANNING_SOURCE.license;details.append(sourceLink);
+    for(const option of options){
+      const offer=document.createElement("div");offer.className="retail-offer";
+      const title=document.createElement("strong");title.textContent=option.name;
+      const price=document.createElement("small");price.textContent=(option.packages===null?Number(line.qty_with_waste).toLocaleString()+" SF":option.packages+" whole sheets")+" × "+cash(option.price_cents)+" / "+option.source_unit+" = "+cash(option.amount_cents)+"; national planning only, not local quote.";
+      const note=document.createElement("small");note.textContent=option.review_note+(line.needs.length?" · Outstanding field verification or product selection remains required.":"");
+      const btn=document.createElement("button");btn.type="button";btn.className="button button-outline compact planning-allowance";btn.textContent="Use "+cash(option.amount_cents)+" planning allowance";
+      btn.disabled=planningPriceProtected(line,selection,state.project.quotes||[],estimate);
+      if(btn.disabled)btn.title="Existing price or attached supplier quote is protected";
+      btn.onclick=async()=>{
+        try{
+          const current=state.takeoff.lines.find(x=>x.line_id===line.line_id);
+          if(!current||lineBasis(current)!==option.quantity_basis)throw Error("Quantity changed; review the updated reference.");
+          const old=selectedPrice(current);if(planningPriceProtected(current,old,state.project.quotes||[],estimateLine(current)))throw Error("Existing price or attached supplier quote preserved.");
+          const chosen=planningSelection(current,option.reference_id,true);
+          chosen.operation_id=old?.operation_id||null;
+          state.project.selections=state.project.selections.filter(x=>x.line_id!==current.line_id).concat(chosen);
+          calculate();saveSoon();btn.disabled=true;await persist();renderMaterials();
+          say("Preliminary material allowance added. Confirm local supplier pricing and installation requirements before a firm bid.");
+        }catch(e){say(e.message,true);}
+      };
+      offer.append(title,price,note,btn);details.append(offer);
+    }
+    if(selection?.planning_reference){const note=document.createElement("small");note.textContent="Saved planning source: "+selection.planning_reference.reference_id+" · "+selection.planning_reference.version;details.append(note);}
+    row.append(details);
+  }
   const products=(state.project.retail_observations||[]).filter(x=>x.assembly_hint===line.assembly_id);
   if(products.length){
     const refs=document.createElement("details");refs.className="retail-line-matches";
@@ -1569,7 +1600,7 @@ function renderMaterials(){
   const obs=state.project.retail_observations||[];
   $("pricebook-summary").textContent=obs.length
     ?obs.length+" dated supplier price observations loaded. These do not prove Prescott checkout prices or product suitability."
-    :"No price observations imported. You may still enter a verified contractor price or leave a vendor quote pending.";
+    :"National planning references appear on compatible measured lines. Import your own supplier prices for local costs, or enter a verified quote.";
   const area=$("materials-list");area.replaceChildren();
   const lines=state.takeoff.lines;
   $("stat-lines").textContent=String(lines.length);
